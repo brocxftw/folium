@@ -1,0 +1,87 @@
+# Folium — root ignore (safe for a future public repo)
+
+# ---- Secrets & local env ----
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets/
+.secrets/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+.tox/
+.nox/
+.cache/
+
+# ---- Node / frontend ----
+node_modules/
+frontend/dist/
+frontend/coverage/
+*.tsbuildinfo
+.npm/
+.yarn/
+.pnpm-store/
+
+# ---- Runtime data (keep directory placeholders) ----
+data/documents/**
+data/consume/**
+data/export/**
+!data/documents/.gitkeep
+!data/consume/.gitkeep
+!data/export/.gitkeep
+!data/documents/**/.gitkeep
+!data/consume/**/.gitkeep
+!data/export/**/.gitkeep
+*.sqlite3
+*.db
+
+# ---- IDE / OS / editors ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.cursor/
+.claude/
+
+# ---- Logs & temp ----
+*.log
+logs/
+tmp/
+temp/
+.TemporaryItems/
+
+# ---- Test / CI artifacts ----
+test-results/
+playwright-report/
+blob-report/
+coverage/
+.nyc_output/
+
+# ---- Tooling ----
+uv.lock.bak
+*.orig
+*.rej

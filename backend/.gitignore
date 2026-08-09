@@ -1,0 +1,11 @@
+# Backend-local artifacts (also covered by root .gitignore)
+.venv/
+__pycache__/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/

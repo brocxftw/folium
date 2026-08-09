@@ -1,0 +1,45 @@
+FROM python:3.13-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    UV_SYSTEM_PYTHON=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        ghostscript \
+        qpdf \
+        pngquant \
+        unpaper \
+        libmagic1 \
+        libgl1 \
+        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -g 1000 folium && useradd -u 1000 -g folium -m -s /bin/bash folium \
+    && mkdir -p /documents /consume /export /app \
+    && chown -R folium:folium /documents /consume /export /app
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY backend/pyproject.toml backend/README.md* /app/
+COPY backend/src /app/src
+COPY backend/alembic /app/alembic
+COPY backend/alembic.ini /app/alembic.ini
+
+RUN uv pip install --system -e ".[ocr]" \
+    && chown -R folium:folium /app
+
+COPY docker/backend-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh \
+    && chown folium:folium /app/entrypoint.sh
+
+USER folium
+
+EXPOSE 8000
+
+ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]
+CMD ["folium-api"]

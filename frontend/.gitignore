@@ -1,0 +1,6 @@
+# Frontend-local artifacts (also covered by root .gitignore)
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.vite/

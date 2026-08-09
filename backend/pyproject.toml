@@ -1,0 +1,90 @@
+[project]
+name = "folium"
+version = "0.1.0"
+description = "Self-hosted AI-native document management system"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "psycopg[binary]>=3.2.0",
+    "alembic>=1.14.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "python-multipart>=0.0.17",
+    "argon2-cffi>=23.1.0",
+    "cryptography>=44.0.0",
+    "httpx>=0.28.0",
+    "pymupdf>=1.25.0",
+    "python-docx>=1.1.0",
+    "pillow>=11.0.0",
+    "pgvector>=0.3.6",
+    "python-magic>=0.4.27",
+    "aiofiles>=24.1.0",
+    "orjson>=3.10.0",
+    "email-validator>=2.2.0",
+    "bleach>=6.2.0",
+    "tiktoken>=0.8.0",
+]
+
+[project.optional-dependencies]
+ocr = [
+    "ocrmypdf>=16.0.0",
+]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "factory-boy>=3.3.0",
+    "aiosqlite>=0.20.0",
+    "types-bleach>=6.2.0",
+]
+
+[project.scripts]
+folium-api = "folium.main:run_api"
+folium-worker = "folium.workers.main:run_worker"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/folium"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+
+[tool.hatch.build.targets.sdist]
+include = ["src/folium", "alembic", "alembic.ini", "README.md"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["folium"]
+
+[[tool.mypy.overrides]]
+module = ["magic.*", "docx.*", "fitz.*", "pymupdf.*", "ocrmypdf.*", "pgvector.*"]
+ignore_missing_imports = true

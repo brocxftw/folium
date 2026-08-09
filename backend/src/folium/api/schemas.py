@@ -1,0 +1,513 @@
+"""Pydantic API schemas."""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Any, Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ORMModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---- Auth ----
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(default="", max_length=128)
+    invite_token: str | None = None
+
+
+class ProfileUpdateRequest(BaseModel):
+    username: str | None = Field(default=None, min_length=3, max_length=32)
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class UserOut(ORMModel):
+    id: UUID
+    username: str
+    display_name: str
+    is_admin: bool
+    is_active: bool = True
+    storage_quota_bytes: int | None = None
+    ai_monthly_request_quota: int | None = None
+
+
+class UserUsageOut(BaseModel):
+    storage_used_bytes: int
+    storage_quota_bytes: int | None
+    ai_requests_this_month: int
+    ai_monthly_request_quota: int | None
+
+
+class UserAdminOut(UserOut):
+    created_at: datetime
+    storage_used_bytes: int = 0
+    ai_requests_this_month: int = 0
+
+
+class UserAdminUpdate(BaseModel):
+    is_admin: bool | None = None
+    is_active: bool | None = None
+    storage_quota_bytes: int | None = None
+    ai_monthly_request_quota: int | None = None
+    clear_storage_quota: bool = False
+    clear_ai_quota: bool = False
+
+
+class AdminSetPasswordRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=128)
+
+
+class InviteCreateRequest(BaseModel):
+    expires_in_hours: int = Field(default=168, ge=1, le=720)
+    storage_quota_bytes: int | None = None
+    ai_monthly_request_quota: int | None = None
+
+
+class InviteOut(ORMModel):
+    id: UUID
+    expires_at: datetime
+    used_at: datetime | None
+    storage_quota_bytes: int | None
+    ai_monthly_request_quota: int | None
+    created_at: datetime
+    invite_url_token: str | None = None  # only on create
+
+
+class RegistrationStatusOut(BaseModel):
+    allow_registration: bool
+
+
+class SessionOut(BaseModel):
+    user: UserOut
+    csrf_token: str
+
+
+# ---- Folders ----
+
+
+class FolderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    parent_id: UUID | None = None
+
+
+class FolderUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    parent_id: UUID | None = None
+    sort_order: int | None = None
+
+
+class FolderOut(ORMModel):
+    id: UUID
+    name: str
+    parent_id: UUID | None
+    kind: str
+    sort_order: int
+    path_cache: str
+    is_trashed: bool = False
+    trashed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    children_count: int = 0
+    document_count: int = 0
+    purge_after: datetime | None = None
+
+
+class FolderDeleteRequest(BaseModel):
+    strategy: Literal["move_to_parent", "move_to_inbox", "delete_documents", "trash"] = "trash"
+    confirm_destructive: bool = False
+
+
+class TrashPurgeOut(BaseModel):
+    deleted_documents: int
+    deleted_folders: int
+    retention_days: int
+
+
+# ---- Tags / types / correspondents ----
+
+
+class TagCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    color: str = Field(default="#64748b", max_length=16)
+
+
+class TagUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    color: str | None = None
+
+
+class TagOut(ORMModel):
+    id: UUID
+    name: str
+    color: str
+    slug: str
+    document_count: int = 0
+
+
+class NamedEntityCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class NamedEntityOut(ORMModel):
+    id: UUID
+    name: str
+    slug: str
+
+
+# ---- Documents ----
+
+
+class DocumentMetadataUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=512)
+    folder_id: UUID | None = None
+    document_type_id: UUID | None = None
+    correspondent_id: UUID | None = None
+    tag_ids: list[UUID] | None = None
+    created_date: date | None = None
+    effective_date: date | None = None
+    language: str | None = None
+    notes: str | None = None
+    custom_fields: dict[str, Any] | None = None
+    inbox: bool | None = None
+    is_archived: bool | None = None
+    needs_review: bool | None = None
+
+
+class DocumentMoveRequest(BaseModel):
+    folder_id: UUID
+
+
+class TagOutBrief(ORMModel):
+    id: UUID
+    name: str
+    color: str
+
+
+class DocumentOut(ORMModel):
+    id: UUID
+    title: str
+    original_filename: str
+    mime_type: str
+    file_size: int
+    page_count: int | None
+    language: str | None
+    notes: str | None
+    archive_serial: str | None
+    folder_id: UUID
+    folder_path: str | None = None
+    document_type_id: UUID | None
+    document_type_name: str | None = None
+    correspondent_id: UUID | None
+    correspondent_name: str | None = None
+    tags: list[TagOutBrief] = []
+    created_date: date | None
+    effective_date: date | None
+    added_date: datetime
+    modified_date: datetime
+    indexed_at: datetime | None
+    processing_status: str
+    ocr_completed: bool
+    text_extracted: bool
+    document_indexed: bool
+    has_embeddings: bool
+    processing_error: str | None
+    is_archived: bool
+    is_trashed: bool
+    trashed_at: datetime | None
+    trashed_from_folder_id: UUID | None = None
+    purge_after: datetime | None = None
+    inbox: bool
+    needs_review: bool
+    custom_fields: dict[str, Any]
+    ai_summary: str | None
+    ai_summary_meta: dict[str, Any] | None
+    has_thumbnail: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class DocumentListOut(BaseModel):
+    items: list[DocumentOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class DuplicateOut(BaseModel):
+    duplicate: bool = True
+    existing_document_id: UUID
+    message: str
+    status: Literal["duplicate"] = "duplicate"
+    relative_path: str | None = None
+
+
+class UploadResultOut(BaseModel):
+    """Returned when an upload is skipped as a content duplicate."""
+
+    status: Literal["duplicate"]
+    duplicate: bool = True
+    existing_document_id: UUID
+    message: str
+    relative_path: str | None = None
+
+
+class BulkActionRequest(BaseModel):
+    document_ids: list[UUID]
+    action: Literal["tag", "untag", "move", "trash", "restore", "archive", "unarchive"]
+    tag_ids: list[UUID] | None = None
+    folder_id: UUID | None = None
+
+
+# ---- Search ----
+
+
+class SearchRequest(BaseModel):
+    query: str = ""
+    mode: Literal["keyword", "semantic", "hybrid"] = "hybrid"
+    folder_id: UUID | None = None
+    include_descendants: bool = True
+    folder_ids: list[UUID] | None = None
+    tag_ids: list[UUID] | None = None
+    document_type_id: UUID | None = None
+    correspondent_id: UUID | None = None
+    mime_type: str | None = None
+    is_archived: bool | None = None
+    inbox: bool | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=200)
+
+
+class SearchHit(BaseModel):
+    document: DocumentOut
+    score: float
+    snippet: str | None = None
+    page_number: int | None = None
+    chunk_id: UUID | None = None
+
+
+class SearchResponse(BaseModel):
+    items: list[SearchHit]
+    total: int
+    mode: str
+    semantic_available: bool
+
+
+# ---- Ask / RAG ----
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    scope: Literal[
+        "document", "documents", "folder", "folder_tree", "search", "library"
+    ] = "document"
+    document_id: UUID | None = None
+    document_ids: list[UUID] | None = None
+    folder_id: UUID | None = None
+    search_query: str | None = None
+    confirm_remote: bool = False
+
+
+class CitationOut(BaseModel):
+    document_id: UUID
+    page_number: int | None
+    chunk_id: UUID
+    title: str
+    quote: str | None = None
+
+
+class AskResponse(BaseModel):
+    answer: str
+    citations: list[CitationOut]
+    passages: list[CitationOut]
+    provider: str | None
+    model: str | None
+    privacy_mode: str
+    is_local: bool
+    insufficient_evidence: bool = False
+
+
+# ---- Jobs ----
+
+
+class JobOut(ORMModel):
+    id: UUID
+    job_type: str
+    status: str
+    document_id: UUID | None
+    priority: int
+    retry_count: int
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+# ---- AI ----
+
+
+class AIProviderCreate(BaseModel):
+    name: str
+    kind: Literal[
+        "openai_compatible", "openai", "openrouter", "ollama", "anthropic", "gemini"
+    ]
+    base_url: str
+    api_key: str | None = None
+    is_local: bool = False
+    chat_model: str | None = None
+    embedding_model: str | None = None
+    vision_model: str | None = None
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    supports_tools: bool = False
+    supports_vision: bool = False
+    supports_structured_output: bool = False
+    supports_embeddings: bool = False
+    no_training: bool = False
+    zero_retention: bool = False
+
+
+class AIProviderUpdate(BaseModel):
+    name: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    clear_api_key: bool = False
+    is_local: bool | None = None
+    enabled: bool | None = None
+    chat_model: str | None = None
+    embedding_model: str | None = None
+    vision_model: str | None = None
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    supports_tools: bool | None = None
+    supports_vision: bool | None = None
+    supports_structured_output: bool | None = None
+    supports_embeddings: bool | None = None
+    no_training: bool | None = None
+    zero_retention: bool | None = None
+
+
+class AIProviderOut(ORMModel):
+    id: UUID
+    name: str
+    kind: str
+    base_url: str
+    has_api_key: bool
+    api_key_masked: str | None = None
+    is_local: bool
+    enabled: bool
+    chat_model: str | None
+    embedding_model: str | None
+    vision_model: str | None
+    context_window: int | None
+    max_output_tokens: int | None
+    supports_tools: bool
+    supports_vision: bool
+    supports_structured_output: bool
+    supports_embeddings: bool
+    no_training: bool
+    zero_retention: bool
+
+
+class AIPolicyUpdate(BaseModel):
+    privacy_mode: Literal["local_only", "private_hybrid", "standard"] | None = None
+    profile: Literal["lightweight", "balanced", "quality", "custom"] | None = None
+    chat_provider_id: UUID | None = None
+    embedding_provider_id: UUID | None = None
+    vision_provider_id: UUID | None = None
+    allow_remote_embeddings: bool | None = None
+    allow_remote_qa: bool | None = None
+    allow_remote_vision: bool | None = None
+    warn_before_remote: bool | None = None
+    block_remote_ai: bool | None = None
+    auto_enrichment: bool | None = None
+    auto_tagging: bool | None = None
+    retrieved_chunks: int | None = None
+    max_context_tokens: int | None = None
+    max_output_tokens: int | None = None
+    conversation_history_tokens: int | None = None
+    parallel_llm_calls: int | None = None
+
+
+class AIPolicyOut(ORMModel):
+    privacy_mode: str
+    profile: str
+    chat_provider_id: UUID | None
+    embedding_provider_id: UUID | None
+    vision_provider_id: UUID | None
+    allow_remote_embeddings: bool
+    allow_remote_qa: bool
+    allow_remote_vision: bool
+    warn_before_remote: bool
+    block_remote_ai: bool
+    auto_enrichment: bool
+    auto_tagging: bool
+    retrieved_chunks: int
+    max_context_tokens: int
+    max_output_tokens: int
+    conversation_history_tokens: int
+    parallel_llm_calls: int
+    active_embedding_provider: str | None
+    active_embedding_model: str | None
+    active_embedding_dimension: int | None
+    enforcement_note: str = (
+        "Folium enforces privacy_mode in application code. "
+        "Provider retention/no-training flags are provider policies, not Folium guarantees."
+    )
+
+
+class AIUsageSummary(BaseModel):
+    today: dict[str, Any]
+    this_month: dict[str, Any]
+    by_provider: list[dict[str, Any]]
+    by_model: list[dict[str, Any]]
+    by_operation: list[dict[str, Any]]
+
+
+class SuggestionOut(ORMModel):
+    id: UUID
+    document_id: UUID
+    field: str
+    value: dict[str, Any]
+    status: str
+    provider: str | None
+    model: str | None
+    confidence: float | None
+
+
+class HealthOut(BaseModel):
+    status: str
+    version: str = "0.1.0"
+
+
+class StorageHealthOut(BaseModel):
+    status: str
+    documents_ok: bool
+    consume_ok: bool
+    export_ok: bool
+    documents_path: str
+    consume_path: str
+    export_path: str
+    message: str
+
+
+class MessageOut(BaseModel):
+    message: str
