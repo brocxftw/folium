@@ -53,8 +53,10 @@ export function SearchWorkspace() {
   };
 
   const openDocument = (hit: SearchHit) => {
-    const params = hit.page_number ? `?page=${hit.page_number}` : "";
-    navigate(`/documents/${hit.document.id}${params}`);
+    const params = new URLSearchParams();
+    params.set("doc", hit.document.id);
+    if (hit.page_number) params.set("viewerPage", String(hit.page_number));
+    navigate(`/documents?${params.toString()}`);
   };
 
   return (

@@ -50,8 +50,10 @@ export function AskWorkspace() {
   };
 
   const openCitation = (citation: Citation) => {
-    const params = citation.page_number ? `?page=${citation.page_number}` : "";
-    navigate(`/documents/${citation.document_id}${params}`);
+    const params = new URLSearchParams();
+    params.set("doc", citation.document_id);
+    if (citation.page_number) params.set("viewerPage", String(citation.page_number));
+    navigate(`/documents?${params.toString()}`);
   };
 
   return (

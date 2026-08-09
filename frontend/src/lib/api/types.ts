@@ -249,6 +249,8 @@ export interface DocumentListParams {
   inbox?: boolean;
   inbox_status?: InboxStatus;
   trashed?: boolean;
+  /** Documents still in the ingestion → indexing lifecycle (not RAG-ready). */
+  unprocessed?: boolean;
   tag_ids?: UUID[];
   q?: string;
   page?: number;

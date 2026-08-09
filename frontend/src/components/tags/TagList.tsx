@@ -36,42 +36,65 @@ export function TagList({ tags, className, max, onRemove }: TagListProps) {
 interface SidebarTagListProps {
   tags: Tag[];
   selectedTagId?: string;
+  selectedTagIds?: string[];
   onSelect?: (tagId: string) => void;
+  variant?: "sidebar" | "surface";
 }
 
-export function SidebarTagList({ tags, selectedTagId, onSelect }: SidebarTagListProps) {
+export function SidebarTagList({
+  tags,
+  selectedTagId,
+  selectedTagIds,
+  onSelect,
+  variant = "sidebar",
+}: SidebarTagListProps) {
+  const surface = variant === "surface";
+  const selected = new Set(selectedTagIds ?? (selectedTagId ? [selectedTagId] : []));
+
   if (tags.length === 0) {
     return (
-      <p className="px-3 py-2 text-xs text-sidebar-muted">No tags yet</p>
+      <p className={cn("px-3 py-2 text-xs", surface ? "text-text-muted" : "text-sidebar-muted")}>
+        No tags yet
+      </p>
     );
   }
 
   return (
     <ul className="space-y-0.5 px-2">
-      {tags.map((tag) => (
-        <li key={tag.id}>
-          <button
-            type="button"
-            onClick={() => onSelect?.(tag.id)}
-            className={cn(
-              "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[13px]",
-              "text-sidebar-text hover:bg-sidebar-hover",
-              selectedTagId === tag.id && "bg-sidebar-active",
-            )}
-          >
-            <span className="flex items-center gap-2 truncate">
+      {tags.map((tag) => {
+        const isSelected = selected.has(tag.id);
+        return (
+          <li key={tag.id}>
+            <button
+              type="button"
+              onClick={() => onSelect?.(tag.id)}
+              className={cn(
+                "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[13px]",
+                surface
+                  ? "text-text-primary hover:bg-surface-hover"
+                  : "text-sidebar-text hover:bg-sidebar-hover",
+                isSelected && (surface ? "bg-surface-muted" : "bg-sidebar-active"),
+              )}
+            >
+              <span className="flex items-center gap-2 truncate">
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: tag.color }}
+                />
+                <span className="truncate">{tag.name}</span>
+              </span>
               <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: tag.color }}
-              />
-              <span className="truncate">{tag.name}</span>
-            </span>
-            <span className="ml-2 shrink-0 text-xs text-sidebar-muted">
-              {tag.document_count}
-            </span>
-          </button>
-        </li>
-      ))}
+                className={cn(
+                  "ml-2 shrink-0 text-xs",
+                  surface ? "text-text-muted" : "text-sidebar-muted",
+                )}
+              >
+                {tag.document_count}
+              </span>
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }

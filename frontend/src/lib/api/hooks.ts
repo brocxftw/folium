@@ -502,6 +502,7 @@ function documentParamsToQuery(params: DocumentListParams): Record<string, strin
   if (params.inbox !== undefined) q.inbox = params.inbox;
   if (params.inbox_status) q.inbox_status = params.inbox_status;
   if (params.trashed) q.trashed = true;
+  if (params.unprocessed !== undefined) q.unprocessed = params.unprocessed;
   if (params.tag_ids?.length) q.tag_ids = params.tag_ids.join(",");
   if (params.q) q.q = params.q;
   if (params.page) q.page = params.page;
