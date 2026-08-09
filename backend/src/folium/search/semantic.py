@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.models import Document, DocumentChunk
 from folium.search.filters import DocumentSearchFilters, apply_document_search_filters
+from folium.ai.embeddings import pad_embedding
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,8 @@ async def search_chunks_semantic(
             f"does not match expected {embedding_dimension}"
         )
 
-    distance = DocumentChunk.embedding.cosine_distance(query_embedding)
+    storage_query = pad_embedding(query_embedding)
+    distance = DocumentChunk.embedding.cosine_distance(storage_query)
     score = (1 - distance).label("score")
 
     stmt = (

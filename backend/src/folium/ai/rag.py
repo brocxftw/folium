@@ -11,6 +11,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.ai.base import AIProviderAdapter, ChatMessage
+from folium.ai.embeddings import pad_embedding
 from folium.ai.privacy import PrivacyGate
 from folium.ai.profiles import compute_budget, resolve_profile
 from folium.ai.usage import record_usage
@@ -158,7 +159,7 @@ async def _semantic_retrieve(
     if not embedding_result.embeddings:
         return []
 
-    query_vector = embedding_result.embeddings[0]
+    query_vector = pad_embedding(embedding_result.embeddings[0])
 
     distance_expr = DocumentChunk.embedding.cosine_distance(query_vector)
     stmt = (
