@@ -104,6 +104,9 @@ class Settings(BaseSettings):
         default=1, alias="PASSWORD_RESET_TOKEN_TTL_HOURS"
     )
     max_avatar_size_mb: int = Field(default=2, alias="MAX_AVATAR_SIZE_MB")
+    consume_owner_username: str | None = Field(
+        default=None, alias="CONSUME_OWNER_USERNAME"
+    )
 
     @property
     def max_upload_bytes(self) -> int:

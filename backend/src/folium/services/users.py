@@ -310,6 +310,45 @@ async def admin_set_password(session: AsyncSession, user_id: uuid.UUID, password
     return user
 
 
+async def resolve_admin_user(
+    session: AsyncSession, *, username: str | None = None
+) -> User:
+    """Resolve an admin for ops (CLI recovery, consume ownership).
+
+    Prefer an explicit username when given; otherwise the earliest active admin.
+    """
+    if username:
+        user = (
+            await session.execute(select(User).where(User.username == username.strip()))
+        ).scalar_one_or_none()
+        if user is None:
+            raise NotFoundError(f"User @{username} not found")
+        if not user.is_active:
+            raise ValidationError(f"User @{username} is inactive")
+        return user
+
+    admin = (
+        await session.execute(
+            select(User)
+            .where(User.is_admin.is_(True), User.is_active.is_(True))
+            .order_by(User.created_at.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if admin is None:
+        raise NotFoundError("No active admin user found")
+    return admin
+
+
+async def resolve_consume_owner(session: AsyncSession) -> User:
+    """Owner for consume-folder ingest: CONSUME_OWNER_USERNAME or earliest admin."""
+    settings = get_settings()
+    preferred = (settings.consume_owner_username or "").strip() or None
+    if preferred:
+        return await resolve_admin_user(session, username=preferred)
+    return await resolve_admin_user(session, username=None)
+
+
 async def delete_user(
     session: AsyncSession,
     user_id: uuid.UUID,

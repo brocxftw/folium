@@ -46,6 +46,7 @@ dev = [
 ]
 
 [project.scripts]
+folium = "folium.cli:main"
 folium-api = "folium.main:run_api"
 folium-worker = "folium.workers.main:run_worker"
 

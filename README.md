@@ -49,7 +49,8 @@ Logical paths inside containers:
 
 ```bash
 cp .env.example .env
-# edit secrets: FOLIUM_SECRET_KEY, FOLIUM_ENCRYPTION_KEY, FOLIUM_ADMIN_PASSWORD
+# edit secrets: FOLIUM_SECRET_KEY, FOLIUM_ENCRYPTION_KEY
+# FOLIUM_ADMIN_USERNAME / FOLIUM_ADMIN_PASSWORD are first-boot only
 
 mkdir -p data/documents data/consume data/export
 # Containers run as UID 1000 — ensure bind mounts are writable
@@ -58,9 +59,19 @@ sudo chown -R 1000:1000 data/documents data/consume data/export
 docker compose up -d
 ```
 
-Open http://localhost:8080 and sign in with the admin credentials from `.env`.
+Open http://localhost:8080 and sign in with the bootstrap admin from `.env` **only on first start**. After that, credentials live in the database — renaming the admin or changing the password in the UI does not require updating `.env`.
 
 API docs: http://localhost:8000/docs
+
+### Password recovery / locked out
+
+| Situation | What to do |
+|-----------|------------|
+| You know your password | Settings → Profile → Change password |
+| Another user forgot theirs | They use Forgot password; you approve in Settings → Users and share the link — or use **Set password** on their account |
+| Locked out of every admin | `docker compose exec -it api folium reset-admin-password` (optional `--username`, or defaults to earliest admin) |
+
+`FOLIUM_ADMIN_PASSWORD` in `.env` is **never** re-applied on restart.
 
 ## Docker Compose
 
@@ -328,6 +339,7 @@ External AI APIs are mocked in tests. No paid services are required.
 - Provider URL validation; no shell/filesystem tools exposed to models
 - Non-root containers, no privileged mode
 - Password recovery is **admin-approved**: users request a reset on the login page; an admin approves it in Settings → Users and shares the one-time link out-of-band (no SMTP yet)
+- Bootstrap `FOLIUM_ADMIN_*` env vars create the first user only; use Profile, Users → Set password, or `folium reset-admin-password` afterward
 
 ## License
 
