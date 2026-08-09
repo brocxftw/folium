@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type DragEvent } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -30,6 +30,11 @@ import {
 } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import {
+  dataTransferHasDocuments,
+  getDocumentDragIds,
+  clearDocumentDragData,
+} from "@/features/documents/documentDrag";
 
 interface FolderTreeProps {
   folders: Folder[];
@@ -39,6 +44,8 @@ interface FolderTreeProps {
   variant?: "sidebar" | "surface";
   /** Hide the section header + new-folder control (e.g. when the parent provides its own). */
   hideHeader?: boolean;
+  /** Drop documents onto a folder to move them. */
+  onDropDocuments?: (folderId: string, documentIds: string[]) => void;
 }
 
 interface TreeNode extends Folder {
@@ -81,6 +88,7 @@ function FolderNode({
   onCreateChild,
   onRename,
   onDelete,
+  onDropDocuments,
   variant,
 }: {
   node: TreeNode;
@@ -92,6 +100,7 @@ function FolderNode({
   onCreateChild: (parentId: string) => void;
   onRename: (folder: Folder) => void;
   onDelete: (folder: Folder) => void;
+  onDropDocuments?: (folderId: string, documentIds: string[]) => void;
   variant: "sidebar" | "surface";
 }) {
   const isExpanded = expanded.has(node.id);
@@ -99,6 +108,7 @@ function FolderNode({
   const isSelected = selectedFolderId === node.id;
   const isSystem = node.kind !== "normal";
   const surface = variant === "surface";
+  const [dropActive, setDropActive] = useState(false);
 
   if (node.kind === "root") {
     return (
@@ -115,6 +125,7 @@ function FolderNode({
             onCreateChild={onCreateChild}
             onRename={onRename}
             onDelete={onDelete}
+            onDropDocuments={onDropDocuments}
             variant={variant}
           />
         ))}
@@ -126,14 +137,46 @@ function FolderNode({
     return null;
   }
 
+  const canDrop = Boolean(onDropDocuments) && node.kind === "normal";
+
+  const handleDragOver = (event: DragEvent) => {
+    if (!canDrop || !dataTransferHasDocuments(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    setDropActive(true);
+  };
+
+  const handleDragLeave = (event: DragEvent) => {
+    if (!canDrop) return;
+    const related = event.relatedTarget as Node | null;
+    if (related && event.currentTarget.contains(related)) return;
+    setDropActive(false);
+  };
+
+  const handleDrop = (event: DragEvent) => {
+    if (!canDrop) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDropActive(false);
+    const ids = getDocumentDragIds(event.dataTransfer);
+    clearDocumentDragData();
+    if (ids.length === 0) return;
+    onDropDocuments?.(node.id, ids);
+  };
+
   return (
     <div>
       <div
         className={cn(
           "group flex items-center rounded-md pr-1",
           isSelected && (surface ? "bg-surface-muted" : "bg-sidebar-active"),
+          dropActive && "ring-2 ring-accent bg-accent-muted/40",
         )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
         <button
           type="button"
@@ -228,6 +271,7 @@ function FolderNode({
               onCreateChild={onCreateChild}
               onRename={onRename}
               onDelete={onDelete}
+              onDropDocuments={onDropDocuments}
               variant={variant}
             />
           ))}
@@ -243,6 +287,7 @@ export function FolderTree({
   onSelect,
   variant = "sidebar",
   hideHeader = false,
+  onDropDocuments,
 }: FolderTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [dialog, setDialog] = useState<
@@ -341,6 +386,7 @@ export function FolderTree({
               setDialog({ type: "rename", folder });
             }}
             onDelete={(folder) => setDialog({ type: "delete", folder })}
+            onDropDocuments={onDropDocuments}
             variant={variant}
           />
         ))}

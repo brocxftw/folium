@@ -4,18 +4,27 @@ import {
   File,
   FileSpreadsheet,
 } from "lucide-react";
+import type { DragEvent } from "react";
 import { cn, formatBytes, formatDate } from "@/lib/utils";
 import type { Document } from "@/lib/api/types";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { TagList } from "@/components/tags/TagList";
 import { RetrievalReadinessBadge } from "@/features/documents/RetrievalReadinessBadge";
+import { setDocumentDragData, clearDocumentDragData } from "@/features/documents/documentDrag";
 
 interface DocumentRowProps {
   document: Document;
   selected: boolean;
   active: boolean;
-  onSelect: (id: string, checked: boolean) => void;
-  onClick: (id: string) => void;
+  focused?: boolean;
+  selectedIds: Set<string>;
+  onCheckbox: (id: string, checked: boolean) => void;
+  onRowPointer: (
+    id: string,
+    event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+  ) => void;
+  onOpen: (id: string) => void;
+  onFocusRow: (id: string) => void;
 }
 
 function FileIcon({ mimeType }: { mimeType: string }) {
@@ -30,48 +39,80 @@ export function DocumentRow({
   document,
   selected,
   active,
-  onSelect,
-  onClick,
+  focused,
+  selectedIds,
+  onCheckbox,
+  onRowPointer,
+  onOpen,
+  onFocusRow,
 }: DocumentRowProps) {
+  const handleDragStart = (event: DragEvent) => {
+    const ids = selectedIds.has(document.id)
+      ? Array.from(selectedIds)
+      : [document.id];
+    setDocumentDragData(event.dataTransfer, ids);
+  };
+
   return (
     <tr
-      onClick={() => onClick(document.id)}
+      role="row"
+      aria-selected={selected}
+      tabIndex={-1}
+      draggable
+      onDragStart={handleDragStart}
+      onDragEnd={() => clearDocumentDragData()}
+      onFocus={() => onFocusRow(document.id)}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest("[data-row-checkbox]")) return;
+        onRowPointer(document.id, {
+          shiftKey: event.shiftKey,
+          metaKey: event.metaKey,
+          ctrlKey: event.ctrlKey,
+        });
+      }}
+      onDoubleClick={() => onOpen(document.id)}
       className={cn(
-        "cursor-pointer border-b border-surface-border transition-colors",
+        "cursor-pointer border-b border-surface-border outline-none transition-colors",
         active && "bg-row-selected border-l-2 border-l-accent",
         !active && selected && "bg-row-selected/60",
         !active && !selected && "hover:bg-surface-hover",
+        focused && "ring-1 ring-inset ring-focus",
       )}
     >
-      <td className="w-8 px-2 py-2" onClick={(e) => e.stopPropagation()}>
+      <td
+        className="w-8 px-2 py-2"
+        data-row-checkbox
+        onClick={(e) => e.stopPropagation()}
+      >
         <Checkbox
           checked={selected}
-          onCheckedChange={(checked) => onSelect(document.id, !!checked)}
+          onCheckedChange={(checked) => onCheckbox(document.id, !!checked)}
+          aria-label={`Select ${document.title}`}
         />
       </td>
       <td className="max-w-[280px] px-2 py-2">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
           <FileIcon mimeType={document.mime_type} />
           <span className="truncate font-medium text-text-primary">{document.title}</span>
         </div>
       </td>
-      <td className="hidden lg:table-cell max-w-[120px] px-2 py-2">
-        <span className="truncate text-text-secondary text-xs">
+      <td className="hidden max-w-[120px] px-2 py-2 lg:table-cell">
+        <span className="truncate text-xs text-text-secondary">
           {document.folder_path?.split(" / ").pop() ?? "—"}
         </span>
       </td>
-      <td className="hidden md:table-cell max-w-[160px] px-2 py-2">
+      <td className="hidden max-w-[160px] px-2 py-2 md:table-cell">
         <TagList tags={document.tags} max={2} />
       </td>
-      <td className="hidden xl:table-cell px-2 py-2 text-text-secondary text-xs whitespace-nowrap">
+      <td className="hidden whitespace-nowrap px-2 py-2 text-xs text-text-secondary xl:table-cell">
         {document.page_count != null ? `${document.page_count}p` : "—"}
         <span className="mx-1 text-text-muted">·</span>
         {formatBytes(document.file_size)}
       </td>
-      <td className="hidden sm:table-cell px-2 py-2">
+      <td className="hidden px-2 py-2 sm:table-cell">
         <RetrievalReadinessBadge document={document} />
       </td>
-      <td className="w-24 px-2 py-2 text-right text-text-secondary text-xs whitespace-nowrap">
+      <td className="w-24 whitespace-nowrap px-2 py-2 text-right text-xs text-text-secondary">
         {formatDate(document.added_date)}
       </td>
     </tr>

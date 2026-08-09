@@ -1,8 +1,11 @@
+import { useMemo } from "react";
 import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
 import type { Document } from "@/lib/api/types";
 import { DocumentRow } from "./DocumentRow";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
+import { useDocumentSelectionModel } from "@/features/documents/useDocumentSelectionModel";
+import { selectAllIds } from "@/features/documents/documentSelection";
 
 interface DocumentTableProps {
   documents: Document[];
@@ -31,29 +34,34 @@ export function DocumentTable({
   total,
   onPageChange,
 }: DocumentTableProps) {
+  const documentIds = useMemo(() => documents.map((d) => d.id), [documents]);
+  const {
+    focusedIndex,
+    setFocusedIndex,
+    handleItemPointer,
+    handleCheckbox,
+    handleKeyDown,
+  } = useDocumentSelectionModel({
+    documentIds,
+    selectedIds,
+    onSelect,
+    onOpen: onActiveChange,
+    gridColumns: 1,
+  });
+
   const allSelected = documents.length > 0 && documents.every((d) => selectedIds.has(d.id));
   const someSelected = documents.some((d) => selectedIds.has(d.id));
   const totalCount = total ?? documents.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const toggleAll = (checked: boolean) => {
-    if (checked) {
-      onSelect(new Set(documents.map((d) => d.id)));
-    } else {
-      onSelect(new Set());
-    }
-  };
-
-  const toggleOne = (id: string, checked: boolean) => {
-    const next = new Set(selectedIds);
-    if (checked) next.add(id);
-    else next.delete(id);
-    onSelect(next);
+    if (checked) onSelect(selectAllIds(documentIds));
+    else onSelect(new Set());
   };
 
   if (isLoading) {
     return (
-      <div className="flex flex-1 items-center justify-center text-text-muted text-sm">
+      <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
         Loading documents…
       </div>
     );
@@ -72,11 +80,18 @@ export function DocumentTable({
   }
 
   return (
-    <div className="flex flex-1 flex-col min-h-0">
+    <div
+      className="flex min-h-0 flex-1 flex-col outline-none"
+      tabIndex={0}
+      role="grid"
+      aria-multiselectable
+      aria-label="Documents"
+      onKeyDown={handleKeyDown}
+    >
       <div className="flex-1 overflow-auto scrollbar-thin">
         <table className="w-full border-collapse text-[13px]">
-          <thead className="sticky top-0 z-10 bg-surface-muted border-b border-surface-border">
-            <tr className="text-left text-xs font-medium text-text-muted uppercase tracking-wide">
+          <thead className="sticky top-0 z-10 border-b border-surface-border bg-surface-muted">
+            <tr className="text-left text-xs font-medium uppercase tracking-wide text-text-muted">
               <th className="w-8 px-2 py-2">
                 <Checkbox
                   checked={allSelected}
@@ -87,25 +102,33 @@ export function DocumentTable({
                     }
                   }}
                   onCheckedChange={(c) => toggleAll(!!c)}
+                  aria-label="Select all on this page"
                 />
               </th>
               <th className="px-2 py-2">Name</th>
-              <th className="hidden lg:table-cell px-2 py-2">Folder</th>
-              <th className="hidden md:table-cell px-2 py-2">Tags</th>
-              <th className="hidden xl:table-cell px-2 py-2">Pages / size</th>
-              <th className="hidden sm:table-cell px-2 py-2">Status</th>
+              <th className="hidden px-2 py-2 lg:table-cell">Folder</th>
+              <th className="hidden px-2 py-2 md:table-cell">Tags</th>
+              <th className="hidden px-2 py-2 xl:table-cell">Pages / size</th>
+              <th className="hidden px-2 py-2 sm:table-cell">Status</th>
               <th className="w-24 px-2 py-2 text-right">Date</th>
             </tr>
           </thead>
           <tbody>
-            {documents.map((doc) => (
+            {documents.map((doc, index) => (
               <DocumentRow
                 key={doc.id}
                 document={doc}
                 selected={selectedIds.has(doc.id)}
                 active={activeId === doc.id}
-                onSelect={toggleOne}
-                onClick={onActiveChange}
+                focused={focusedIndex === index}
+                selectedIds={selectedIds}
+                onCheckbox={(_id, checked) => handleCheckbox(index, checked)}
+                onRowPointer={(_id, mods) => {
+                  const action = handleItemPointer(index, mods);
+                  if (action === "open") onActiveChange(doc.id);
+                }}
+                onOpen={onActiveChange}
+                onFocusRow={() => setFocusedIndex(index)}
               />
             ))}
           </tbody>
