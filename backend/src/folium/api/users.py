@@ -82,6 +82,7 @@ async def approve_password_reset(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> PasswordResetRequestOut:
     req, raw = await user_service.approve_password_reset(db, request_id, actor=admin)
+    await db.commit()
     return _reset_out(req, reset_token=raw)
 
 
@@ -93,6 +94,7 @@ async def reject_password_reset(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> MessageOut:
     await user_service.reject_password_reset(db, request_id)
+    await db.commit()
     return MessageOut(message="Password reset request rejected")
 
 

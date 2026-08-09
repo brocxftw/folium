@@ -125,6 +125,9 @@ async def register(
         user_agent=request.headers.get("user-agent"),
         ip_address=request.client.host if request.client else None,
     )
+    # FastAPI runs yield-dependency cleanup after the response is sent; commit
+    # before returning so the session cookie is usable on the next request.
+    await db.commit()
     _set_session_cookies(response, raw_token, sess.csrf_token)
     return SessionOut(user=user_out(user), csrf_token=sess.csrf_token)
 
@@ -150,6 +153,7 @@ async def login(
         user_agent=request.headers.get("user-agent"),
         ip_address=request.client.host if request.client else None,
     )
+    await db.commit()
     _set_session_cookies(response, raw_token, sess.csrf_token)
     return SessionOut(
         user=user_out(user),
@@ -164,6 +168,7 @@ async def logout(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     await auth_service.revoke_session(db, sess.id)
+    await db.commit()
     _clear_session_cookies(response)
     return {"message": "Logged out"}
 
@@ -207,6 +212,7 @@ async def change_my_password(
         new_password=body.new_password,
         keep_session_id=None,
     )
+    await db.commit()
     _clear_session_cookies(response)
     return {"message": "Password updated. Please sign in again."}
 
@@ -234,6 +240,7 @@ async def upload_avatar(
         content_type=file.content_type,
         storage=StorageService(),
     )
+    await db.commit()
     return user_out(updated)
 
 
@@ -244,6 +251,7 @@ async def delete_avatar(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserOut:
     updated = await user_service.clear_avatar(db, user, storage=StorageService())
+    await db.commit()
     return user_out(updated)
 
 
@@ -264,6 +272,7 @@ async def forgot_password(
     rate_key = (request.client.host if request.client else "unknown") + ":" + body.username.lower()
     user_service.check_forgot_rate_limit(rate_key)
     message = await user_service.request_password_reset(db, username=body.username)
+    await db.commit()
     return ForgotPasswordOut(message=message)
 
 
@@ -287,4 +296,5 @@ async def reset_password(
     await user_service.complete_password_reset(
         db, token=body.token, new_password=body.new_password
     )
+    await db.commit()
     return ForgotPasswordOut(message="Password updated. You can sign in with your new password.")
