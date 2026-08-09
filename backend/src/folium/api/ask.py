@@ -16,6 +16,7 @@ from folium.bootstrap import ensure_ai_settings
 from folium.core.exceptions import PrivacyViolationError, ValidationError
 from folium.db.session import get_db
 from folium.models import AIProvider
+from folium.search.resolve import EvidenceSearchParams, resolve_evidence_document_ids
 
 router = APIRouter(prefix="/api/ask", tags=["ask"])
 
@@ -39,6 +40,7 @@ async def ask_workspace(
         raise PrivacyViolationError("Remote AI usage requires confirm_remote=true")
 
     embed_adapter = None
+    embed_provider = None
     if settings_row.embedding_provider_id is not None:
         embed_provider = await db.get(AIProvider, settings_row.embedding_provider_id)
         if embed_provider is not None and embed_provider.enabled:
@@ -51,6 +53,52 @@ async def ask_workspace(
         folder_id=body.folder_id,
         search_query=body.search_query,
     )
+
+    # Typed search snapshot → concrete document IDs (preserves mode + filters).
+    if body.scope == "search":
+        snapshot = body.search
+        query = (snapshot.query if snapshot else body.search_query) or ""
+        if not query.strip():
+            raise ValidationError("search scope requires search snapshot or search_query")
+        params = EvidenceSearchParams(
+            query=query.strip(),
+            mode=(snapshot.mode if snapshot else "hybrid"),
+            folder_id=snapshot.folder_id if snapshot else None,
+            include_descendants=snapshot.include_descendants if snapshot else True,
+            folder_ids=snapshot.folder_ids if snapshot else None,
+            tag_ids=snapshot.tag_ids if snapshot else None,
+            document_type_id=snapshot.document_type_id if snapshot else None,
+            correspondent_id=snapshot.correspondent_id if snapshot else None,
+            mime_type=snapshot.mime_type if snapshot else None,
+            is_archived=snapshot.is_archived if snapshot else None,
+            inbox=snapshot.inbox if snapshot else None,
+            date_from=snapshot.date_from if snapshot else None,
+            date_to=snapshot.date_to if snapshot else None,
+            document_indexed=snapshot.document_indexed if snapshot else None,
+            has_embeddings=snapshot.has_embeddings if snapshot else None,
+            unprocessed=snapshot.unprocessed if snapshot else None,
+        )
+        embed_provider_name = None
+        embed_model = None
+        embed_dim = None
+        if embed_provider is not None and embed_adapter is not None:
+            embed_provider_name = (
+                settings_row.active_embedding_provider or embed_provider.name
+            )
+            embed_model = (
+                settings_row.active_embedding_model or embed_provider.embedding_model
+            )
+            embed_dim = settings_row.active_embedding_dimension
+        doc_ids = await resolve_evidence_document_ids(
+            db,
+            params,
+            owner_id=_user.id,
+            embed_adapter=embed_adapter,
+            embedding_provider=embed_provider_name,
+            embedding_model=embed_model,
+            embedding_dimension=embed_dim,
+        )
+        scope = RAGScope(kind="documents", document_ids=doc_ids)
 
     result = await rag_ask(
         db,

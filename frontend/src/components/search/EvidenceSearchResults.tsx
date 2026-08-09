@@ -13,6 +13,7 @@ interface EvidenceSearchResultsProps {
   onOpen: (documentId: string, page?: number | null) => void;
   selectedIds?: Set<string>;
   onSelect?: (ids: Set<string>) => void;
+  onAskAboutResults?: () => void;
   askHref?: string;
   emptyMessage?: string;
 }
@@ -21,6 +22,7 @@ export function EvidenceSearchResults({
   response,
   isLoading,
   onOpen,
+  onAskAboutResults,
   askHref,
   emptyMessage = "No results found",
 }: EvidenceSearchResultsProps) {
@@ -66,13 +68,23 @@ export function EvidenceSearchResults({
             Semantic unavailable — keyword/hybrid fallback
           </span>
         )}
-        {askHref && (
-          <Link
-            to={askHref}
-            className="ml-auto text-xs font-medium text-accent hover:underline"
-          >
-            Ask Folium about these results
-          </Link>
+        {(onAskAboutResults || askHref) && (
+          onAskAboutResults ? (
+            <button
+              type="button"
+              onClick={onAskAboutResults}
+              className="ml-auto text-xs font-medium text-accent hover:underline"
+            >
+              Ask Folium about these results
+            </button>
+          ) : (
+            <Link
+              to={askHref!}
+              className="ml-auto text-xs font-medium text-accent hover:underline"
+            >
+              Ask Folium about these results
+            </Link>
+          )
         )}
       </div>
 

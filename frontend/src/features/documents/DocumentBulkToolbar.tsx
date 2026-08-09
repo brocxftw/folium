@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { ArrowUpDown, FolderInput, Sparkles, Tag, Trash2, X } from "lucide-react";
-import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import {
   DropdownMenu,
@@ -105,6 +104,7 @@ interface DocumentBulkToolbarProps {
   selectedCount: number;
   onClear: () => void;
   onBulkAction: (action: BulkAction, options?: BulkActionOptions) => void | Promise<void>;
+  onAsk?: () => void;
   isPending?: boolean;
   folders?: Folder[];
   tags?: TagType[];
@@ -114,6 +114,7 @@ export function DocumentBulkToolbar({
   selectedCount,
   onClear,
   onBulkAction,
+  onAsk,
   isPending,
   folders: foldersProp,
   tags: tagsProp,
@@ -165,13 +166,10 @@ export function DocumentBulkToolbar({
             </div>
           </PopoverContent>
         </Popover>
-        <Link
-          to="/ask"
-          className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-surface-border bg-surface-muted px-2 text-xs font-medium text-text-primary hover:bg-surface-hover"
-        >
+        <Button size="sm" variant="secondary" onClick={onAsk}>
           <Sparkles className="h-3.5 w-3.5" />
           Ask
-        </Link>
+        </Button>
         <Button
           size="sm"
           variant="secondary"

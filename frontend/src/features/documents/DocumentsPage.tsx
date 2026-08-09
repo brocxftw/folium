@@ -6,7 +6,7 @@ import {
   useSearch,
   useTags,
 } from "@/lib/api/hooks";
-import type { BulkAction } from "@/lib/api/types";
+import type { BulkAction, Citation } from "@/lib/api/types";
 import { useDocumentUploader } from "@/lib/api/upload";
 import type { UploadEntry } from "@/lib/uploadTree";
 import { UploadDropzone } from "@/components/documents/UploadDropzone";
@@ -14,6 +14,10 @@ import { UploadStatusBar } from "@/components/documents/UploadStatusBar";
 import { DocumentTable } from "@/components/documents/DocumentTable";
 import { Breadcrumbs } from "@/components/documents/Breadcrumbs";
 import { EvidenceSearchResults } from "@/components/search/EvidenceSearchResults";
+import {
+  AIChatDrawer,
+  type AIDrawerScope,
+} from "@/components/ask/AIChatDrawer";
 import { DocumentExplorerSidebar } from "./DocumentExplorerSidebar";
 import { DocumentsHeader } from "./DocumentsHeader";
 import { DocumentViewTabs } from "./DocumentViewTabs";
@@ -24,7 +28,10 @@ import {
   type BulkActionOptions,
 } from "./DocumentBulkToolbar";
 import { DocumentViewerModal } from "./DocumentViewerModal";
-import { useDocumentsLibraryState } from "./useDocumentsLibraryState";
+import {
+  libraryStateToSearchSnapshot,
+  useDocumentsLibraryState,
+} from "./useDocumentsLibraryState";
 
 function emptyMessageForView(
   view: string,
@@ -51,6 +58,8 @@ export function DocumentsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiScope, setAiScope] = useState<AIDrawerScope>({ kind: "library" });
 
   const { data: folders = [] } = useFolders();
   const { data: tags = [] } = useTags();
@@ -175,11 +184,75 @@ export function DocumentsPage() {
     state.tagIds.length === 0 &&
     state.page === 1;
 
-  const askHref = isEvidenceSearch
-    ? `/ask?q=${encodeURIComponent(state.q.trim())}`
-    : undefined;
-
   const evidenceTotal = searchResponse?.document_total ?? searchResponse?.total ?? 0;
+
+  const openAsk = useCallback(
+    (scope: AIDrawerScope) => {
+      setAiScope(scope);
+      setAiOpen(true);
+    },
+    [],
+  );
+
+  const openAskDefault = useCallback(() => {
+    const snapshot = libraryStateToSearchSnapshot(state);
+    if (snapshot) {
+      openAsk({
+        kind: "search",
+        search: snapshot,
+        previewDocuments: searchDocuments,
+        label: `Search: ${snapshot.query}`,
+      });
+      return;
+    }
+    if (selectedIds.size > 0) {
+      openAsk({
+        kind: "documents",
+        documentIds: Array.from(selectedIds),
+        previewDocuments: documents.filter((d) => selectedIds.has(d.id)),
+        label: `${selectedIds.size} selected`,
+      });
+      return;
+    }
+    if (state.docId) {
+      const current = documents.find((d) => d.id === state.docId);
+      openAsk({
+        kind: "document",
+        documentId: state.docId,
+        previewDocuments: current ? [current] : undefined,
+        label: current?.title ?? "Current document",
+      });
+      return;
+    }
+    if (state.folderId) {
+      openAsk({
+        kind: "folder_tree",
+        folderId: state.folderId,
+        previewDocuments: browseDocuments,
+        label: folderName ? `Folder: ${folderName}` : "Folder",
+      });
+      return;
+    }
+    openAsk({ kind: "library" });
+  }, [
+    state,
+    searchDocuments,
+    selectedIds,
+    documents,
+    browseDocuments,
+    folderName,
+    openAsk,
+  ]);
+
+  const handleCitation = useCallback(
+    (citation: Citation) => {
+      openDocument(
+        citation.document_id,
+        citation.page_number ?? undefined,
+      );
+    },
+    [openDocument],
+  );
 
   return (
     <UploadDropzone
@@ -230,6 +303,7 @@ export function DocumentsPage() {
             semanticAvailable={searchResponse?.semantic_available ?? true}
             onSearchCommit={(q) => patch({ q })}
             onSearchModeChange={(searchMode) => patch({ searchMode })}
+            onAsk={openAskDefault}
             onUploadFiles={() => fileInputRef.current?.click()}
             onUploadFolder={() => folderInputRef.current?.click()}
             uploadBusy={uploader.busy}
@@ -271,6 +345,13 @@ export function DocumentsPage() {
                 selectedCount={selectedIds.size}
                 onClear={() => setSelectedIds(new Set())}
                 onBulkAction={handleBulkAction}
+                onAsk={() =>
+                  openAsk({
+                    kind: "documents",
+                    documentIds: Array.from(selectedIds),
+                    previewDocuments: documents.filter((d) => selectedIds.has(d.id)),
+                  })
+                }
                 isPending={bulkAction.isPending}
                 folders={folders}
                 tags={tags}
@@ -312,7 +393,15 @@ export function DocumentsPage() {
                     response={searchResponse}
                     isLoading={isSearchLoading}
                     onOpen={(id, page) => openDocument(id, page ?? undefined)}
-                    askHref={askHref}
+                    onAskAboutResults={() => {
+                      const snapshot = libraryStateToSearchSnapshot(state);
+                      if (!snapshot) return;
+                      openAsk({
+                        kind: "search",
+                        search: snapshot,
+                        previewDocuments: searchDocuments,
+                      });
+                    }}
                     emptyMessage="No evidence matches this search"
                   />
                   {evidenceTotal > state.pageSize && (
@@ -373,6 +462,21 @@ export function DocumentsPage() {
           else closeDocument();
         }}
         onPageChange={setViewerPage}
+        onAsk={(doc) =>
+          openAsk({
+            kind: "document",
+            documentId: doc.id,
+            previewDocuments: [doc],
+            label: doc.title,
+          })
+        }
+      />
+
+      <AIChatDrawer
+        open={aiOpen}
+        onOpenChange={setAiOpen}
+        initialScope={aiScope}
+        onCitationClick={handleCitation}
       />
     </UploadDropzone>
   );

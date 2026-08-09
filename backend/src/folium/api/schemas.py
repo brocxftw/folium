@@ -358,6 +358,27 @@ class SearchRequest(BaseModel):
     page_size: int = Field(default=50, ge=1, le=200)
 
 
+class SearchScopeSnapshot(BaseModel):
+    """Frozen evidence-search scope for Ask/RAG (mode + filters preserved)."""
+
+    query: str = Field(min_length=1, max_length=2000)
+    mode: Literal["keyword", "semantic", "hybrid"] = "hybrid"
+    folder_id: UUID | None = None
+    include_descendants: bool = True
+    folder_ids: list[UUID] | None = None
+    tag_ids: list[UUID] | None = None
+    document_type_id: UUID | None = None
+    correspondent_id: UUID | None = None
+    mime_type: str | None = None
+    is_archived: bool | None = None
+    inbox: bool | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+    document_indexed: bool | None = None
+    has_embeddings: bool | None = None
+    unprocessed: bool | None = None
+
+
 class SearchMatch(BaseModel):
     kind: Literal["document", "page", "chunk"]
     score: float
@@ -405,6 +426,7 @@ class AskRequest(BaseModel):
     document_ids: list[UUID] | None = None
     folder_id: UUID | None = None
     search_query: str | None = None
+    search: SearchScopeSnapshot | None = None
     confirm_remote: bool = False
 
 
