@@ -61,6 +61,7 @@ class StorageService:
             self.settings.originals_path,
             self.settings.previews_path,
             self.settings.thumbnails_path,
+            self.settings.avatars_path,
             self.settings.consume_path,
             self.settings.export_path,
         ):
@@ -232,6 +233,33 @@ class StorageService:
                 await aiofiles.os.remove(path)
         except OSError:
             logger.warning("Failed to delete derived %s/%s", kind, key)
+
+    def avatar_absolute(self, avatar_key: str) -> Path:
+        return self._confine(self.settings.avatars_path, avatar_key)
+
+    async def persist_avatar(self, data: bytes, *, user_id: str, extension: str = "webp") -> str:
+        self.require_documents_writable()
+        self.settings.avatars_path.mkdir(parents=True, exist_ok=True)
+        key = f"{user_id}.{extension.lstrip('.').lower()}"
+        dest = self.avatar_absolute(key)
+        await self._atomic_write(dest, data)
+        return key
+
+    def open_avatar_path(self, avatar_key: str) -> Path:
+        path = self.avatar_absolute(avatar_key)
+        if not path.exists():
+            raise NotFoundError("Avatar not found")
+        return path
+
+    async def delete_avatar(self, avatar_key: str | None) -> None:
+        if not avatar_key:
+            return
+        try:
+            path = self.avatar_absolute(avatar_key)
+            if path.exists():
+                await aiofiles.os.remove(path)
+        except OSError:
+            logger.warning("Failed to delete avatar %s", avatar_key)
 
     @staticmethod
     async def _atomic_write(dest: Path, data: bytes) -> None:

@@ -114,6 +114,12 @@ export function LoginPage() {
             {login.isPending ? "Signing in…" : "Sign in"}
           </Button>
 
+          <p className="text-center text-xs text-text-secondary">
+            <Link to="/forgot-password" className="text-accent hover:underline">
+              Forgot password?
+            </Link>
+          </p>
+
           {(regStatus?.allow_registration ?? true) && (
             <p className="text-center text-xs text-text-secondary">
               New here?{" "}

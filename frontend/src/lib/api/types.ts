@@ -10,6 +10,7 @@ export interface User {
   is_active?: boolean;
   storage_quota_bytes?: number | null;
   ai_monthly_request_quota?: number | null;
+  has_avatar?: boolean;
 }
 
 export interface Session {
@@ -60,6 +61,17 @@ export interface Invite {
   ai_monthly_request_quota: number | null;
   created_at: string;
   invite_url_token?: string | null;
+}
+
+export interface PasswordResetRequest {
+  id: UUID;
+  user_id: UUID;
+  username: string;
+  display_name: string;
+  status: string;
+  created_at: string;
+  approved_at?: string | null;
+  reset_url_token?: string | null;
 }
 
 // ---- Folders ----

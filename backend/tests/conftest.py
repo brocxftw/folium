@@ -53,6 +53,8 @@ _TRUNCATE_TABLES = (
     "documents",
     "jobs",
     "sessions",
+    "password_reset_requests",
+    "invites",
     "tags",
     "document_types",
     "correspondents",
@@ -82,6 +84,10 @@ async def _init_schema() -> None:
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+        # Additive columns for older test DBs that already have `users`
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_key VARCHAR(512)")
+        )
     await engine.dispose()
 
 

@@ -163,6 +163,11 @@ export const api = {
   thumbnailUrl(documentId: string): string {
     return `/api/documents/${documentId}/thumbnail`;
   },
+
+  avatarUrl(bust?: string | number): string {
+    const q = bust != null ? `?t=${bust}` : "";
+    return `/api/auth/me/avatar${q}`;
+  },
 };
 
 export function handleSessionResponse(session: { csrf_token: string }): void {

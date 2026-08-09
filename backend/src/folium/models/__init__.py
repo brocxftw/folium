@@ -97,6 +97,14 @@ class FolderKind(str, enum.Enum):
     NORMAL = "normal"
 
 
+class PasswordResetStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    USED = "used"
+    EXPIRED = "expired"
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -120,11 +128,17 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     storage_quota_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     ai_monthly_request_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avatar_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     sessions: Mapped[list[Session]] = relationship(back_populates="user", cascade="all, delete-orphan")
     invites_created: Mapped[list[Invite]] = relationship(
         back_populates="created_by",
         foreign_keys="Invite.created_by_id",
+    )
+    password_reset_requests: Mapped[list[PasswordResetRequest]] = relationship(
+        back_populates="user",
+        foreign_keys="PasswordResetRequest.user_id",
+        cascade="all, delete-orphan",
     )
 
 
@@ -172,12 +186,45 @@ class Invite(Base, TimestampMixin):
     )
 
 
+class PasswordResetRequest(Base, TimestampMixin):
+    __tablename__ = "password_reset_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[PasswordResetStatus] = mapped_column(
+        Enum(
+            PasswordResetStatus,
+            name="password_reset_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=PasswordResetStatus.PENDING,
+        nullable=False,
+    )
+    reset_token_hash: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
+    reset_token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    approved_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped[User] = relationship(
+        back_populates="password_reset_requests",
+        foreign_keys=[user_id],
+    )
+    approved_by: Mapped[User | None] = relationship(foreign_keys=[approved_by_id])
+
+
 class Folder(Base, TimestampMixin):
     __tablename__ = "folders"
     __table_args__ = (
         UniqueConstraint("owner_id", "parent_id", "name", name="uq_folder_owner_sibling_name"),
         Index("ix_folders_parent_id", "parent_id"),
-        Index("ix_folders_owner_id", "owner_id"),
         Index(
             "uq_folders_owner_system_kind",
             "owner_id",
@@ -288,7 +335,7 @@ class Document(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(512), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(512), nullable=False)
-    checksum: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)

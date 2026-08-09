@@ -8,16 +8,19 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from folium.api.auth import user_out
 from folium.api.schemas import (
     AdminSetPasswordRequest,
     InviteCreateRequest,
     InviteOut,
     MessageOut,
+    PasswordResetRequestOut,
     UserAdminOut,
     UserAdminUpdate,
 )
 from folium.auth.deps import AdminUser, SafeSession
 from folium.db.session import get_db
+from folium.models import PasswordResetStatus
 from folium.services import users as user_service
 from folium.storage.service import StorageService
 
@@ -25,17 +28,25 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 def _admin_out(user, usage: dict) -> UserAdminOut:
+    base = user_out(user)
     return UserAdminOut(
-        id=user.id,
-        username=user.username,
-        display_name=user.display_name,
-        is_admin=user.is_admin,
-        is_active=user.is_active,
-        storage_quota_bytes=user.storage_quota_bytes,
-        ai_monthly_request_quota=user.ai_monthly_request_quota,
+        **base.model_dump(),
         created_at=user.created_at,
         storage_used_bytes=usage["storage_used_bytes"],
         ai_requests_this_month=usage["ai_requests_this_month"],
+    )
+
+
+def _reset_out(req, *, reset_token: str | None = None) -> PasswordResetRequestOut:
+    return PasswordResetRequestOut(
+        id=req.id,
+        user_id=req.user_id,
+        username=req.user.username,
+        display_name=req.user.display_name,
+        status=req.status.value if hasattr(req.status, "value") else str(req.status),
+        created_at=req.created_at,
+        approved_at=req.approved_at,
+        reset_url_token=reset_token,
     )
 
 
@@ -50,6 +61,39 @@ async def list_users(
         usage = await user_service.user_usage_summary(db, user)
         out.append(_admin_out(user, usage))
     return out
+
+
+@router.get("/password-resets", response_model=list[PasswordResetRequestOut])
+async def list_password_resets(
+    _admin: AdminUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[PasswordResetRequestOut]:
+    requests = await user_service.list_password_reset_requests(
+        db, status=PasswordResetStatus.PENDING
+    )
+    return [_reset_out(r) for r in requests]
+
+
+@router.post("/password-resets/{request_id}/approve", response_model=PasswordResetRequestOut)
+async def approve_password_reset(
+    request_id: uuid.UUID,
+    _sess: SafeSession,
+    admin: AdminUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PasswordResetRequestOut:
+    req, raw = await user_service.approve_password_reset(db, request_id, actor=admin)
+    return _reset_out(req, reset_token=raw)
+
+
+@router.post("/password-resets/{request_id}/reject", response_model=MessageOut)
+async def reject_password_reset(
+    request_id: uuid.UUID,
+    _sess: SafeSession,
+    _admin: AdminUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> MessageOut:
+    await user_service.reject_password_reset(db, request_id)
+    return MessageOut(message="Password reset request rejected")
 
 
 @router.get("/invites", response_model=list[InviteOut])

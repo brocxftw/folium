@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useChangePassword,
+  useDeleteAvatar,
   useMyUsage,
   useSession,
   useUpdateProfile,
+  useUploadAvatar,
 } from "@/lib/api/hooks";
-import { formatBytes } from "@/lib/utils";
+import { api } from "@/lib/api/client";
+import { formatBytes, getInitials } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
@@ -16,6 +19,9 @@ export function ProfileSettings() {
   const { data: usage } = useMyUsage();
   const updateProfile = useUpdateProfile();
   const changePassword = useChangePassword();
+  const uploadAvatar = useUploadAvatar();
+  const deleteAvatar = useDeleteAvatar();
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -24,6 +30,7 @@ export function ProfileSettings() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
   const [passwordMsg, setPasswordMsg] = useState<string | null>(null);
+  const [avatarBust, setAvatarBust] = useState(() => Date.now());
 
   useEffect(() => {
     if (session?.user) {
@@ -69,6 +76,32 @@ export function ProfileSettings() {
     }
   };
 
+  const onAvatarSelected = async (file: File | undefined) => {
+    if (!file) return;
+    setProfileMsg(null);
+    try {
+      await uploadAvatar.mutateAsync(file);
+      setAvatarBust(Date.now());
+      setProfileMsg("Profile picture updated");
+    } catch (err) {
+      setProfileMsg(err instanceof Error ? err.message : "Avatar upload failed");
+    }
+  };
+
+  const removeAvatar = async () => {
+    setProfileMsg(null);
+    try {
+      await deleteAvatar.mutateAsync();
+      setAvatarBust(Date.now());
+      setProfileMsg("Profile picture removed");
+    } catch (err) {
+      setProfileMsg(err instanceof Error ? err.message : "Could not remove avatar");
+    }
+  };
+
+  const user = session?.user;
+  const hasAvatar = !!user?.has_avatar;
+
   return (
     <div className="max-w-lg space-y-8">
       <div>
@@ -80,6 +113,67 @@ export function ProfileSettings() {
 
       <section className="space-y-3">
         <h3 className="text-sm font-medium text-text-primary">Account</h3>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-muted text-lg font-medium text-text-primary ring-offset-2 hover:ring-2 hover:ring-accent"
+            onClick={() => fileRef.current?.click()}
+            title="Change profile picture"
+          >
+            {hasAvatar ? (
+              <img
+                src={api.avatarUrl(avatarBust)}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              getInitials(user?.display_name || user?.username || "?")
+            )}
+          </button>
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={
+                  user?.is_admin
+                    ? "rounded bg-accent-muted px-2 py-0.5 text-xs font-medium text-accent"
+                    : "rounded bg-surface-muted px-2 py-0.5 text-xs font-medium text-text-secondary"
+                }
+              >
+                {user?.is_admin ? "Admin" : "User"}
+              </span>
+              <span className="text-xs text-text-muted">Account type</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploadAvatar.isPending}
+              >
+                Change picture
+              </Button>
+              {hasAvatar && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void removeAvatar()}
+                  disabled={deleteAvatar.isPending}
+                >
+                  Use initials
+                </Button>
+              )}
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => void onAvatarSelected(e.target.files?.[0])}
+            />
+          </div>
+        </div>
         <div>
           <label className="text-xs text-text-secondary">Username</label>
           <Input

@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
+import { api } from "@/lib/api/client";
 import {
   useSession,
   useLogout,
@@ -182,8 +183,18 @@ export function AppShell({ children }: AppShellProps) {
 
           <div className={cn("border-t border-sidebar-border", sidebarOpen ? "p-3" : "p-2")}>
             <div className={cn("flex items-center", sidebarOpen ? "gap-2" : "flex-col gap-2")}>
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-hover text-xs font-medium">
-                {session?.user ? getInitials(session.user.display_name) : "?"}
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-sidebar-hover text-xs font-medium">
+                {session?.user?.has_avatar ? (
+                  <img
+                    src={api.avatarUrl(session.user.id)}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : session?.user ? (
+                  getInitials(session.user.display_name)
+                ) : (
+                  "?"
+                )}
               </div>
               {sidebarOpen && (
                 <div className="min-w-0 flex-1">

@@ -327,6 +327,7 @@ External AI APIs are mocked in tests. No paid services are required.
 - Upload MIME validation, size limits, path confinement
 - Provider URL validation; no shell/filesystem tools exposed to models
 - Non-root containers, no privileged mode
+- Password recovery is **admin-approved**: users request a reset on the login page; an admin approves it in Settings → Users and shares the one-time link out-of-band (no SMTP yet)
 
 ## License
 

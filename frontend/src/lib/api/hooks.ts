@@ -45,6 +45,7 @@ import type {
   UserAdmin,
   UserUsage,
   Invite,
+  PasswordResetRequest,
 } from "./types";
 
 // ---- Query keys ----
@@ -170,10 +171,84 @@ export function useMyUsage() {
   });
 }
 
+export function useUploadAvatar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return api.upload<User>("/api/auth/me/avatar", form);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.session }),
+  });
+}
+
+export function useDeleteAvatar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<User>("/api/auth/me/avatar"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.session }),
+  });
+}
+
+export function useForgotPassword() {
+  return useMutation({
+    mutationFn: (username: string) =>
+      api.post<{ message: string }>("/api/auth/forgot-password", { username }),
+  });
+}
+
+export function useValidateResetToken(token: string | null) {
+  return useQuery({
+    queryKey: ["auth", "reset-validate", token] as const,
+    queryFn: () =>
+      api.get<{ valid: boolean; username: string | null }>(
+        "/api/auth/reset-password/validate",
+        { token },
+      ),
+    enabled: !!token,
+    retry: false,
+  });
+}
+
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: (data: { token: string; new_password: string }) =>
+      api.post<{ message: string }>("/api/auth/reset-password", data),
+  });
+}
+
 export function useAdminUsers() {
   return useQuery({
     queryKey: ["users"] as const,
     queryFn: () => api.get<UserAdmin[]>("/api/users"),
+  });
+}
+
+export function usePasswordResetRequests(enabled = true) {
+  return useQuery({
+    queryKey: ["password-resets"] as const,
+    queryFn: () => api.get<PasswordResetRequest[]>("/api/users/password-resets"),
+    refetchInterval: enabled ? 30_000 : false,
+    enabled,
+  });
+}
+
+export function useApprovePasswordReset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<PasswordResetRequest>(`/api/users/password-resets/${id}/approve`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["password-resets"] }),
+  });
+}
+
+export function useRejectPasswordReset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<{ message: string }>(`/api/users/password-resets/${id}/reject`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["password-resets"] }),
   });
 }
 

@@ -100,10 +100,18 @@ class Settings(BaseSettings):
     session_ttl_hours: int = Field(default=168, alias="SESSION_TTL_HOURS")
     csrf_cookie_name: str = Field(default="folium_csrf", alias="CSRF_COOKIE_NAME")
     frontend_origin: str = Field(default="http://localhost:8080", alias="FRONTEND_ORIGIN")
+    password_reset_token_ttl_hours: int = Field(
+        default=1, alias="PASSWORD_RESET_TOKEN_TTL_HOURS"
+    )
+    max_avatar_size_mb: int = Field(default=2, alias="MAX_AVATAR_SIZE_MB")
 
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_size_mb * 1024 * 1024
+
+    @property
+    def max_avatar_bytes(self) -> int:
+        return self.max_avatar_size_mb * 1024 * 1024
 
     @property
     def allowed_mimes(self) -> set[str]:
@@ -124,6 +132,10 @@ class Settings(BaseSettings):
     @property
     def thumbnails_path(self) -> Path:
         return self.documents_path / "thumbnails"
+
+    @property
+    def avatars_path(self) -> Path:
+        return self.documents_path / "avatars"
 
     @field_validator("ai_privacy_mode", mode="before")
     @classmethod
