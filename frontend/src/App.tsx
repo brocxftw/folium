@@ -7,6 +7,7 @@ import { ForgotPasswordPage } from "@/features/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/features/auth/ResetPasswordPage";
 import { InboxPage } from "@/features/inbox/InboxPage";
 import { DocumentsPage } from "@/features/documents/DocumentsPage";
+import { LegacyDocumentsRedirect } from "@/features/documents/LegacyDocumentsRedirect";
 import { SearchPage } from "@/features/search/SearchPage";
 import { AskPage } from "@/features/ask/AskPage";
 import { JobsPage } from "@/features/jobs/JobsPage";
@@ -48,12 +49,18 @@ export default function App() {
             <Route path="/" element={<Navigate to="/documents" replace />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/documents" element={<DocumentsPage />} />
-            <Route path="/documents/folder/:folderId" element={<DocumentsPage />} />
+            <Route
+              path="/documents/folder/:folderId"
+              element={<LegacyDocumentsRedirect />}
+            />
             <Route
               path="/documents/folder/:folderId/:documentId"
-              element={<DocumentsPage />}
+              element={<LegacyDocumentsRedirect />}
             />
-            <Route path="/documents/:documentId" element={<DocumentsPage />} />
+            <Route
+              path="/documents/:documentId"
+              element={<LegacyDocumentsRedirect />}
+            />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/ask" element={<AskPage />} />
             <Route path="/jobs" element={<JobsPage />} />

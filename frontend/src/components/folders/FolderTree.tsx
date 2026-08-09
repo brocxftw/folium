@@ -35,6 +35,10 @@ interface FolderTreeProps {
   folders: Folder[];
   selectedFolderId?: string;
   onSelect: (folderId: string) => void;
+  /** Visual theme. Default matches the dark AppShell sidebar. */
+  variant?: "sidebar" | "surface";
+  /** Hide the section header + new-folder control (e.g. when the parent provides its own). */
+  hideHeader?: boolean;
 }
 
 interface TreeNode extends Folder {
@@ -77,6 +81,7 @@ function FolderNode({
   onCreateChild,
   onRename,
   onDelete,
+  variant,
 }: {
   node: TreeNode;
   depth: number;
@@ -87,11 +92,13 @@ function FolderNode({
   onCreateChild: (parentId: string) => void;
   onRename: (folder: Folder) => void;
   onDelete: (folder: Folder) => void;
+  variant: "sidebar" | "surface";
 }) {
   const isExpanded = expanded.has(node.id);
   const hasChildren = node.children.length > 0;
   const isSelected = selectedFolderId === node.id;
   const isSystem = node.kind !== "normal";
+  const surface = variant === "surface";
 
   if (node.kind === "root") {
     return (
@@ -108,6 +115,7 @@ function FolderNode({
             onCreateChild={onCreateChild}
             onRename={onRename}
             onDelete={onDelete}
+            variant={variant}
           />
         ))}
       </>
@@ -123,14 +131,19 @@ function FolderNode({
       <div
         className={cn(
           "group flex items-center rounded-md pr-1",
-          isSelected && "bg-sidebar-active",
+          isSelected && (surface ? "bg-surface-muted" : "bg-sidebar-active"),
         )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
       >
         <button
           type="button"
           onClick={() => (hasChildren ? onToggle(node.id) : onSelect(node.id))}
-          className="flex h-7 w-5 shrink-0 items-center justify-center text-sidebar-muted hover:text-sidebar-text"
+          className={cn(
+            "flex h-7 w-5 shrink-0 items-center justify-center",
+            surface
+              ? "text-text-muted hover:text-text-primary"
+              : "text-sidebar-muted hover:text-sidebar-text",
+          )}
         >
           {hasChildren ? (
             isExpanded ? (
@@ -146,14 +159,26 @@ function FolderNode({
           type="button"
           onClick={() => onSelect(node.id)}
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-[13px] text-sidebar-text",
-            "hover:text-white",
+            "flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-[13px]",
+            surface
+              ? "text-text-primary hover:text-text-primary"
+              : "text-sidebar-text hover:text-white",
           )}
         >
-          <FolderIcon className="h-3.5 w-3.5 shrink-0 text-sidebar-muted" />
+          <FolderIcon
+            className={cn(
+              "h-3.5 w-3.5 shrink-0",
+              surface ? "text-text-muted" : "text-sidebar-muted",
+            )}
+          />
           <span className="truncate">{node.name}</span>
           {node.document_count > 0 && (
-            <span className="ml-auto shrink-0 text-xs text-sidebar-muted">
+            <span
+              className={cn(
+                "ml-auto shrink-0 text-xs",
+                surface ? "text-text-muted" : "text-sidebar-muted",
+              )}
+            >
               {node.document_count}
             </span>
           )}
@@ -163,7 +188,12 @@ function FolderNode({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text group-hover:flex"
+                className={cn(
+                  "hidden h-6 w-6 shrink-0 items-center justify-center rounded group-hover:flex",
+                  surface
+                    ? "text-text-muted hover:bg-surface-hover hover:text-text-primary"
+                    : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text",
+                )}
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
@@ -198,6 +228,7 @@ function FolderNode({
               onCreateChild={onCreateChild}
               onRename={onRename}
               onDelete={onDelete}
+              variant={variant}
             />
           ))}
         </div>
@@ -206,7 +237,13 @@ function FolderNode({
   );
 }
 
-export function FolderTree({ folders, selectedFolderId, onSelect }: FolderTreeProps) {
+export function FolderTree({
+  folders,
+  selectedFolderId,
+  onSelect,
+  variant = "sidebar",
+  hideHeader = false,
+}: FolderTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [dialog, setDialog] = useState<
     | { type: "create"; parentId: string }
@@ -221,6 +258,7 @@ export function FolderTree({ folders, selectedFolderId, onSelect }: FolderTreePr
   const trashFolder = useTrashFolder();
   const { data: trashCount } = useTrashCount();
   const retentionDays = trashCount?.retention_days ?? 30;
+  const surface = variant === "surface";
 
   const tree = buildTree(folders);
 
@@ -259,22 +297,34 @@ export function FolderTree({ folders, selectedFolderId, onSelect }: FolderTreePr
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between px-3 py-1">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-sidebar-muted">
-          Folders
-        </span>
-        <button
-          type="button"
-          onClick={() => {
-            const root = folders.find((f) => f.kind === "root");
-            openCreate(root?.id ?? "");
-          }}
-          className="rounded p-0.5 text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text"
-          title="New folder"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      {!hideHeader && (
+        <div className="flex items-center justify-between px-3 py-1">
+          <span
+            className={cn(
+              "text-[11px] font-medium uppercase tracking-wide",
+              surface ? "text-text-muted" : "text-sidebar-muted",
+            )}
+          >
+            Folders
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const root = folders.find((f) => f.kind === "root");
+              openCreate(root?.id ?? "");
+            }}
+            className={cn(
+              "rounded p-0.5",
+              surface
+                ? "text-text-muted hover:bg-surface-hover hover:text-text-primary"
+                : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text",
+            )}
+            title="New folder"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <div className="px-1">
         {tree.map((node) => (
           <FolderNode
@@ -291,6 +341,7 @@ export function FolderTree({ folders, selectedFolderId, onSelect }: FolderTreePr
               setDialog({ type: "rename", folder });
             }}
             onDelete={(folder) => setDialog({ type: "delete", folder })}
+            variant={variant}
           />
         ))}
       </div>

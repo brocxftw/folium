@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   FileText,
   Inbox,
@@ -47,6 +47,7 @@ const NAV_ITEMS = [
 
 export function AppShell({ children }: AppShellProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: session } = useSession();
   const logout = useLogout();
   const { data: folders = [] } = useFolders();
@@ -55,17 +56,20 @@ export function AppShell({ children }: AppShellProps) {
   const { data: trashCount } = useTrashCount();
   const [sidebarOpen, setSidebarOpen] = usePersistedState("folium.sidebarOpen", true);
 
+  const onDocuments = location.pathname.startsWith("/documents");
+  const showLibraryExplorer = sidebarOpen && !onDocuments;
+
   const handleLogout = async () => {
     await logout.mutateAsync();
     navigate("/login");
   };
 
   const handleFolderSelect = (folderId: string) => {
-    navigate(`/documents/folder/${folderId}`);
+    navigate(`/documents?folder=${encodeURIComponent(folderId)}`);
   };
 
   const handleTagSelect = (tagId: string) => {
-    navigate(`/documents?tag=${tagId}`);
+    navigate(`/documents?tag=${encodeURIComponent(tagId)}`);
   };
 
   return (
@@ -162,7 +166,7 @@ export function AppShell({ children }: AppShellProps) {
             })}
           </nav>
 
-          {sidebarOpen && (
+          {showLibraryExplorer && (
             <>
               <div className="flex-1 overflow-auto scrollbar-thin border-t border-sidebar-border py-2">
                 <FolderTree folders={folders} onSelect={handleFolderSelect} />
@@ -179,7 +183,7 @@ export function AppShell({ children }: AppShellProps) {
             </>
           )}
 
-          {!sidebarOpen && <div className="flex-1" />}
+          {!showLibraryExplorer && <div className="flex-1" />}
 
           <div className={cn("border-t border-sidebar-border", sidebarOpen ? "p-3" : "p-2")}>
             <div className={cn("flex items-center", sidebarOpen ? "gap-2" : "flex-col gap-2")}>

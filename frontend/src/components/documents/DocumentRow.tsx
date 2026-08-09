@@ -4,10 +4,11 @@ import {
   File,
   FileSpreadsheet,
 } from "lucide-react";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatBytes, formatDate } from "@/lib/utils";
 import type { Document } from "@/lib/api/types";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { TagList } from "@/components/tags/TagList";
+import { RetrievalReadinessBadge } from "@/features/documents/RetrievalReadinessBadge";
 
 interface DocumentRowProps {
   document: Document;
@@ -48,7 +49,7 @@ export function DocumentRow({
           onCheckedChange={(checked) => onSelect(document.id, !!checked)}
         />
       </td>
-      <td className="max-w-[240px] px-2 py-2">
+      <td className="max-w-[280px] px-2 py-2">
         <div className="flex items-center gap-2 min-w-0">
           <FileIcon mimeType={document.mime_type} />
           <span className="truncate font-medium text-text-primary">{document.title}</span>
@@ -62,8 +63,13 @@ export function DocumentRow({
       <td className="hidden md:table-cell max-w-[160px] px-2 py-2">
         <TagList tags={document.tags} max={2} />
       </td>
-      <td className="hidden xl:table-cell px-2 py-2 text-text-secondary text-xs">
-        {document.document_type_name ?? "—"}
+      <td className="hidden xl:table-cell px-2 py-2 text-text-secondary text-xs whitespace-nowrap">
+        {document.page_count != null ? `${document.page_count}p` : "—"}
+        <span className="mx-1 text-text-muted">·</span>
+        {formatBytes(document.file_size)}
+      </td>
+      <td className="hidden sm:table-cell px-2 py-2">
+        <RetrievalReadinessBadge document={document} />
       </td>
       <td className="w-24 px-2 py-2 text-right text-text-secondary text-xs whitespace-nowrap">
         {formatDate(document.added_date)}

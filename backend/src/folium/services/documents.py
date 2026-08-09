@@ -820,6 +820,7 @@ async def list_documents(
     inbox: bool | None = None,
     inbox_status: InboxStatus | None = None,
     trashed: bool = False,
+    unprocessed: bool | None = None,
     tag_ids: list[uuid.UUID] | None = None,
     q: str | None = None,
     page: int = 1,
@@ -839,7 +840,24 @@ async def list_documents(
         stmt = stmt.where(Document.is_trashed.is_(False))
         count_stmt = count_stmt.where(Document.is_trashed.is_(False))
 
-    if inbox is True:
+    if unprocessed is True:
+        # Documents still in the ingestion → indexing lifecycle (not RAG-ready).
+        unprocessed_filt = or_(
+            Document.inbox.is_(True),
+            Document.needs_review.is_(True),
+            Document.document_indexed.is_(False),
+            Document.processing_status.in_(
+                [
+                    ProcessingStatus.PENDING,
+                    ProcessingStatus.PROCESSING,
+                    ProcessingStatus.FAILED,
+                    ProcessingStatus.PARTIAL,
+                ]
+            ),
+        )
+        stmt = stmt.where(unprocessed_filt)
+        count_stmt = count_stmt.where(unprocessed_filt)
+    elif inbox is True:
         stmt = stmt.where(Document.inbox.is_(True))
         count_stmt = count_stmt.where(Document.inbox.is_(True))
     elif inbox is False:
