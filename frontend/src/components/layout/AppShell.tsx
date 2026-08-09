@@ -21,6 +21,7 @@ import {
   useTags,
   useInboxCount,
   useTrashCount,
+  useHealth,
 } from "@/lib/api/hooks";
 import { usePersistedState } from "@/lib/usePersistedState";
 import { FolderTree } from "@/components/folders/FolderTree";
@@ -54,10 +55,12 @@ export function AppShell({ children }: AppShellProps) {
   const { data: tags = [] } = useTags();
   const { data: inboxCount = 0 } = useInboxCount();
   const { data: trashCount } = useTrashCount();
+  const { data: health } = useHealth();
   const [sidebarOpen, setSidebarOpen] = usePersistedState("folium.sidebarOpen", true);
 
   const onDocuments = location.pathname.startsWith("/documents");
   const showLibraryExplorer = sidebarOpen && !onDocuments;
+  const appVersion = health?.version;
 
   const handleLogout = async () => {
     await logout.mutateAsync();
@@ -234,6 +237,22 @@ export function AppShell({ children }: AppShellProps) {
                 <TooltipContent side="right">Log out</TooltipContent>
               </Tooltip>
             </div>
+            {appVersion && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <p
+                    className={cn(
+                      "mt-2 truncate font-mono text-[10px] text-sidebar-muted",
+                      !sidebarOpen && "text-center",
+                    )}
+                    aria-label={`App version ${appVersion}`}
+                  >
+                    {sidebarOpen ? `v${appVersion}` : appVersion.slice(0, 7)}
+                  </p>
+                </TooltipTrigger>
+                <TooltipContent side="right">{appVersion}</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </aside>
 

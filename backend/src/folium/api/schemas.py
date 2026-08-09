@@ -297,6 +297,18 @@ class DocumentListOut(BaseModel):
     page_size: int
 
 
+class DocumentPageContentOut(BaseModel):
+    page_number: int
+    text: str
+
+
+class DocumentContentOut(BaseModel):
+    document_id: UUID
+    title: str
+    page_count: int
+    pages: list[DocumentPageContentOut]
+
+
 class DuplicateOut(BaseModel):
     duplicate: bool = True
     existing_document_id: UUID
