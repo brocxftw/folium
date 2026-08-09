@@ -281,6 +281,13 @@ export function useDeleteAdminUser() {
   });
 }
 
+export function useAdminSetPassword() {
+  return useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) =>
+      api.post<Message>(`/api/users/${id}/password`, { password }),
+  });
+}
+
 export function useCreateInvite() {
   const qc = useQueryClient();
   return useMutation({

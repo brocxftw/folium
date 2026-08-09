@@ -23,7 +23,6 @@ from folium.models import (
     Job,
     JobType,
     ProcessingStatus,
-    User,
 )
 from folium.ocr.extractor import detect_language_hint, extract_document
 from folium.ocr.previews import persist_previews
@@ -393,18 +392,9 @@ async def process_consume_file(
         rel = Path(source.name)
 
     relative_path = None if len(rel.parts) <= 1 else str(rel.as_posix())
-    settings = get_settings()
-    owner = (
-        await session.execute(select(User).where(User.username == settings.admin_username).limit(1))
-    ).scalar_one_or_none()
-    if owner is None:
-        owner = (
-            await session.execute(
-                select(User).where(User.is_admin.is_(True)).order_by(User.created_at.asc()).limit(1)
-            )
-        ).scalar_one_or_none()
-    if owner is None:
-        raise ValueError("No admin user available for consume-folder ingestion")
+    from folium.services import users as user_service
+
+    owner = await user_service.resolve_consume_owner(session)
 
     result = await ingest_path(
         session,

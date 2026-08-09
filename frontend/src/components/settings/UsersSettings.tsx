@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  useAdminSetPassword,
   useAdminUsers,
   useApprovePasswordReset,
   useCreateInvite,
@@ -42,6 +43,7 @@ type ConfirmAction =
   | { type: "activate"; user: UserAdmin }
   | { type: "make_admin"; user: UserAdmin }
   | { type: "remove_admin"; user: UserAdmin }
+  | { type: "set_password"; user: UserAdmin }
   | { type: "approve_reset"; id: string; username: string }
   | { type: "reject_reset"; id: string; username: string }
   | null;
@@ -53,6 +55,7 @@ export function UsersSettings() {
   const { data: resetRequests = [] } = usePasswordResetRequests();
   const updateUser = useUpdateAdminUser();
   const deleteUser = useDeleteAdminUser();
+  const setPassword = useAdminSetPassword();
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
   const approveReset = useApprovePasswordReset();
@@ -61,6 +64,9 @@ export function UsersSettings() {
   const [copiedResetLink, setCopiedResetLink] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmAction>(null);
   const [busy, setBusy] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const selfId = session?.user.id;
 
@@ -76,6 +82,7 @@ export function UsersSettings() {
   const runConfirm = async () => {
     if (!confirm) return;
     setBusy(true);
+    setPasswordError(null);
     try {
       if (confirm.type === "delete") {
         await deleteUser.mutateAsync(confirm.user.id);
@@ -89,6 +96,18 @@ export function UsersSettings() {
           id: confirm.user.id,
           data: { is_admin: confirm.type === "make_admin" },
         });
+      } else if (confirm.type === "set_password") {
+        if (newPassword.length < 8) {
+          setPasswordError("Password must be at least 8 characters");
+          return;
+        }
+        if (newPassword !== confirmPassword) {
+          setPasswordError("Passwords do not match");
+          return;
+        }
+        await setPassword.mutateAsync({ id: confirm.user.id, password: newPassword });
+        setNewPassword("");
+        setConfirmPassword("");
       } else if (confirm.type === "approve_reset") {
         const result = await approveReset.mutateAsync(confirm.id);
         if (result.reset_url_token) {
@@ -100,6 +119,12 @@ export function UsersSettings() {
         await rejectReset.mutateAsync(confirm.id);
       }
       setConfirm(null);
+    } catch (err) {
+      if (confirm.type === "set_password") {
+        setPasswordError(err instanceof Error ? err.message : "Failed to set password");
+        return;
+      }
+      throw err;
     } finally {
       setBusy(false);
     }
@@ -272,6 +297,18 @@ export function UsersSettings() {
                       >
                         {user.is_active ? "Deactivate" : "Activate"}
                       </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setNewPassword("");
+                          setConfirmPassword("");
+                          setPasswordError(null);
+                          setConfirm({ type: "set_password", user });
+                        }}
+                      >
+                        Set password
+                      </Button>
                       <StorageQuotaEditor
                         value={user.storage_quota_bytes}
                         onSave={(value, clear) =>
@@ -317,20 +354,75 @@ export function UsersSettings() {
         )}
       </section>
 
-      <Dialog open={!!confirm} onOpenChange={(open) => !open && setConfirm(null)}>
+      <Dialog
+        open={!!confirm}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirm(null);
+            setNewPassword("");
+            setConfirmPassword("");
+            setPasswordError(null);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{confirmTitle(confirm)}</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-text-secondary">{confirmBody(confirm)}</p>
+          {confirm?.type === "set_password" ? (
+            <div className="space-y-3">
+              <p className="text-sm text-text-secondary">
+                Set a new password for @{confirm.user.username}. They will be signed out of all
+                sessions.
+              </p>
+              <div>
+                <label className="text-xs text-text-secondary">New password</label>
+                <Input
+                  type="password"
+                  className="mt-1"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-text-secondary">Confirm password</label>
+                <Input
+                  type="password"
+                  className="mt-1"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </div>
+              {passwordError && <p className="text-xs text-danger">{passwordError}</p>}
+            </div>
+          ) : (
+            <p className="text-sm text-text-secondary">{confirmBody(confirm)}</p>
+          )}
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setConfirm(null)} disabled={busy}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setConfirm(null);
+                setNewPassword("");
+                setConfirmPassword("");
+                setPasswordError(null);
+              }}
+              disabled={busy}
+            >
               Cancel
             </Button>
             <Button
-              variant={confirm?.type === "delete" || confirm?.type === "reject_reset" ? "danger" : "default"}
+              variant={
+                confirm?.type === "delete" || confirm?.type === "reject_reset" ? "danger" : "default"
+              }
               onClick={() => void runConfirm()}
-              disabled={busy}
+              disabled={
+                busy ||
+                (confirm?.type === "set_password" &&
+                  (newPassword.length < 8 || !confirmPassword))
+              }
             >
               {confirmPrimary(confirm)}
             </Button>
@@ -354,6 +446,8 @@ function confirmTitle(action: ConfirmAction): string {
       return "Make admin";
     case "remove_admin":
       return "Remove admin";
+    case "set_password":
+      return "Set password";
     case "approve_reset":
       return "Approve password reset";
     case "reject_reset":
@@ -374,6 +468,8 @@ function confirmBody(action: ConfirmAction): string {
       return `Grant admin access to ${action.user.username}? Admins can manage users and AI settings.`;
     case "remove_admin":
       return `Remove admin access from ${action.user.username}?`;
+    case "set_password":
+      return "";
     case "approve_reset":
       return `Approve a password reset for @${action.username}? You will get a one-time link to share with them.`;
     case "reject_reset":
@@ -394,6 +490,8 @@ function confirmPrimary(action: ConfirmAction): string {
       return "Make admin";
     case "remove_admin":
       return "Remove admin";
+    case "set_password":
+      return "Set password";
     case "approve_reset":
       return "Approve & copy link";
     case "reject_reset":

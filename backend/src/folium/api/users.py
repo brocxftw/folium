@@ -178,6 +178,7 @@ async def set_user_password(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> MessageOut:
     await user_service.admin_set_password(db, user_id, body.password)
+    await db.commit()
     return MessageOut(message="Password updated")
 
 
