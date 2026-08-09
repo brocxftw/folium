@@ -11,30 +11,55 @@ from sqlalchemy.orm import selectinload
 
 from folium.auth.passwords import generate_token, hash_password, hash_token, verify_password
 from folium.core.config import get_settings
-from folium.core.exceptions import AuthError, ForbiddenError
+from folium.core.exceptions import AuthError, ForbiddenError, ValidationError
 from folium.models import Session, User
 
 
 async def ensure_admin_user(session: AsyncSession) -> User:
+    """Ensure an admin exists for bootstrap.
+
+    - If ``FOLIUM_ADMIN_USERNAME`` exists, return that user.
+    - If the database is empty, create the configured bootstrap admin.
+    - If users already exist under a different username (common after rename),
+      return the earliest active admin so startup does not crash.
+    """
     settings = get_settings()
     user = (
         await session.execute(select(User).where(User.username == settings.admin_username))
     ).scalar_one_or_none()
-    if user is None:
-        count = (await session.execute(select(User))).scalars().first()
-        if count is None:
-            user = User(
-                username=settings.admin_username,
-                password_hash=hash_password(settings.admin_password),
-                display_name="Local Admin",
-                is_admin=True,
-            )
-            session.add(user)
-            await session.flush()
-            from folium.services import folders as folder_service
+    if user is not None:
+        return user
 
-            await folder_service.ensure_system_folders(session, user.id)
-    return user  # type: ignore[return-value]
+    any_user = (await session.execute(select(User).limit(1))).scalar_one_or_none()
+    if any_user is None:
+        user = User(
+            username=settings.admin_username,
+            password_hash=hash_password(settings.admin_password),
+            display_name="Local Admin",
+            is_admin=True,
+        )
+        session.add(user)
+        await session.flush()
+        from folium.services import folders as folder_service
+
+        await folder_service.ensure_system_folders(session, user.id)
+        return user
+
+    admin = (
+        await session.execute(
+            select(User)
+            .where(User.is_admin.is_(True), User.is_active.is_(True))
+            .order_by(User.created_at.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if admin is None:
+        raise ValidationError(
+            "No active admin user found. Create an admin account or set "
+            "FOLIUM_ADMIN_USERNAME to an existing admin username."
+        )
+    return admin
+
 
 
 async def authenticate(
