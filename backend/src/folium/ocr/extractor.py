@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +15,7 @@ from PIL import Image
 
 from folium.core.config import Settings, get_settings
 from folium.core.exceptions import ValidationError
+from folium.ocr.paddle_engine import ocr_image, paddle_ocr_available
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +46,16 @@ def extract_document(
     *,
     settings: Settings | None = None,
     language: str | None = None,
+    allow_ocr: bool = True,
+    force_ocr: bool = False,
 ) -> ExtractedDocument:
-    """Extract text from a supported document on disk."""
+    """Extract text from a supported document on disk.
+
+    For PDFs, OCR is optional:
+    - ``allow_ocr=False``: native text only (fast pre-flight extract)
+    - ``force_ocr=True``: always run OCR (dedicated OCR job)
+    - default: OCR when native text looks too thin
+    """
     settings = settings or get_settings()
     lang = language or settings.ocr_language
     path = path.resolve()
@@ -57,7 +64,13 @@ def extract_document(
 
     mime = mime_type.lower()
     if mime == "application/pdf":
-        return _extract_pdf(path, settings=settings, language=lang)
+        return _extract_pdf(
+            path,
+            settings=settings,
+            language=lang,
+            allow_ocr=allow_ocr,
+            force_ocr=force_ocr,
+        )
     if mime in {"image/png", "image/jpeg"}:
         return _extract_image(path, settings=settings, language=lang)
     if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
@@ -111,32 +124,30 @@ def _extract_docx(path: Path) -> ExtractedDocument:
     )
 
 
-def _extract_pdf(path: Path, *, settings: Settings, language: str) -> ExtractedDocument:
+def _extract_pdf(
+    path: Path,
+    *,
+    settings: Settings,
+    language: str,
+    allow_ocr: bool = True,
+    force_ocr: bool = False,
+) -> ExtractedDocument:
     pages = _pdf_text_pages(path)
-    if _needs_ocr(pages) and settings.ocr_enabled:
-        ocr_path: Path | None = None
-        try:
-            if _has_ocrmypdf():
-                try:
-                    ocr_path = _ocr_pdf_ocrmypdf(path, language=language)
-                    pages = _pdf_text_pages(ocr_path)
-                    method = "pymupdf+ocrmypdf"
-                except ValidationError:
-                    logger.info("OCRmyPDF unavailable for %s; trying tesseract", path)
-                    if _has_tesseract():
-                        pages = _ocr_pdf_pages_tesseract(path, language=language)
-                        method = "pymupdf+tesseract"
-                    else:
-                        method = "pymupdf"
-            elif _has_tesseract():
-                pages = _ocr_pdf_pages_tesseract(path, language=language)
-                method = "pymupdf+tesseract"
-            else:
-                logger.warning("OCR needed for %s but no OCR backend is available", path)
-                method = "pymupdf"
-        finally:
-            if ocr_path is not None:
-                ocr_path.unlink(missing_ok=True)
+    should_ocr = (
+        allow_ocr
+        and settings.ocr_enabled
+        and (force_ocr or pages_need_ocr(pages))
+    )
+    if should_ocr:
+        if paddle_ocr_available():
+            pages = _ocr_pdf_pages_paddle(path, language=language)
+            method = "pymupdf+paddleocr"
+        else:
+            logger.warning(
+                "OCR needed for %s but PaddleOCR is not available",
+                path,
+            )
+            method = "pymupdf"
     else:
         method = "pymupdf"
 
@@ -158,7 +169,8 @@ def _pdf_text_pages(path: Path) -> list[ExtractedPage]:
     return pages
 
 
-def _needs_ocr(pages: list[ExtractedPage]) -> bool:
+def pages_need_ocr(pages: list[ExtractedPage]) -> bool:
+    """True when native page text is missing or too thin for reliable filing."""
     if not pages:
         return True
     non_empty = [p for p in pages if p.text.strip()]
@@ -168,57 +180,42 @@ def _needs_ocr(pages: list[ExtractedPage]) -> bool:
     return avg_chars < _MIN_CHARS_PER_PAGE
 
 
+# Back-compat alias for older call sites / tests.
+_needs_ocr = pages_need_ocr
+
+
 def _extract_image(path: Path, *, settings: Settings, language: str) -> ExtractedDocument:
     text = ""
     method = "pillow"
-    if settings.ocr_enabled and _has_tesseract():
-        text = _ocr_image_path(path, language=language)
-        method = "tesseract"
+    if settings.ocr_enabled and paddle_ocr_available():
+        text = ocr_image(path, language=language)
+        method = "paddleocr"
     else:
         with Image.open(path) as img:
             # Metadata-only fallback when OCR is unavailable.
-            parts = [f"Image: {path.name}", f"Size: {img.size[0]}x{img.size[1]}", f"Mode: {img.mode}"]
+            parts = [
+                f"Image: {path.name}",
+                f"Size: {img.size[0]}x{img.size[1]}",
+                f"Mode: {img.mode}",
+            ]
             text = "\n".join(parts)
             if not settings.ocr_enabled:
                 logger.info("OCR disabled; returning image metadata for %s", path)
+            elif settings.ocr_enabled:
+                logger.warning(
+                    "OCR enabled but PaddleOCR unavailable; metadata fallback for %s",
+                    path,
+                )
 
     return ExtractedDocument(
         pages=[ExtractedPage(page_number=1, text=text.strip())],
         page_count=1,
-        language=language if method == "tesseract" else None,
+        language=language if method == "paddleocr" else None,
         method=method,
     )
 
 
-def _ocr_image_path(path: Path, *, language: str) -> str:
-    try:
-        import pytesseract
-    except ImportError:
-        return _ocr_image_subprocess(path, language=language)
-
-    with Image.open(path) as img:
-        if img.mode not in {"RGB", "L"}:
-            img = img.convert("RGB")
-        return pytesseract.image_to_string(img, lang=language).strip()
-
-
-def _ocr_image_subprocess(path: Path, *, language: str) -> str:
-    tesseract = shutil.which("tesseract")
-    if not tesseract:
-        return ""
-    result = subprocess.run(
-        [tesseract, str(path), "stdout", "-l", language, "--psm", "3"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        logger.warning("tesseract failed for %s: %s", path, result.stderr.strip())
-        return ""
-    return result.stdout.strip()
-
-
-def _ocr_pdf_pages_tesseract(path: Path, *, language: str) -> list[ExtractedPage]:
+def _ocr_pdf_pages_paddle(path: Path, *, language: str) -> list[ExtractedPage]:
     pages: list[ExtractedPage] = []
     with pymupdf.open(path) as doc:
         for index in range(doc.page_count):
@@ -228,44 +225,19 @@ def _ocr_pdf_pages_tesseract(path: Path, *, language: str) -> list[ExtractedPage
                 tmp_path = Path(tmp.name)
             try:
                 pix.save(str(tmp_path))
-                text = _ocr_image_path(tmp_path, language=language)
+                text = ocr_image(tmp_path, language=language)
             finally:
                 tmp_path.unlink(missing_ok=True)
             pages.append(ExtractedPage(page_number=index + 1, text=text))
     return pages
 
 
-def _has_tesseract() -> bool:
-    return shutil.which("tesseract") is not None
-
-
-def _has_ocrmypdf() -> bool:
-    return shutil.which("ocrmypdf") is not None
-
-
-def _ocr_pdf_ocrmypdf(path: Path, *, language: str) -> Path:
-    fd, tmp_name = tempfile.mkstemp(suffix=".pdf")
-    Path(tmp_name).unlink(missing_ok=True)
-    output = Path(tmp_name)
-    cmd = [
-        "ocrmypdf",
-        "--skip-text",
-        "--optimize",
-        "0",
-        "-l",
-        language,
-        str(path),
-        str(output),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        logger.warning("ocrmypdf failed for %s: %s", path, result.stderr.strip())
-        raise ValidationError("OCRmyPDF failed to process scanned PDF")
-    return output
-
-
 def detect_language_hint(text: str) -> str | None:
-    """Return a coarse language hint from extracted text."""
+    """Return a coarse Folium language hint from extracted text.
+
+    Codes match OCR_LANGUAGE / legacy Tesseract-style values and are mapped to
+    PaddleOCR langs by ``folium.ocr.paddle_engine.map_ocr_language``.
+    """
     sample = text[:4000]
     if not sample.strip():
         return None

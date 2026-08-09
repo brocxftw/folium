@@ -38,6 +38,7 @@ services:
       - ${FOLIUM_DOCUMENTS_HOST:-./data/documents}:/documents
       - ${FOLIUM_CONSUME_HOST:-./data/consume}:/consume
       - ${FOLIUM_EXPORT_HOST:-./data/export}:/export
+      - ${FOLIUM_PADDLE_CACHE_HOST:-./data/paddleocr}:/app/.paddleocr
     ports:
       - "8000:8000"
     healthcheck:
@@ -77,6 +78,7 @@ services:
       - ${FOLIUM_DOCUMENTS_HOST:-./data/documents}:/documents
       - ${FOLIUM_CONSUME_HOST:-./data/consume}:/consume
       - ${FOLIUM_EXPORT_HOST:-./data/export}:/export
+      - ${FOLIUM_PADDLE_CACHE_HOST:-./data/paddleocr}:/app/.paddleocr
     user: "1000:1000"
     group_add:
       - "10000"

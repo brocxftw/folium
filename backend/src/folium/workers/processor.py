@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
 from datetime import UTC, datetime
+from functools import partial
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,7 +36,13 @@ from folium.models import (
     SuggestionStatus,
     Tag,
 )
-from folium.ocr.extractor import detect_language_hint, extract_document
+from folium.ocr.extractor import (
+    ExtractedPage,
+    detect_language_hint,
+    extract_document,
+    pages_need_ocr,
+)
+from folium.ocr.paddle_engine import get_ocr_executor
 from folium.ocr.previews import persist_previews
 from folium.search.fts import (
     refresh_document_search_vector,
@@ -46,6 +54,9 @@ from folium.services.quotas import assert_ai_quota
 from folium.storage.service import StorageService
 
 logger = get_logger(__name__)
+
+# Align with metadata-suggestion minimum; below this, scanned PDFs need OCR first.
+_MIN_TEXT_FOR_AI = 20
 
 PREFLIGHT_JOB_TYPES = frozenset(
     {
@@ -105,6 +116,43 @@ async def mark_preflight_failed(
     await session.flush()
 
 
+def _has_usable_extracted_text(doc: Document) -> bool:
+    return len((doc.extracted_text or "").strip()) >= _MIN_TEXT_FOR_AI
+
+
+def _pages_from_extracted_text(text: str) -> list[ExtractedPage]:
+    parts = [p.strip() for p in (text or "").split("\n\n")]
+    pages = [ExtractedPage(page_number=i + 1, text=part) for i, part in enumerate(parts) if part]
+    return pages or [ExtractedPage(page_number=1, text=(text or "").strip())]
+
+
+def _pdf_needs_ocr_before_ai(doc: Document, *, ocr_enabled: bool) -> bool:
+    """True when AI filing must wait for a dedicated OCR pass."""
+    if not ocr_enabled:
+        return False
+    if doc.mime_type != "application/pdf":
+        return False
+    if doc.ocr_completed:
+        return False
+    return pages_need_ocr(_pages_from_extracted_text(doc.extracted_text or ""))
+
+
+async def _has_open_ocr_job(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    exclude_job_id: uuid.UUID | None = None,
+) -> bool:
+    stmt = select(Job.id).where(
+        Job.document_id == document_id,
+        Job.job_type == JobType.OCR,
+        Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
+    )
+    if exclude_job_id is not None:
+        stmt = stmt.where(Job.id != exclude_job_id)
+    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
+
+
 async def _enqueue_metadata_suggestion_or_finish(
     session: AsyncSession,
     doc: Document,
@@ -112,11 +160,19 @@ async def _enqueue_metadata_suggestion_or_finish(
     priority: int,
     exclude_job_id: uuid.UUID | None = None,
 ) -> None:
+    # Never start AI filing while OCR is still queued/running.
+    if await _has_open_ocr_job(session, doc.id, exclude_job_id=exclude_job_id):
+        logger.info(
+            "Deferring metadata suggestion until OCR finishes for doc=%s",
+            doc.id,
+        )
+        return
+
     ai_settings = await ensure_ai_settings(session)
     can_suggest = (
         ai_settings.auto_tagging
         and ai_settings.chat_provider_id is not None
-        and bool((doc.extracted_text or "").strip())
+        and _has_usable_extracted_text(doc)
     )
     if can_suggest:
         provider = await session.get(AIProvider, ai_settings.chat_provider_id)
@@ -144,7 +200,24 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
     path = storage.open_original_path(doc.storage_key)
     settings = get_settings()
 
-    extracted = extract_document(path, doc.mime_type, settings=settings, language=doc.language)
+    # PDFs: native text only here. OCR is a separate job so AI can wait on it.
+    # Images still OCR inline (that is their only text source).
+    is_pdf = doc.mime_type == "application/pdf"
+    extract_fn = partial(
+        extract_document,
+        path,
+        doc.mime_type,
+        settings=settings,
+        language=doc.language,
+        allow_ocr=not is_pdf,
+    )
+    # Paddle must run on its dedicated thread; native PDF extract can use the
+    # default pool.
+    if is_pdf:
+        extracted = await asyncio.to_thread(extract_fn)
+    else:
+        loop = asyncio.get_running_loop()
+        extracted = await loop.run_in_executor(get_ocr_executor(), extract_fn)
     await session.execute(delete(DocumentPage).where(DocumentPage.document_id == doc.id))
 
     full_text_parts: list[str] = []
@@ -161,7 +234,11 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
     doc.page_count = extracted.page_count or len(extracted.pages)
     doc.extracted_text = "\n\n".join(full_text_parts)
     doc.text_extracted = True
-    doc.ocr_completed = extracted.method != "pymupdf" and "ocr" in extracted.method
+    # Native PDF extract never counts as OCR; images OCR inline during this job.
+    if is_pdf:
+        doc.ocr_completed = False
+    else:
+        doc.ocr_completed = extracted.method == "paddleocr" or "ocr" in extracted.method
     doc.language = (
         doc.language or extracted.language or detect_language_hint(doc.extracted_text or "")
     )
@@ -173,17 +250,20 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
     await refresh_document_search_vector(session, doc.id)
 
     # Final indexing is gated behind Inbox "Process documents".
-    needs_ocr = (
-        settings.ocr_enabled
-        and not doc.ocr_completed
-        and doc.mime_type == "application/pdf"
-    )
-    if needs_ocr:
+    # Thin/scanned PDFs must finish the dedicated OCR job before AI suggestions.
+    if is_pdf and settings.ocr_enabled and pages_need_ocr(extracted.pages):
         await job_service.enqueue_job(
             session,
             job_type=JobType.OCR,
             document_id=doc.id,
-            priority=job.priority + 15,
+            # Ahead of thumbnail so OCR → AI is not stuck behind preview work.
+            priority=max((job.priority or 100) - 5, 1),
+        )
+        logger.info(
+            "Enqueued OCR before metadata suggestion for doc=%s (text_len=%s, pages=%s)",
+            doc.id,
+            len((doc.extracted_text or "").strip()),
+            len(extracted.pages),
         )
     else:
         await _enqueue_metadata_suggestion_or_finish(
@@ -197,7 +277,7 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
 
 
 async def process_ocr(session: AsyncSession, job: Job) -> dict:
-    """Re-run OCR extraction for scanned PDFs."""
+    """Run OCR for scanned PDFs, then enqueue AI filing suggestions."""
     if job.document_id is None:
         raise ValueError("OCR job requires document_id")
     doc = await _get_document(session, job.document_id)
@@ -205,7 +285,19 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
     path = storage.open_original_path(doc.storage_key)
     settings = get_settings()
 
-    extracted = extract_document(path, doc.mime_type, settings=settings, language=doc.language)
+    # PP-OCRv6 must stay on the dedicated OCR thread (Paddle is not pool-safe).
+    loop = asyncio.get_running_loop()
+    extracted = await loop.run_in_executor(
+        get_ocr_executor(),
+        partial(
+            extract_document,
+            path,
+            doc.mime_type,
+            settings=settings,
+            language=doc.language,
+            force_ocr=True,
+        ),
+    )
     await session.execute(delete(DocumentPage).where(DocumentPage.document_id == doc.id))
 
     full_text_parts: list[str] = []
@@ -223,11 +315,21 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
     doc.extracted_text = "\n\n".join(full_text_parts)
     doc.text_extracted = True
     doc.ocr_completed = True
+    if extracted.language and not doc.language:
+        doc.language = extracted.language
+    elif not doc.language:
+        doc.language = detect_language_hint(doc.extracted_text or "")
     await session.flush()
 
     await refresh_page_search_vectors(session, doc.id)
     await refresh_document_search_vector(session, doc.id)
 
+    logger.info(
+        "OCR finished for doc=%s method=%s text_len=%s; enqueueing AI if eligible",
+        doc.id,
+        extracted.method,
+        len((doc.extracted_text or "").strip()),
+    )
     await _enqueue_metadata_suggestion_or_finish(
         session,
         doc,
@@ -235,7 +337,7 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
         exclude_job_id=job.id,
     )
 
-    return {"ocr_completed": True}
+    return {"ocr_completed": True, "method": extracted.method, "text_len": len(doc.extracted_text or "")}
 
 
 async def process_thumbnail(session: AsyncSession, job: Job) -> dict:
@@ -489,6 +591,29 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
     if job.document_id is None:
         raise ValueError("METADATA_SUGGESTION job requires document_id")
     doc = await _get_document(session, job.document_id)
+
+    # Hard gate: never file-suggest while OCR is still in flight.
+    if await _has_open_ocr_job(session, doc.id, exclude_job_id=job.id):
+        logger.info(
+            "metadata_suggestion waiting for OCR on doc=%s; skipping this job",
+            doc.id,
+        )
+        return {"skipped": True, "reason": "waiting_for_ocr"}
+
+    settings = get_settings()
+    if _pdf_needs_ocr_before_ai(doc, ocr_enabled=settings.ocr_enabled):
+        await job_service.enqueue_job(
+            session,
+            job_type=JobType.OCR,
+            document_id=doc.id,
+            priority=(job.priority or 50) - 5,
+        )
+        logger.info(
+            "metadata_suggestion enqueued OCR first for doc=%s; skipping this job",
+            doc.id,
+        )
+        return {"skipped": True, "reason": "enqueued_ocr_first"}
+
     ai_settings = await ensure_ai_settings(session)
 
     if not ai_settings.auto_tagging or ai_settings.chat_provider_id is None:
@@ -501,7 +626,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         return {"skipped": True, "reason": "provider_unavailable"}
 
     text = (doc.extracted_text or "").strip()
-    if len(text) < 20:
+    if len(text) < _MIN_TEXT_FOR_AI:
         doc.needs_review = True
         await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
         return {"skipped": True, "reason": "insufficient_text"}
