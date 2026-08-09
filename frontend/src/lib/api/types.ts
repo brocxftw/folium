@@ -18,6 +18,16 @@ export interface Session {
   csrf_token: string;
 }
 
+export interface UserSession {
+  id: UUID;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  user_agent: string | null;
+  ip_address: string | null;
+  current: boolean;
+}
+
 export interface LoginRequest {
   username: string;
   password: string;
@@ -455,6 +465,12 @@ export interface AIProvider {
   supports_embeddings: boolean;
   no_training: boolean;
   zero_retention: boolean;
+  last_probe_status: string | null;
+  last_probe_error: string | null;
+  last_probe_latency_ms: number | null;
+  last_probe_model_count: number | null;
+  last_probed_at: string | null;
+  last_success_at: string | null;
 }
 
 export interface AIProviderCreate {
@@ -543,12 +559,119 @@ export interface AIPolicyUpdate {
   parallel_llm_calls?: number;
 }
 
+export type AIWorkloadRole = "indexing" | "embedding" | "chat" | "vision";
+
+export interface AIAssignment {
+  role: AIWorkloadRole;
+  provider_id: UUID | null;
+  provider_name: string | null;
+  model: string | null;
+  is_local: boolean | null;
+  enabled: boolean;
+  status: "configured" | "unconfigured" | "disabled" | "offline";
+  embedding_dimension: number | null;
+  legacy_fallback: boolean;
+}
+
+export interface AICapabilities {
+  chat_available: boolean;
+  embeddings_available: boolean;
+  auto_tagging: boolean;
+  auto_enrichment: boolean;
+  warn_before_remote_chat: boolean;
+  chat_is_local: boolean | null;
+  privacy_mode: string;
+}
+
 export interface AIUsageSummary {
-  today: Record<string, unknown>;
-  this_month: Record<string, unknown>;
-  by_provider: Record<string, unknown>[];
-  by_model: Record<string, unknown>[];
-  by_operation: Record<string, unknown>[];
+  range: "today" | "7d" | "30d" | "month";
+  interval: "hour" | "day";
+  timezone: "UTC";
+  starts_at: string;
+  ends_at: string;
+  totals: {
+    requests: number;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    duration_ms: number | null;
+    estimated_cost: number | null;
+    cost_currency: string | null;
+    cost_coverage: "none" | "partial" | "complete" | "local_only";
+  };
+  time_series: Array<{
+    bucket: string;
+    requests: number;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    duration_ms: number | null;
+  }>;
+  by_provider: Array<{
+    key: string;
+    label: string;
+    requests: number;
+    input_tokens: number | null;
+    output_tokens: number | null;
+  }>;
+  by_workload: Array<{ key: string; label: string; requests: number }>;
+}
+
+export interface SystemSummary {
+  version: string;
+  schema_revision: string;
+  process_uptime_seconds: number;
+  deployment_mode: string;
+  services: Record<string, string>;
+  database_status: string;
+  storage_status: string;
+  worker_status: string;
+  worker_last_seen_at: string | null;
+  document_count: number;
+  indexed_document_count: number;
+  queued_jobs: number;
+  running_jobs: number;
+  runtime: Record<string, string | number | null>;
+}
+
+export interface StorageMetrics {
+  configured_source: string | null;
+  container_path: string;
+  disk_total_bytes: number | null;
+  disk_used_bytes: number | null;
+  disk_free_bytes: number | null;
+  folium_bytes: number | null;
+  categories: Record<string, number | null>;
+  database_bytes: number | null;
+  database_categories: Record<string, number | null>;
+  message: string;
+}
+
+export interface ApplicationLog {
+  id: UUID;
+  timestamp: string;
+  level: string;
+  service: string;
+  module: string;
+  message: string;
+  request_id: string | null;
+  context: Record<string, unknown>;
+  stack_trace: string | null;
+}
+
+export interface ApplicationLogList {
+  items: ApplicationLog[];
+  total: number;
+  page: number;
+  page_size: number;
+  retention_days: number;
+}
+
+export interface About {
+  product: string;
+  version: string;
+  description: string;
+  build_revision: string | null;
+  build_date: string | null;
+  project_links: Record<string, string>;
 }
 
 export interface Suggestion {
@@ -584,4 +707,8 @@ export interface Message {
 
 export interface TestConnectionResult {
   message: string;
+  status: "available" | "offline";
+  latency_ms: number;
+  model_count: number | null;
+  tested_at: string;
 }

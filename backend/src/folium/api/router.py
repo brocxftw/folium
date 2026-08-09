@@ -4,7 +4,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from folium.api import ai, ask, auth, documents, folders, health, jobs, search, tags, trash, users
+from folium.api import (
+    about,
+    ai,
+    ask,
+    auth,
+    documents,
+    folders,
+    health,
+    jobs,
+    logs,
+    search,
+    system,
+    tags,
+    trash,
+    users,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -18,3 +33,6 @@ api_router.include_router(search.router)
 api_router.include_router(ask.router)
 api_router.include_router(jobs.router)
 api_router.include_router(ai.router)
+api_router.include_router(system.router)
+api_router.include_router(logs.router)
+api_router.include_router(about.router)

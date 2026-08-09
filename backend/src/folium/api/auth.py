@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 from fastapi.responses import FileResponse
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.api.schemas import (
@@ -20,6 +22,7 @@ from folium.api.schemas import (
     ResetPasswordValidateOut,
     SessionOut,
     UserOut,
+    UserSessionOut,
     UserUsageOut,
 )
 from folium.auth import service as auth_service
@@ -27,7 +30,7 @@ from folium.auth.deps import CurrentSession, CurrentUser, SafeSession
 from folium.core.config import get_settings
 from folium.core.exceptions import AuthError, NotFoundError
 from folium.db.session import get_db
-from folium.models import User
+from folium.models import Session, User
 from folium.services import users as user_service
 from folium.storage.service import StorageService
 
@@ -181,6 +184,64 @@ async def me(sess: CurrentSession) -> SessionOut:
     )
 
 
+@router.get("/me/sessions", response_model=list[UserSessionOut])
+async def list_my_sessions(
+    sess: CurrentSession,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[UserSessionOut]:
+    rows = (
+        (
+            await db.execute(
+                select(Session)
+                .where(Session.user_id == user.id)
+                .order_by(Session.last_seen_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        UserSessionOut(
+            id=row.id,
+            created_at=row.created_at,
+            last_seen_at=row.last_seen_at,
+            expires_at=row.expires_at,
+            user_agent=row.user_agent,
+            ip_address=row.ip_address,
+            current=row.id == sess.id,
+        )
+        for row in rows
+    ]
+
+
+@router.delete("/me/sessions/{session_id}", response_model=ForgotPasswordOut)
+async def revoke_my_session(
+    session_id: uuid.UUID,
+    response: Response,
+    sess: SafeSession,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ForgotPasswordOut:
+    target = await db.get(Session, session_id)
+    if target is None or target.user_id != user.id:
+        raise NotFoundError("Session not found")
+    await db.delete(target)
+    if session_id == sess.id:
+        _clear_session_cookies(response)
+    return ForgotPasswordOut(message="Session signed out")
+
+
+@router.post("/me/sessions/sign-out-others", response_model=ForgotPasswordOut)
+async def sign_out_other_sessions(
+    sess: SafeSession,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ForgotPasswordOut:
+    await db.execute(delete(Session).where(Session.user_id == user.id, Session.id != sess.id))
+    return ForgotPasswordOut(message="Other sessions signed out")
+
+
 @router.patch("/me", response_model=UserOut)
 async def update_me(
     body: ProfileUpdateRequest,
@@ -230,7 +291,7 @@ async def upload_avatar(
     _sess: SafeSession,
     user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    file: UploadFile = File(...),
+    file: Annotated[UploadFile, File()],
 ) -> UserOut:
     data = await file.read()
     updated = await user_service.set_avatar(
@@ -293,8 +354,6 @@ async def reset_password(
     body: ResetPasswordRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ForgotPasswordOut:
-    await user_service.complete_password_reset(
-        db, token=body.token, new_password=body.new_password
-    )
+    await user_service.complete_password_reset(db, token=body.token, new_password=body.new_password)
     await db.commit()
     return ForgotPasswordOut(message="Password updated. You can sign in with your new password.")

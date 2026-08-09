@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Send, Sparkles } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
-import { useAIPolicy, useAsk, useFolders } from "@/lib/api/hooks";
+import { useAICapabilities, useAsk, useFolders } from "@/lib/api/hooks";
 import type {
   AskRequest,
   AskResponse,
@@ -122,7 +122,7 @@ export function AIChatDrawer({
   const [error, setError] = useState<string | null>(null);
 
   const ask = useAsk();
-  const { data: policy } = useAIPolicy();
+  const { data: policy } = useAICapabilities();
   const { data: folders = [] } = useFolders();
 
   useEffect(() => {
@@ -371,7 +371,7 @@ export function AIChatDrawer({
               disabled={ask.isPending}
             />
             {error && <p className="text-xs text-danger">{error}</p>}
-            {pendingRemote && policy?.warn_before_remote && (
+            {pendingRemote && policy?.warn_before_remote_chat && (
               <Button
                 type="button"
                 variant="secondary"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 
@@ -438,9 +439,12 @@ async def ask(
     settings: AISettings,
     chat_provider: AIProvider,
     chat_adapter: AIProviderAdapter,
+    chat_model: str | None = None,
     scope: RAGScope,
     owner_id: uuid.UUID,
     embed_adapter: AIProviderAdapter | None = None,
+    embedding_model: str | None = None,
+    embedding_provider: str | None = None,
     conversation: list[ChatMessage] | None = None,
 ) -> AskResult:
     """Run an evidence-backed question answering flow over a scoped document set."""
@@ -458,7 +462,7 @@ async def ask(
             citations=[],
             passages=[],
             provider=chat_provider.name,
-            model=chat_provider.chat_model,
+            model=chat_model or chat_provider.chat_model,
             insufficient_evidence=True,
         )
 
@@ -485,8 +489,8 @@ async def ask(
         max_chunks=profile.retrieved_chunks,
         token_budget=budget.rag_budget,
         embed_adapter=embed_adapter,
-        embedding_model=settings.active_embedding_model,
-        embedding_provider=settings.active_embedding_provider,
+        embedding_model=embedding_model or settings.active_embedding_model,
+        embedding_provider=embedding_provider or settings.active_embedding_provider,
         embedding_dimension=settings.active_embedding_dimension,
     )
 
@@ -496,7 +500,7 @@ async def ask(
             citations=[],
             passages=[],
             provider=chat_provider.name,
-            model=chat_provider.chat_model,
+            model=chat_model or chat_provider.chat_model,
             insufficient_evidence=True,
         )
 
@@ -515,12 +519,14 @@ async def ask(
             used += message_tokens
     messages.extend(rag_messages[1:])
 
+    started = time.perf_counter()
     chat_result = await chat_adapter.chat(
         messages,
-        model=chat_provider.chat_model,
+        model=chat_model or chat_provider.chat_model,
         max_tokens=profile.max_output_tokens,
         temperature=0.2,
     )
+    duration_ms = round((time.perf_counter() - started) * 1000)
 
     await record_usage(
         session,
@@ -532,6 +538,7 @@ async def ask(
         output_tokens=chat_result.output_tokens,
         is_local=chat_provider.is_local,
         document_id=scope.document_id,
+        duration_ms=duration_ms,
     )
 
     answer = chat_result.content.strip()

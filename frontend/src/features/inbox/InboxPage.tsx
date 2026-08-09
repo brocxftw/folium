@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { ArrowUpDown, FolderInput, Search, Tag, Trash2, Upload } from "lucide-react";
 import {
-  useAIPolicy,
+  useAICapabilities,
   useBulkAction,
   useDocuments,
   useFolders,
@@ -117,9 +117,9 @@ export function InboxPage() {
   );
   const { data: folders = [] } = useFolders();
   const { data: tags = [] } = useTags();
-  const { data: aiPolicy } = useAIPolicy();
+  const { data: aiPolicy } = useAICapabilities();
   const aiSuggestionsAvailable = Boolean(
-    aiPolicy?.auto_tagging && aiPolicy.chat_provider_id,
+    aiPolicy?.auto_tagging && aiPolicy.chat_available,
   );
   const { data: pendingSuggestions = [] } = usePendingSuggestions(aiSuggestionsAvailable);
 

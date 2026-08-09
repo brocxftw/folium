@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from folium.ai.assignments import resolve_assignment
 from folium.ai.registry import get_adapter
 from folium.api.schemas import (
     DocumentOut,
@@ -21,7 +22,7 @@ from folium.api.schemas import (
 from folium.auth.deps import CurrentUser
 from folium.bootstrap import ensure_ai_settings
 from folium.db.session import get_db
-from folium.models import AIProvider
+from folium.models import AIWorkloadRole
 from folium.search.filters import DocumentSearchFilters
 from folium.search.fts import (
     count_documents_matching,
@@ -152,12 +153,13 @@ async def search(
     embed_model: str | None = None
     embed_dim: int | None = None
 
-    if ai_settings.embedding_provider_id is not None:
-        provider = await db.get(AIProvider, ai_settings.embedding_provider_id)
-        if provider is not None and provider.enabled and provider.embedding_model:
+    embedding = await resolve_assignment(db, AIWorkloadRole.EMBEDDING)
+    if embedding.provider is not None:
+        provider = embedding.provider
+        if provider.enabled and embedding.model:
             semantic_available = True
             embed_provider_name = ai_settings.active_embedding_provider or provider.name
-            embed_model = ai_settings.active_embedding_model or provider.embedding_model
+            embed_model = ai_settings.active_embedding_model or embedding.model
             embed_dim = ai_settings.active_embedding_dimension
             if body.mode in {"semantic", "hybrid"} and body.query.strip():
                 adapter = get_adapter(provider)
@@ -319,7 +321,9 @@ async def search(
                 SearchMatch(
                     kind=kind,  # type: ignore[arg-type]
                     score=hit.score,
-                    snippet=_snippet_text(hit.text) if hit.text and "<" not in (hit.text or "") else hit.text,
+                    snippet=_snippet_text(hit.text)
+                    if hit.text and "<" not in (hit.text or "")
+                    else hit.text,
                     page_number=hit.page_number,
                     chunk_id=hit.chunk_id,
                 )

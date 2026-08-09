@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import asyncio
 import os
 import uuid
 from collections.abc import AsyncGenerator, Callable
@@ -45,6 +44,8 @@ get_settings.cache_clear()
 _db_lock = asyncio.Lock()
 
 _TRUNCATE_TABLES = (
+    "application_logs",
+    "ai_model_assignments",
     "ai_usage",
     "ai_suggestions",
     "document_tags",
@@ -83,11 +84,8 @@ async def _init_schema() -> None:
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-        # Additive columns for older test DBs that already have `users`
-        await conn.execute(
-            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_key VARCHAR(512)")
-        )
     await engine.dispose()
 
 
@@ -185,7 +183,7 @@ def _schema_initialized(storage_root: Path) -> None:
 
 
 @pytest_asyncio.fixture
-async def db_session(_schema_initialized: None) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(_schema_initialized: None) -> AsyncGenerator[AsyncSession]:
     """Provide a DB session; truncate all tables before each test."""
     await _truncate_and_bootstrap()
     factory = get_session_factory()
@@ -199,7 +197,7 @@ async def client(
     db_session: AsyncSession,
     storage_root: Path,
     _schema_initialized: None,
-) -> AsyncGenerator[AsyncClient, None]:
+) -> AsyncGenerator[AsyncClient]:
     """Unauthenticated HTTP client against the FastAPI app."""
     del db_session
     _apply_storage_paths(storage_root)
@@ -278,7 +276,7 @@ def run_extraction(db_session: AsyncSession) -> Callable:
 
 
 @pytest_asyncio.fixture
-async def restore_storage_paths(storage_root: Path) -> AsyncGenerator[None, None]:
+async def restore_storage_paths(storage_root: Path) -> AsyncGenerator[None]:
     """Restore writable storage paths after tests that mutate env paths."""
     yield
     _apply_storage_paths(storage_root)

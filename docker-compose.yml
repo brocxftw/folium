@@ -33,6 +33,7 @@ services:
       DOCUMENTS_PATH: /documents
       CONSUME_PATH: /consume
       EXPORT_PATH: /export
+      FOLIUM_DOCUMENTS_HOST_SOURCE: ${FOLIUM_DOCUMENTS_HOST_SOURCE:-}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
     volumes:
       - ${FOLIUM_DOCUMENTS_HOST:-./data/documents}:/documents
@@ -74,6 +75,7 @@ services:
       DOCUMENTS_PATH: /documents
       CONSUME_PATH: /consume
       EXPORT_PATH: /export
+      FOLIUM_DOCUMENTS_HOST_SOURCE: ${FOLIUM_DOCUMENTS_HOST_SOURCE:-}
     volumes:
       - ${FOLIUM_DOCUMENTS_HOST:-./data/documents}:/documents
       - ${FOLIUM_CONSUME_HOST:-./data/consume}:/consume

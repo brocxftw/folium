@@ -257,11 +257,23 @@ Provider “no training / zero retention” toggles are **provider policy claims
 | Profile | Retrieved chunks | Max context | Max output |
 |---------|------------------|-------------|------------|
 | Lightweight (default) | 3 | 8k | 1k |
-| Balanced | 5 | 16k | 2k |
-| Quality | 8–10 | 32k | 4k |
+| Balanced | 8 | 16k | 2k |
+| Quality | 16 | 32k | 4k |
 | Custom | user-defined | user-defined | user-defined |
 
 Effective limit = `min(Folium configured limit, model capability)`. Tool calling stays disabled.
+
+## Settings operations workspace
+
+Settings has five top-level workspaces: Profile and About for every signed-in user,
+plus admin-only Artificial Intelligence, System, and Logs workspaces. System facts
+describe the application process and its container-visible environment; Folium
+does not require a Docker socket or privileged host agent.
+
+Structured API and worker events are retained in PostgreSQL for
+`APPLICATION_LOG_RETENTION_DAYS` (30 by default), with redacted CSV export and
+admin-only clear controls. Set `FOLIUM_DOCUMENTS_HOST_SOURCE` when the document
+volume has a known host source path; otherwise the UI labels it as unavailable.
 
 ## Backups
 

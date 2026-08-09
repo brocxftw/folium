@@ -12,6 +12,11 @@ import type {
   AIPolicy,
   AIPolicyUpdate,
   AIUsageSummary,
+  AIAssignment,
+  AICapabilities,
+  AIWorkloadRole,
+  About,
+  ApplicationLogList,
   AskRequest,
   AskResponse,
   BulkActionRequest,
@@ -37,7 +42,10 @@ import type {
   SearchRequest,
   SearchResponse,
   Session,
+  UserSession,
   StorageHealth,
+  StorageMetrics,
+  SystemSummary,
   Suggestion,
   Tag,
   TagCreate,
@@ -71,6 +79,8 @@ export const queryKeys = {
   aiProviders: ["ai", "providers"] as const,
   aiPolicy: ["ai", "policy"] as const,
   aiUsage: ["ai", "usage"] as const,
+  aiAssignments: ["ai", "assignments"] as const,
+  aiCapabilities: ["ai", "capabilities"] as const,
   aiSuggestions: (documentId?: string) =>
     ["ai", "suggestions", documentId ?? "all"] as const,
   storageHealth: ["storage", "health"] as const,
@@ -173,6 +183,29 @@ export function useMyUsage() {
   return useQuery({
     queryKey: ["auth", "usage"] as const,
     queryFn: () => api.get<UserUsage>("/api/auth/me/usage"),
+  });
+}
+
+export function useMySessions() {
+  return useQuery({
+    queryKey: ["auth", "sessions"] as const,
+    queryFn: () => api.get<UserSession[]>("/api/auth/me/sessions"),
+  });
+}
+
+export function useRevokeSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<Message>(`/api/auth/me/sessions/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["auth", "sessions"] }),
+  });
+}
+
+export function useSignOutOtherSessions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<Message>("/api/auth/me/sessions/sign-out-others"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["auth", "sessions"] }),
   });
 }
 
@@ -818,10 +851,45 @@ export function useUpdateAIPolicy() {
   });
 }
 
-export function useAIUsage() {
+export function useAIUsage(range: "today" | "7d" | "30d" | "month" = "month") {
   return useQuery({
-    queryKey: queryKeys.aiUsage,
-    queryFn: () => api.get<AIUsageSummary>("/api/ai/usage"),
+    queryKey: [...queryKeys.aiUsage, range],
+    queryFn: () => api.get<AIUsageSummary>("/api/ai/usage", { range }),
+  });
+}
+
+export function useAIAssignments() {
+  return useQuery({
+    queryKey: queryKeys.aiAssignments,
+    queryFn: () => api.get<AIAssignment[]>("/api/ai/assignments"),
+  });
+}
+
+export function useUpdateAIAssignment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { role: AIWorkloadRole; provider_id: string | null; model: string | null }) =>
+      api.patch<AIAssignment>("/api/ai/assignments", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.aiAssignments }),
+  });
+}
+
+export function useProviderModels(providerId: string | null) {
+  return useQuery({
+    queryKey: ["ai", "providers", providerId, "models"],
+    queryFn: () =>
+      api.get<{ models: string[]; discoverable: boolean; message: string | null }>(
+        `/api/ai/providers/${providerId}/models`,
+      ),
+    enabled: Boolean(providerId),
+    retry: false,
+  });
+}
+
+export function useAICapabilities() {
+  return useQuery({
+    queryKey: queryKeys.aiCapabilities,
+    queryFn: () => api.get<AICapabilities>("/api/ai/capabilities"),
   });
 }
 
@@ -895,6 +963,61 @@ export function useStorageHealth() {
   return useQuery({
     queryKey: queryKeys.storageHealth,
     queryFn: () => api.get<StorageHealth>("/health/storage"),
+  });
+}
+
+export function useSystemSummary() {
+  return useQuery({
+    queryKey: ["system", "summary"],
+    queryFn: () => api.get<SystemSummary>("/api/system/summary"),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useStorageMetrics() {
+  return useQuery({
+    queryKey: ["system", "storage"],
+    queryFn: () => api.get<StorageMetrics>("/api/system/storage"),
+  });
+}
+
+export function useDiagnostics() {
+  return useMutation({
+    mutationFn: () => api.get<{ generated_at: string; text: string }>("/api/system/diagnostics"),
+  });
+}
+
+export interface LogFilters {
+  search?: string;
+  level?: string;
+  service?: string;
+  range?: string;
+  page?: number;
+}
+
+export function useApplicationLogs(filters: LogFilters, live = false) {
+  return useQuery({
+    queryKey: ["logs", filters],
+    queryFn: () => api.get<ApplicationLogList>("/api/logs", { ...filters, page_size: 50 }),
+    placeholderData: (previous) => previous,
+    refetchInterval: (query) =>
+      live && query.state.fetchFailureCount < 3 ? 5_000 : false,
+  });
+}
+
+export function useClearApplicationLogs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<Message>("/api/logs"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["logs"] }),
+  });
+}
+
+export function useAbout() {
+  return useQuery({
+    queryKey: ["about"],
+    queryFn: () => api.get<About>("/api/about"),
+    staleTime: Infinity,
   });
 }
 
