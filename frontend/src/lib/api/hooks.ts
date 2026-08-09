@@ -21,6 +21,7 @@ import type {
   DocumentMetadataUpdate,
   DocumentMoveRequest,
   DocumentPageContent,
+  DocumentProcessResult,
   Folder,
   FolderCreate,
   FolderDeleteRequest,
@@ -496,6 +497,7 @@ function documentParamsToQuery(params: DocumentListParams): Record<string, strin
   if (params.folder_id) q.folder_id = params.folder_id;
   if (params.include_descendants) q.include_descendants = true;
   if (params.inbox !== undefined) q.inbox = params.inbox;
+  if (params.inbox_status) q.inbox_status = params.inbox_status;
   if (params.trashed) q.trashed = true;
   if (params.tag_ids?.length) q.tag_ids = params.tag_ids.join(",");
   if (params.q) q.q = params.q;
@@ -612,6 +614,43 @@ export function useBulkAction() {
       qc.invalidateQueries({ queryKey: queryKeys.folders });
       qc.invalidateQueries({ queryKey: queryKeys.tags });
       qc.invalidateQueries({ queryKey: ["trash"] });
+      qc.invalidateQueries({ queryKey: ["inbox-count"] });
+    },
+  });
+}
+
+export function useProcessInboxDocuments() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (document_ids: string[]) =>
+      api.post<DocumentProcessResult>("/api/documents/process", { document_ids }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: queryKeys.folders });
+      qc.invalidateQueries({ queryKey: ["inbox-count"] });
+    },
+  });
+}
+
+export function useRemoveFromQueue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (document_ids: string[]) =>
+      api.post<Message>("/api/documents/remove-from-queue", { document_ids }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["inbox-count"] });
+    },
+  });
+}
+
+export function useRetryPreflight() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<Document>(`/api/documents/${id}/retry-preflight`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
     },
   });
 }

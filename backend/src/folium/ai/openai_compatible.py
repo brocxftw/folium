@@ -182,8 +182,14 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
             raise AIProviderError("Chat completion response missing message.")
 
         content = message.get("content")
-        if not isinstance(content, str):
-            raise AIProviderError("Chat completion response missing content.")
+        if not isinstance(content, str) or not content.strip():
+            # Reasoning models (e.g. Qwen3 thinking) may return empty content and
+            # put the visible answer in reasoning_content when max_tokens is tight.
+            reasoning = message.get("reasoning_content")
+            if isinstance(reasoning, str) and reasoning.strip():
+                content = reasoning
+            else:
+                raise AIProviderError("Chat completion response missing content.")
 
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         finish_reason = first.get("finish_reason")

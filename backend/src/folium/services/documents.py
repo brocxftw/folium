@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,6 +27,8 @@ from folium.models import (
     DocumentType,
     Folder,
     FolderKind,
+    Job,
+    JobStatus,
     JobType,
     ProcessingStatus,
     Tag,
@@ -35,6 +38,10 @@ from folium.services.jobs import enqueue_job
 from folium.services.quotas import assert_storage_quota
 from folium.storage.service import StorageService
 
+INBOX_FOLDER_PATH_KEY = "inbox_folder_path"
+
+InboxStatus = Literal["preparing", "ready", "needs_review", "failed"]
+
 
 @dataclass(slots=True)
 class IngestResult:
@@ -42,6 +49,45 @@ class IngestResult:
     document: Document | None = None
     existing_document_id: str | None = None
     relative_path: str | None = None
+
+
+def get_pending_folder_path(doc: Document) -> str | None:
+    fields = doc.custom_fields or {}
+    raw = fields.get(INBOX_FOLDER_PATH_KEY)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return None
+
+
+def set_pending_folder_path(doc: Document, path: str | None) -> None:
+    fields = dict(doc.custom_fields or {})
+    if path and path.strip():
+        fields[INBOX_FOLDER_PATH_KEY] = path.strip()
+    else:
+        fields.pop(INBOX_FOLDER_PATH_KEY, None)
+    doc.custom_fields = fields
+
+
+def _folder_segments(path: str) -> list[str]:
+    normalized = path.replace("\\", "/").strip().strip("/")
+    parts = [p.strip() for p in re.split(r"[/]+", normalized.replace(" / ", "/"))]
+    return [p for p in parts if p]
+
+
+def compute_inbox_status(doc: Document) -> InboxStatus | None:
+    """Derive user-facing Inbox queue status (None when not in inbox)."""
+    if not doc.inbox:
+        return None
+    if doc.processing_status == ProcessingStatus.FAILED:
+        return "failed"
+    if doc.processing_status in {ProcessingStatus.PENDING, ProcessingStatus.PROCESSING}:
+        return "preparing"
+    pending = get_pending_folder_path(doc)
+    in_system_inbox = doc.folder is not None and doc.folder.kind == FolderKind.INBOX
+    has_target = bool(pending) or (doc.folder is not None and not in_system_inbox)
+    if not has_target or doc.needs_review:
+        return "needs_review"
+    return "ready"
 
 
 async def find_by_checksum(
@@ -54,6 +100,22 @@ async def find_by_checksum(
                 Document.owner_id == owner_id,
                 Document.checksum == checksum,
                 Document.is_trashed.is_(False),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def find_trashed_by_checksum(
+    session: AsyncSession, checksum: str, owner_id: uuid.UUID
+) -> Document | None:
+    return (
+        await session.execute(
+            select(Document)
+            .where(
+                Document.owner_id == owner_id,
+                Document.checksum == checksum,
+                Document.is_trashed.is_(True),
             )
             .limit(1)
         )
@@ -100,7 +162,11 @@ async def ingest_bytes(
 
     Duplicate policy (SHA-256 of file contents):
     - ``error`` (default): raise ``DuplicateDocumentError`` (HTTP 409)
+      when an active document already has this checksum
     - ``skip``: return ``status=duplicate`` without creating a second document
+      when an active document already has this checksum
+    - If the only match is trashed: permanently delete it and re-ingest
+      (fresh document id and processing jobs)
 
     Physical storage remains content-addressed — one blob per checksum.
     Logical Folium folders are metadata only; ``relative_path`` recreates a
@@ -137,6 +203,15 @@ async def ingest_bytes(
         raise DuplicateDocumentError(
             "Document already exists",
             existing_document_id=str(existing.id),
+        )
+
+    trashed = await find_trashed_by_checksum(session, checksum, owner_id)
+    if trashed is not None:
+        await permanently_delete(
+            session,
+            trashed.id,
+            owner_id=owner_id,
+            storage=storage,
         )
 
     await assert_storage_quota(session, owner_id, len(data))
@@ -230,13 +305,24 @@ async def move_document(
     folder_id: uuid.UUID,
     *,
     owner_id: uuid.UUID,
+    preserve_inbox: bool | None = None,
 ) -> Document:
     doc = await get_document(session, document_id, owner_id=owner_id)
     folder = await folder_service.get_folder(session, folder_id, owner_id=owner_id)
     if folder.kind.value == "trash":
         raise ValidationError("Use trash endpoint to move documents to Trash")
+    keep_inbox = doc.inbox if preserve_inbox is None else preserve_inbox
+    # While reviewing in Inbox, folder assignment must not eject from the queue.
+    if preserve_inbox is None and doc.inbox:
+        keep_inbox = True
     doc.folder_id = folder_id
-    doc.inbox = folder.kind.value == "inbox"
+    doc.inbox = keep_inbox if keep_inbox else folder.kind.value == "inbox"
+    if doc.inbox:
+        set_pending_folder_path(doc, None)
+        if folder.kind != FolderKind.INBOX:
+            doc.needs_review = False
+    else:
+        set_pending_folder_path(doc, None)
     doc.is_trashed = False
     doc.trashed_at = None
     doc.modified_date = datetime.now(UTC)
@@ -309,10 +395,11 @@ async def permanently_delete(
     *,
     owner_id: uuid.UUID | None = None,
     storage: StorageService | None = None,
+    allow_inbox: bool = False,
 ) -> None:
     storage = storage or StorageService()
     doc = await get_document(session, document_id, owner_id=owner_id)
-    if not doc.is_trashed:
+    if not doc.is_trashed and not (allow_inbox and doc.inbox):
         raise ValidationError("Document must be in Trash before permanent deletion")
     storage_key = doc.storage_key
     thumb = doc.thumbnail_key
@@ -333,6 +420,159 @@ async def permanently_delete(
         await storage.delete_original(storage_key)
     await storage.delete_derived("thumbnail", thumb)
     await storage.delete_derived("preview", preview)
+
+
+async def remove_from_queue(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    owner_id: uuid.UUID,
+    storage: StorageService | None = None,
+) -> None:
+    """Permanently remove an Inbox document without library Trash."""
+    doc = await get_document(session, document_id, owner_id=owner_id)
+    if not doc.inbox:
+        raise ValidationError("Only Inbox documents can be removed from the queue")
+    if doc.is_trashed:
+        raise ValidationError("Document is already in Trash")
+    await permanently_delete(
+        session,
+        document_id,
+        owner_id=owner_id,
+        storage=storage,
+        allow_inbox=True,
+    )
+
+
+async def retry_preflight(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    owner_id: uuid.UUID,
+    priority: int = 50,
+) -> Document:
+    doc = await get_document(session, document_id, owner_id=owner_id)
+    if not doc.inbox:
+        raise ValidationError("Only Inbox documents can retry pre-flight")
+    # Cancel open preflight jobs
+    open_jobs = (
+        await session.execute(
+            select(Job).where(
+                Job.document_id == doc.id,
+                Job.job_type.in_(
+                    [
+                        JobType.TEXT_EXTRACTION,
+                        JobType.OCR,
+                        JobType.METADATA_SUGGESTION,
+                    ]
+                ),
+                Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
+            )
+        )
+    ).scalars().all()
+    for job in open_jobs:
+        job.status = JobStatus.CANCELLED
+        job.completed_at = datetime.now(UTC)
+        job.locked_by = None
+
+    doc.processing_status = ProcessingStatus.PENDING
+    doc.processing_error = None
+    doc.text_extracted = False
+    doc.ocr_completed = False
+    doc.modified_date = datetime.now(UTC)
+    await session.flush()
+
+    await enqueue_job(
+        session,
+        job_type=JobType.TEXT_EXTRACTION,
+        document_id=doc.id,
+        priority=priority,
+    )
+    await enqueue_job(
+        session,
+        job_type=JobType.THUMBNAIL,
+        document_id=doc.id,
+        priority=priority + 10,
+    )
+    return await get_document(session, doc.id, owner_id=owner_id)
+
+
+async def process_inbox_documents(
+    session: AsyncSession,
+    document_ids: list[uuid.UUID],
+    *,
+    owner_id: uuid.UUID,
+    priority: int = 40,
+) -> dict[str, list[dict]]:
+    """Commit reviewed Inbox documents into the library and enqueue final indexing."""
+    processed: list[dict] = []
+    skipped: list[dict] = []
+    failed: list[dict] = []
+
+    for doc_id in document_ids:
+        try:
+            doc = await get_document(session, doc_id, owner_id=owner_id)
+        except NotFoundError:
+            skipped.append({"id": str(doc_id), "reason": "not_found"})
+            continue
+
+        if not doc.inbox:
+            skipped.append({"id": str(doc.id), "reason": "not_in_inbox"})
+            continue
+        if doc.processing_status == ProcessingStatus.FAILED:
+            skipped.append({"id": str(doc.id), "reason": "failed_preflight"})
+            continue
+        if doc.processing_status in {
+            ProcessingStatus.PENDING,
+            ProcessingStatus.PROCESSING,
+        }:
+            skipped.append({"id": str(doc.id), "reason": "preparing"})
+            continue
+
+        status = compute_inbox_status(doc)
+        if status == "needs_review" and not get_pending_folder_path(doc):
+            in_inbox_folder = doc.folder is not None and doc.folder.kind == FolderKind.INBOX
+            if in_inbox_folder:
+                skipped.append({"id": str(doc.id), "reason": "needs_review"})
+                continue
+
+        try:
+            pending_path = get_pending_folder_path(doc)
+            if pending_path:
+                root = await folder_service.get_root(session, owner_id)
+                segments = _folder_segments(pending_path)
+                if not segments:
+                    failed.append({"id": str(doc.id), "reason": "invalid_folder_path"})
+                    continue
+                leaf = await folder_service.ensure_folder_path(
+                    session, parent_id=root.id, segments=segments
+                )
+                doc.folder_id = leaf.id
+                set_pending_folder_path(doc, None)
+            else:
+                # Must leave system Inbox folder
+                if doc.folder is not None and doc.folder.kind == FolderKind.INBOX:
+                    skipped.append({"id": str(doc.id), "reason": "needs_folder"})
+                    continue
+
+            doc.inbox = False
+            doc.needs_review = False
+            doc.modified_date = datetime.now(UTC)
+            await session.flush()
+
+            if not doc.document_indexed:
+                await enqueue_job(
+                    session,
+                    job_type=JobType.INDEXING,
+                    document_id=doc.id,
+                    priority=priority,
+                )
+
+            processed.append({"id": str(doc.id)})
+        except Exception as exc:  # noqa: BLE001 — partial batch
+            failed.append({"id": str(doc.id), "reason": str(exc)[:500]})
+
+    return {"processed": processed, "skipped": skipped, "failed": failed}
 
 
 async def purge_expired_trash(
@@ -532,8 +772,20 @@ async def update_metadata(
         doc.notes = data["notes"]
     if "custom_fields" in data and data["custom_fields"] is not None:
         doc.custom_fields = data["custom_fields"]
+    if "pending_folder_path" in data:
+        path = data["pending_folder_path"]
+        if path is None or (isinstance(path, str) and not path.strip()):
+            set_pending_folder_path(doc, None)
+        elif isinstance(path, str):
+            set_pending_folder_path(doc, path)
+            # Choosing a new path clears a concrete folder assignment back to Inbox
+            # only when still reviewing — keep current folder, Process creates path.
+        else:
+            raise ValidationError("pending_folder_path must be a string or null")
     if "inbox" in data and data["inbox"] is not None:
         doc.inbox = data["inbox"]
+        if not doc.inbox:
+            set_pending_folder_path(doc, None)
     if "is_archived" in data and data["is_archived"] is not None:
         doc.is_archived = data["is_archived"]
     if "needs_review" in data and data["needs_review"] is not None:
@@ -566,6 +818,7 @@ async def list_documents(
     folder_id: uuid.UUID | None = None,
     include_descendants: bool = False,
     inbox: bool | None = None,
+    inbox_status: InboxStatus | None = None,
     trashed: bool = False,
     tag_ids: list[uuid.UUID] | None = None,
     q: str | None = None,
@@ -589,6 +842,9 @@ async def list_documents(
     if inbox is True:
         stmt = stmt.where(Document.inbox.is_(True))
         count_stmt = count_stmt.where(Document.inbox.is_(True))
+    elif inbox is False:
+        stmt = stmt.where(Document.inbox.is_(False))
+        count_stmt = count_stmt.where(Document.inbox.is_(False))
 
     if folder_id is not None:
         await folder_service.get_folder(session, folder_id, owner_id=owner_id)
@@ -630,6 +886,17 @@ async def list_documents(
         stmt = stmt.order_by(sort_col.asc())
     else:
         stmt = stmt.order_by(sort_col.desc())
+
+    # inbox_status is derived — filter in Python after fetch when requested.
+    # For status tabs, fetch a larger page then filter (Inbox queues stay small).
+    if inbox_status is not None:
+        # Load all matching inbox candidates (capped) then filter + paginate
+        base_items = list((await session.execute(stmt.limit(2000))).scalars().unique().all())
+        filtered = [d for d in base_items if compute_inbox_status(d) == inbox_status]
+        total = len(filtered)
+        start = (page - 1) * page_size
+        items = filtered[start : start + page_size]
+        return items, total
 
     total = (await session.execute(count_stmt)).scalar_one()
     stmt = stmt.offset((page - 1) * page_size).limit(page_size)
@@ -683,6 +950,8 @@ def document_to_dict(doc: Document) -> dict:
         "purge_after": _purge_after(doc.trashed_at),
         "inbox": doc.inbox,
         "needs_review": doc.needs_review,
+        "inbox_status": compute_inbox_status(doc),
+        "pending_folder_path": get_pending_folder_path(doc),
         "custom_fields": doc.custom_fields or {},
         "ai_summary": doc.ai_summary,
         "ai_summary_meta": doc.ai_summary_meta,

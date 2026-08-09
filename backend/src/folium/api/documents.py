@@ -22,6 +22,9 @@ from folium.api.schemas import (
     DocumentMetadataUpdate,
     DocumentMoveRequest,
     DocumentOut,
+    DocumentProcessRequest,
+    DocumentProcessResultOut,
+    DocumentRemoveQueueRequest,
     MessageOut,
     UploadResultOut,
 )
@@ -71,6 +74,7 @@ async def list_documents(
     folder_id: uuid.UUID | None = None,
     include_descendants: bool = False,
     inbox: bool | None = None,
+    inbox_status: Literal["preparing", "ready", "needs_review", "failed"] | None = None,
     trashed: bool = False,
     tag_ids: list[uuid.UUID] | None = Query(default=None),
     q: str | None = None,
@@ -85,6 +89,7 @@ async def list_documents(
         folder_id=folder_id,
         include_descendants=include_descendants,
         inbox=inbox,
+        inbox_status=inbox_status,
         trashed=trashed,
         tag_ids=tag_ids,
         q=q,
@@ -204,6 +209,62 @@ async def update_metadata(
 ) -> DocumentOut:
     data = body.model_dump(exclude_unset=True)
     doc = await doc_service.update_metadata(db, document_id, data, owner_id=_user.id)
+    return _doc_out(doc)
+
+
+@router.post("/api/documents/process", response_model=DocumentProcessResultOut)
+async def process_documents(
+    body: DocumentProcessRequest,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentProcessResultOut:
+    result = await doc_service.process_inbox_documents(
+        db,
+        body.document_ids,
+        owner_id=_user.id,
+    )
+    return DocumentProcessResultOut(**result)
+
+
+@router.post("/api/documents/remove-from-queue", response_model=MessageOut)
+async def remove_documents_from_queue(
+    body: DocumentRemoveQueueRequest,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> MessageOut:
+    storage = StorageService()
+    removed = 0
+    for doc_id in body.document_ids:
+        await doc_service.remove_from_queue(
+            db, doc_id, owner_id=_user.id, storage=storage
+        )
+        removed += 1
+    return MessageOut(message=f"Removed {removed} document(s) from the queue")
+
+
+@router.post("/api/documents/{document_id}/remove-from-queue", response_model=MessageOut)
+async def remove_document_from_queue(
+    document_id: uuid.UUID,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> MessageOut:
+    await doc_service.remove_from_queue(
+        db, document_id, owner_id=_user.id, storage=StorageService()
+    )
+    return MessageOut(message="Removed from queue")
+
+
+@router.post("/api/documents/{document_id}/retry-preflight", response_model=DocumentOut)
+async def retry_preflight(
+    document_id: uuid.UUID,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentOut:
+    doc = await doc_service.retry_preflight(db, document_id, owner_id=_user.id)
     return _doc_out(doc)
 
 

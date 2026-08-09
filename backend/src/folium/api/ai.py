@@ -490,6 +490,29 @@ async def _apply_suggestion(
 
     if field == "title" and "title" in value:
         doc.title = str(value["title"])
+    elif field == "folder":
+        # Intent only while in Inbox — never create folders here.
+        if "folder_id" in value and value["folder_id"]:
+            folder_id = uuid.UUID(str(value["folder_id"]))
+            await doc_service.move_document(
+                db,
+                doc.id,
+                folder_id,
+                owner_id=owner_id,
+                preserve_inbox=True if doc.inbox else False,
+            )
+            doc_service.set_pending_folder_path(doc, None)
+            if doc.inbox:
+                doc.needs_review = False
+        elif value.get("create") and value.get("path"):
+            doc_service.set_pending_folder_path(doc, str(value["path"]))
+            if doc.inbox:
+                doc.needs_review = False
+        elif value.get("path") and value.get("exists"):
+            # Path claimed to exist but no id — store as pending for Process resolution
+            doc_service.set_pending_folder_path(doc, str(value["path"]))
+            if doc.inbox:
+                doc.needs_review = False
     elif field == "document_type" and "document_type_id" in value:
         type_id = uuid.UUID(str(value["document_type_id"]))
         document_type = await db.get(DocumentType, type_id)
@@ -505,19 +528,44 @@ async def _apply_suggestion(
     elif field == "tags" and "tag_names" in value:
         names = value["tag_names"]
         if isinstance(names, list):
-            tags = (
-                (
+            from folium.core.exceptions import ConflictError
+            from folium.services import tags as tag_service
+
+            resolved: list[Tag] = []
+            for raw in names:
+                if not isinstance(raw, str) or not raw.strip():
+                    continue
+                name = raw.strip()
+                existing = (
                     await db.execute(
                         select(Tag).where(
                             Tag.owner_id == owner_id,
-                            Tag.name.in_(names),
+                            Tag.name.ilike(name),
                         )
                     )
-                )
-                .scalars()
-                .all()
-            )
-            doc.tags = list(tags)
+                ).scalar_one_or_none()
+                if existing is not None:
+                    resolved.append(existing)
+                    continue
+                try:
+                    created = await tag_service.create_tag(
+                        db, name=name, owner_id=owner_id
+                    )
+                    resolved.append(created)
+                except ConflictError:
+                    again = (
+                        await db.execute(
+                            select(Tag).where(
+                                Tag.owner_id == owner_id,
+                                Tag.name.ilike(name),
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if again is not None:
+                        resolved.append(again)
+            if resolved:
+                existing_ids = {t.id for t in doc.tags}
+                doc.tags = list(doc.tags) + [t for t in resolved if t.id not in existing_ids]
     elif field == "notes" and "notes" in value:
         doc.notes = str(value["notes"])
     await db.flush()

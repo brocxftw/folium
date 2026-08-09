@@ -42,7 +42,21 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
             except Exception as exc:
                 logger.exception("Job %s failed: %s", job.id, exc)
                 async with session_scope() as session:
-                    await job_service.fail_job(session, job.id, str(exc))
+                    failed = await job_service.fail_job(session, job.id, str(exc))
+                    from folium.models import JobStatus
+                    from folium.workers.processor import (
+                        PREFLIGHT_JOB_TYPES,
+                        mark_preflight_failed,
+                    )
+
+                    if (
+                        failed.status == JobStatus.FAILED
+                        and failed.document_id is not None
+                        and failed.job_type in PREFLIGHT_JOB_TYPES
+                    ):
+                        await mark_preflight_failed(
+                            session, failed.document_id, str(exc)
+                        )
 
     asyncio.create_task(_run())
 

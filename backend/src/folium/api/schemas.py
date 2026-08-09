@@ -215,9 +215,24 @@ class DocumentMetadataUpdate(BaseModel):
     language: str | None = None
     notes: str | None = None
     custom_fields: dict[str, Any] | None = None
+    pending_folder_path: str | None = None
     inbox: bool | None = None
     is_archived: bool | None = None
     needs_review: bool | None = None
+
+
+class DocumentProcessRequest(BaseModel):
+    document_ids: list[UUID] = Field(min_length=1, max_length=200)
+
+
+class DocumentProcessResultOut(BaseModel):
+    processed: list[dict[str, Any]]
+    skipped: list[dict[str, Any]]
+    failed: list[dict[str, Any]]
+
+
+class DocumentRemoveQueueRequest(BaseModel):
+    document_ids: list[UUID] = Field(min_length=1, max_length=200)
 
 
 class DocumentMoveRequest(BaseModel):
@@ -265,6 +280,8 @@ class DocumentOut(ORMModel):
     purge_after: datetime | None = None
     inbox: bool
     needs_review: bool
+    inbox_status: Literal["preparing", "ready", "needs_review", "failed"] | None = None
+    pending_folder_path: str | None = None
     custom_fields: dict[str, Any]
     ai_summary: str | None
     ai_summary_meta: dict[str, Any] | None

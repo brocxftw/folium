@@ -187,6 +187,8 @@ export interface Document {
   purge_after?: string | null;
   inbox: boolean;
   needs_review: boolean;
+  inbox_status?: InboxStatus | null;
+  pending_folder_path?: string | null;
   custom_fields: Record<string, unknown>;
   ai_summary: string | null;
   ai_summary_meta: Record<string, unknown> | null;
@@ -194,6 +196,8 @@ export interface Document {
   created_at: string;
   updated_at: string;
 }
+
+export type InboxStatus = "preparing" | "ready" | "needs_review" | "failed";
 
 export interface DocumentList {
   items: Document[];
@@ -213,6 +217,7 @@ export interface DocumentMetadataUpdate {
   language?: string | null;
   notes?: string | null;
   custom_fields?: Record<string, unknown>;
+  pending_folder_path?: string | null;
   inbox?: boolean;
   is_archived?: boolean;
   needs_review?: boolean;
@@ -242,6 +247,7 @@ export interface DocumentListParams {
   folder_id?: UUID;
   include_descendants?: boolean;
   inbox?: boolean;
+  inbox_status?: InboxStatus;
   trashed?: boolean;
   tag_ids?: UUID[];
   q?: string;
@@ -249,6 +255,12 @@ export interface DocumentListParams {
   page_size?: number;
   sort?: "added_date" | "title" | "modified_date" | "created_date";
   order?: "asc" | "desc";
+}
+
+export interface DocumentProcessResult {
+  processed: Array<{ id: string }>;
+  skipped: Array<{ id: string; reason?: string }>;
+  failed: Array<{ id: string; reason?: string }>;
 }
 
 export interface DocumentPageContent {

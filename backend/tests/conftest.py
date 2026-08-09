@@ -116,8 +116,14 @@ async def login(client: AsyncClient) -> str:
 
 
 async def _run_extraction_pipeline(session: AsyncSession, document_id: uuid.UUID) -> None:
-    """Run text extraction and indexing jobs synchronously in tests."""
+    """Run text extraction and indexing jobs synchronously in tests.
+
+    Indexing is no longer chained from extraction (Inbox Process gate), so tests
+    that need a fully searchable document enqueue indexing explicitly here.
+    """
     from sqlalchemy import select
+
+    from folium.services.jobs import enqueue_job
 
     extract_job = (
         await session.execute(
@@ -136,7 +142,14 @@ async def _run_extraction_pipeline(session: AsyncSession, document_id: uuid.UUID
                 Job.job_type == JobType.INDEXING,
             )
         )
-    ).scalar_one()
+    ).scalar_one_or_none()
+    if index_job is None:
+        index_job = await enqueue_job(
+            session,
+            job_type=JobType.INDEXING,
+            document_id=document_id,
+            priority=40,
+        )
     await process_indexing(session, index_job)
     await session.commit()
 

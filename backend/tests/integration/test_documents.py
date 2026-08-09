@@ -110,6 +110,72 @@ async def test_duplicate_upload_skip(
 
 
 @pytest.mark.asyncio
+async def test_reupload_after_trash_reingests(
+    auth_client: AsyncClient,
+    sample_txt_path,
+) -> None:
+    with sample_txt_path.open("rb") as fh:
+        first = await auth_client.post(
+            "/api/documents/upload",
+            files={"file": ("sample.txt", fh, "text/plain")},
+        )
+    assert first.status_code == 201
+    first_id = first.json()["id"]
+
+    trash = await auth_client.post(f"/api/documents/{first_id}/trash")
+    assert trash.status_code == 200
+    assert trash.json()["is_trashed"] is True
+
+    with sample_txt_path.open("rb") as fh:
+        second = await auth_client.post(
+            "/api/documents/upload",
+            files={"file": ("sample.txt", fh, "text/plain")},
+        )
+    assert second.status_code == 201, second.text
+    second_id = second.json()["id"]
+    assert second_id != first_id
+
+    old = await auth_client.get(f"/api/documents/{first_id}")
+    assert old.status_code == 404
+
+    new = await auth_client.get(f"/api/documents/{second_id}")
+    assert new.status_code == 200
+    assert new.json()["is_trashed"] is False
+
+
+@pytest.mark.asyncio
+async def test_reupload_after_trash_with_skip_reingests(
+    auth_client: AsyncClient,
+    sample_txt_path,
+) -> None:
+    with sample_txt_path.open("rb") as fh:
+        first = await auth_client.post(
+            "/api/documents/upload",
+            files={"file": ("sample.txt", fh, "text/plain")},
+        )
+    assert first.status_code == 201
+    first_id = first.json()["id"]
+
+    trash = await auth_client.post(f"/api/documents/{first_id}/trash")
+    assert trash.status_code == 200
+
+    with sample_txt_path.open("rb") as fh:
+        second = await auth_client.post(
+            "/api/documents/upload",
+            data={"on_duplicate": "skip"},
+            files={"file": ("sample-copy.txt", fh, "text/plain")},
+        )
+    assert second.status_code == 201, second.text
+    body = second.json()
+    assert body.get("status") != "duplicate"
+    second_id = body["id"]
+    assert second_id != first_id
+
+    old = await auth_client.get(f"/api/documents/{first_id}")
+    assert old.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_upload_relative_path_creates_folder_tree(
     auth_client: AsyncClient,
     sample_txt_path,

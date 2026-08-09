@@ -42,8 +42,8 @@ async def test_folder_scoped_search(
     with scoped_path.open("rb") as fh:
         scoped = await auth_client.post(
             "/api/documents/upload",
+            data={"folder_id": folder_id},
             files={"file": ("scoped.txt", fh, "text/plain")},
-            params={"folder_id": folder_id},
         )
     assert scoped.status_code == 201
     await run_extraction(uuid.UUID(scoped.json()["id"]))

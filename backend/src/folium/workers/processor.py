@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -17,12 +19,20 @@ from folium.core.config import get_settings
 from folium.core.logging import get_logger
 from folium.models import (
     AIProvider,
+    AISuggestion,
+    Correspondent,
     Document,
     DocumentChunk,
     DocumentPage,
+    DocumentType,
+    Folder,
+    FolderKind,
     Job,
+    JobStatus,
     JobType,
     ProcessingStatus,
+    SuggestionStatus,
+    Tag,
 )
 from folium.ocr.extractor import detect_language_hint, extract_document
 from folium.ocr.previews import persist_previews
@@ -37,12 +47,93 @@ from folium.storage.service import StorageService
 
 logger = get_logger(__name__)
 
+PREFLIGHT_JOB_TYPES = frozenset(
+    {
+        JobType.TEXT_EXTRACTION,
+        JobType.OCR,
+        JobType.METADATA_SUGGESTION,
+    }
+)
+
 
 async def _get_document(session: AsyncSession, document_id: uuid.UUID) -> Document:
     doc = await session.get(Document, document_id)
     if doc is None:
         raise ValueError(f"Document {document_id} not found")
     return doc
+
+
+async def _has_open_preflight_jobs(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    exclude_job_id: uuid.UUID | None = None,
+) -> bool:
+    stmt = select(Job.id).where(
+        Job.document_id == document_id,
+        Job.job_type.in_(PREFLIGHT_JOB_TYPES),
+        Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
+    )
+    if exclude_job_id is not None:
+        stmt = stmt.where(Job.id != exclude_job_id)
+    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
+
+
+async def mark_preflight_ready(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    exclude_job_id: uuid.UUID | None = None,
+) -> None:
+    """Mark inbox/library doc ready for review when pre-flight jobs are done."""
+    if await _has_open_preflight_jobs(session, document_id, exclude_job_id=exclude_job_id):
+        return
+    doc = await _get_document(session, document_id)
+    if doc.processing_status == ProcessingStatus.FAILED:
+        return
+    doc.processing_status = ProcessingStatus.READY
+    doc.processing_error = None
+    await session.flush()
+
+
+async def mark_preflight_failed(
+    session: AsyncSession, document_id: uuid.UUID, error: str
+) -> None:
+    doc = await _get_document(session, document_id)
+    doc.processing_status = ProcessingStatus.FAILED
+    doc.processing_error = error[:2000]
+    await session.flush()
+
+
+async def _enqueue_metadata_suggestion_or_finish(
+    session: AsyncSession,
+    doc: Document,
+    *,
+    priority: int,
+    exclude_job_id: uuid.UUID | None = None,
+) -> None:
+    ai_settings = await ensure_ai_settings(session)
+    can_suggest = (
+        ai_settings.auto_tagging
+        and ai_settings.chat_provider_id is not None
+        and bool((doc.extracted_text or "").strip())
+    )
+    if can_suggest:
+        provider = await session.get(AIProvider, ai_settings.chat_provider_id)
+        if provider is not None and provider.enabled:
+            try:
+                PrivacyGate(ai_settings, provider).assert_can_qa()
+            except Exception:
+                can_suggest = False
+            else:
+                await job_service.enqueue_job(
+                    session,
+                    job_type=JobType.METADATA_SUGGESTION,
+                    document_id=doc.id,
+                    priority=priority + 20,
+                )
+                return
+    await mark_preflight_ready(session, doc.id, exclude_job_id=exclude_job_id)
 
 
 async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
@@ -81,19 +172,25 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
     await refresh_page_search_vectors(session, doc.id)
     await refresh_document_search_vector(session, doc.id)
 
-    await job_service.enqueue_job(
-        session,
-        job_type=JobType.INDEXING,
-        document_id=doc.id,
-        priority=job.priority + 5,
+    # Final indexing is gated behind Inbox "Process documents".
+    needs_ocr = (
+        settings.ocr_enabled
+        and not doc.ocr_completed
+        and doc.mime_type == "application/pdf"
     )
-
-    if settings.ocr_enabled and not doc.ocr_completed and doc.mime_type == "application/pdf":
+    if needs_ocr:
         await job_service.enqueue_job(
             session,
             job_type=JobType.OCR,
             document_id=doc.id,
             priority=job.priority + 15,
+        )
+    else:
+        await _enqueue_metadata_suggestion_or_finish(
+            session,
+            doc,
+            priority=job.priority,
+            exclude_job_id=job.id,
         )
 
     return {"page_count": doc.page_count, "method": extracted.method}
@@ -131,11 +228,11 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
     await refresh_page_search_vectors(session, doc.id)
     await refresh_document_search_vector(session, doc.id)
 
-    await job_service.enqueue_job(
+    await _enqueue_metadata_suggestion_or_finish(
         session,
-        job_type=JobType.INDEXING,
-        document_id=doc.id,
+        doc,
         priority=job.priority,
+        exclude_job_id=job.id,
     )
 
     return {"ocr_completed": True}
@@ -201,7 +298,9 @@ async def process_indexing(session: AsyncSession, job: Job) -> dict:
 
     doc.document_indexed = True
     doc.indexed_at = datetime.now(UTC)
-    doc.processing_status = ProcessingStatus.READY
+    # Keep ready after final indexing (document already left inbox via Process).
+    if doc.processing_status != ProcessingStatus.FAILED:
+        doc.processing_status = ProcessingStatus.READY
     await session.flush()
 
     await refresh_document_search_vector(session, doc.id)
@@ -322,7 +421,7 @@ async def process_summary(session: AsyncSession, job: Job) -> dict:
     result = await adapter.chat(
         [ChatMessage(role="user", content=prompt)],
         model=provider.chat_model,
-        max_tokens=500,
+        max_tokens=provider.max_output_tokens or 1024,
         temperature=0.3,
     )
     await adapter.aclose()
@@ -350,6 +449,276 @@ async def process_summary(session: AsyncSession, job: Job) -> dict:
     return {"summary_length": len(doc.ai_summary or "")}
 
 
+_FOLDER_PATH_RE = re.compile(r"^[\w][\w /&'.-]{0,200}$", re.UNICODE)
+
+
+def _parse_suggestion_json(content: str) -> dict:
+    text = content.strip()
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if fence:
+        text = fence.group(1).strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            return {}
+        try:
+            data = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return {}
+    return data if isinstance(data, dict) else {}
+
+
+async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
+    """Generate filing suggestions for Inbox review (never auto-applied)."""
+    if job.document_id is None:
+        raise ValueError("METADATA_SUGGESTION job requires document_id")
+    doc = await _get_document(session, job.document_id)
+    ai_settings = await ensure_ai_settings(session)
+
+    if not ai_settings.auto_tagging or ai_settings.chat_provider_id is None:
+        await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
+        return {"skipped": True, "reason": "auto_tagging_disabled"}
+
+    provider = await session.get(AIProvider, ai_settings.chat_provider_id)
+    if provider is None or not provider.enabled:
+        await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
+        return {"skipped": True, "reason": "provider_unavailable"}
+
+    text = (doc.extracted_text or "").strip()
+    if len(text) < 20:
+        doc.needs_review = True
+        await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
+        return {"skipped": True, "reason": "insufficient_text"}
+
+    PrivacyGate(ai_settings, provider).assert_can_qa()
+    await assert_ai_quota(session, doc.owner_id)
+
+    folders = (
+        (
+            await session.execute(
+                select(Folder).where(
+                    Folder.owner_id == doc.owner_id,
+                    Folder.is_trashed.is_(False),
+                    Folder.kind == FolderKind.NORMAL,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    folder_paths = sorted(
+        {f.path_cache for f in folders if f.path_cache},
+        key=len,
+    )
+    types = (
+        (
+            await session.execute(
+                select(DocumentType).where(DocumentType.owner_id == doc.owner_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    correspondents = (
+        (
+            await session.execute(
+                select(Correspondent).where(Correspondent.owner_id == doc.owner_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    tags = (
+        (await session.execute(select(Tag).where(Tag.owner_id == doc.owner_id))).scalars().all()
+    )
+
+    type_names = [t.name for t in types]
+    correspondent_names = [c.name for c in correspondents]
+    tag_names = [t.name for t in tags]
+
+    prompt = (
+        "You help file documents into a personal archive. "
+        "Return ONLY valid JSON with keys: "
+        "folder_path (string path like 'Finance / Insurance', or null), "
+        "create_folder (boolean — true if folder_path does not already exist), "
+        "title (string or null), "
+        "document_type (string name or null), "
+        "correspondent (string name or null), "
+        "tags (array of short tag strings), "
+        "needs_review (boolean — true if unsure).\n\n"
+        f"Existing folders:\n{json.dumps(folder_paths[:80])}\n"
+        f"Existing document types:\n{json.dumps(type_names)}\n"
+        f"Existing correspondents:\n{json.dumps(correspondent_names)}\n"
+        f"Existing tags:\n{json.dumps(tag_names)}\n\n"
+        f"Filename: {doc.original_filename}\n"
+        f"Document text:\n{text[:10000]}"
+    )
+
+    adapter = get_adapter(provider)
+    result = await adapter.chat(
+        [ChatMessage(role="user", content=prompt)],
+        model=provider.chat_model,
+        max_tokens=provider.max_output_tokens or 2048,
+        temperature=0.2,
+    )
+    await adapter.aclose()
+
+    data = _parse_suggestion_json(result.content)
+    created = 0
+
+    # Clear prior pending suggestions for this document
+    await session.execute(
+        delete(AISuggestion).where(
+            AISuggestion.document_id == doc.id,
+            AISuggestion.status == SuggestionStatus.PENDING,
+        )
+    )
+
+    folder_path = data.get("folder_path")
+    if isinstance(folder_path, str):
+        folder_path = folder_path.strip().strip("/")
+        folder_path = re.sub(r"\s*/\s*", " / ", folder_path)
+        if folder_path and _FOLDER_PATH_RE.match(folder_path.replace(" / ", "/")):
+            normalized = folder_path.replace(" / ", "/")
+            existing = next(
+                (
+                    f
+                    for f in folders
+                    if (f.path_cache or "").replace(" / ", "/") == normalized
+                    or (f.path_cache or "") == folder_path
+                ),
+                None,
+            )
+            create_folder = bool(data.get("create_folder")) and existing is None
+            if existing is None:
+                # Also match leaf-only against path_cache ends
+                for f in folders:
+                    cache = (f.path_cache or "").replace(" / ", "/")
+                    if cache.endswith("/" + normalized) or cache == normalized:
+                        existing = f
+                        create_folder = False
+                        break
+            value: dict = {
+                "path": existing.path_cache if existing else folder_path,
+                "exists": existing is not None,
+                "create": create_folder and existing is None,
+            }
+            if existing is not None:
+                value["folder_id"] = str(existing.id)
+            session.add(
+                AISuggestion(
+                    document_id=doc.id,
+                    field="folder",
+                    value=value,
+                    status=SuggestionStatus.PENDING,
+                    provider=provider.name,
+                    model=result.model,
+                )
+            )
+            created += 1
+
+    title = data.get("title")
+    if isinstance(title, str) and title.strip():
+        session.add(
+            AISuggestion(
+                document_id=doc.id,
+                field="title",
+                value={"title": title.strip()[:512]},
+                status=SuggestionStatus.PENDING,
+                provider=provider.name,
+                model=result.model,
+            )
+        )
+        created += 1
+
+    doc_type_name = data.get("document_type")
+    if isinstance(doc_type_name, str) and doc_type_name.strip():
+        match = next(
+            (t for t in types if t.name.lower() == doc_type_name.strip().lower()),
+            None,
+        )
+        if match is not None:
+            session.add(
+                AISuggestion(
+                    document_id=doc.id,
+                    field="document_type",
+                    value={
+                        "document_type_id": str(match.id),
+                        "name": match.name,
+                    },
+                    status=SuggestionStatus.PENDING,
+                    provider=provider.name,
+                    model=result.model,
+                )
+            )
+            created += 1
+
+    corr_name = data.get("correspondent")
+    if isinstance(corr_name, str) and corr_name.strip():
+        match = next(
+            (c for c in correspondents if c.name.lower() == corr_name.strip().lower()),
+            None,
+        )
+        if match is not None:
+            session.add(
+                AISuggestion(
+                    document_id=doc.id,
+                    field="correspondent",
+                    value={
+                        "correspondent_id": str(match.id),
+                        "name": match.name,
+                    },
+                    status=SuggestionStatus.PENDING,
+                    provider=provider.name,
+                    model=result.model,
+                )
+            )
+            created += 1
+
+    suggested_tags = data.get("tags")
+    if isinstance(suggested_tags, list):
+        names = [
+            str(n).strip()
+            for n in suggested_tags
+            if isinstance(n, str) and str(n).strip()
+        ][:12]
+        if names:
+            session.add(
+                AISuggestion(
+                    document_id=doc.id,
+                    field="tags",
+                    value={"tag_names": names},
+                    status=SuggestionStatus.PENDING,
+                    provider=provider.name,
+                    model=result.model,
+                )
+            )
+            created += 1
+
+    needs_review = bool(data.get("needs_review"))
+    if not folder_path:
+        needs_review = True
+    doc.needs_review = needs_review
+
+    await session.flush()
+    await record_usage(
+        session,
+        user_id=doc.owner_id,
+        provider=provider.name,
+        model=result.model,
+        operation="metadata_suggestion",
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        is_local=provider.is_local,
+        document_id=doc.id,
+    )
+    await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
+    return {"suggestions": created, "needs_review": needs_review}
+
+
 async def process_job(session: AsyncSession, job: Job) -> dict:
     """Dispatch a job to the appropriate handler."""
     handlers = {
@@ -359,6 +728,7 @@ async def process_job(session: AsyncSession, job: Job) -> dict:
         JobType.INDEXING: process_indexing,
         JobType.EMBEDDING: process_embedding,
         JobType.SUMMARY: process_summary,
+        JobType.METADATA_SUGGESTION: process_metadata_suggestion,
     }
     handler = handlers.get(job.job_type)
     if handler is None:
