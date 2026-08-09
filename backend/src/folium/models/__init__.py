@@ -35,7 +35,7 @@ def _uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -43,7 +43,7 @@ class JobStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
-class JobType(str, enum.Enum):
+class JobType(enum.StrEnum):
     TEXT_EXTRACTION = "text_extraction"
     OCR = "ocr"
     THUMBNAIL = "thumbnail"
@@ -54,7 +54,7 @@ class JobType(str, enum.Enum):
     METADATA_SUGGESTION = "metadata_suggestion"
 
 
-class ProcessingStatus(str, enum.Enum):
+class ProcessingStatus(enum.StrEnum):
     PENDING = "pending"
     PROCESSING = "processing"
     READY = "ready"
@@ -62,20 +62,20 @@ class ProcessingStatus(str, enum.Enum):
     PARTIAL = "partial"
 
 
-class PrivacyMode(str, enum.Enum):
+class PrivacyMode(enum.StrEnum):
     LOCAL_ONLY = "local_only"
     PRIVATE_HYBRID = "private_hybrid"
     STANDARD = "standard"
 
 
-class AIProfileName(str, enum.Enum):
+class AIProfileName(enum.StrEnum):
     LIGHTWEIGHT = "lightweight"
     BALANCED = "balanced"
     QUALITY = "quality"
     CUSTOM = "custom"
 
 
-class ProviderKind(str, enum.Enum):
+class ProviderKind(enum.StrEnum):
     OPENAI_COMPATIBLE = "openai_compatible"
     OPENAI = "openai"
     OPENROUTER = "openrouter"
@@ -84,20 +84,27 @@ class ProviderKind(str, enum.Enum):
     GEMINI = "gemini"
 
 
-class SuggestionStatus(str, enum.Enum):
+class AIWorkloadRole(enum.StrEnum):
+    INDEXING = "indexing"
+    EMBEDDING = "embedding"
+    CHAT = "chat"
+    VISION = "vision"
+
+
+class SuggestionStatus(enum.StrEnum):
     PENDING = "pending"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
 
 
-class FolderKind(str, enum.Enum):
+class FolderKind(enum.StrEnum):
     ROOT = "root"
     INBOX = "inbox"
     TRASH = "trash"
     NORMAL = "normal"
 
 
-class PasswordResetStatus(str, enum.Enum):
+class PasswordResetStatus(enum.StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -130,7 +137,9 @@ class User(Base, TimestampMixin):
     ai_monthly_request_quota: Mapped[int | None] = mapped_column(Integer, nullable=True)
     avatar_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
-    sessions: Mapped[list[Session]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    sessions: Mapped[list[Session]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     invites_created: Mapped[list[Invite]] = relationship(
         back_populates="created_by",
         foreign_keys="Invite.created_by_id",
@@ -252,9 +261,7 @@ class Folder(Base, TimestampMixin):
     is_trashed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     trashed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    parent: Mapped[Folder | None] = relationship(
-        remote_side="Folder.id", back_populates="children"
-    )
+    parent: Mapped[Folder | None] = relationship(remote_side="Folder.id", back_populates="children")
     children: Mapped[list[Folder]] = relationship(back_populates="parent")
     documents: Mapped[list[Document]] = relationship(
         back_populates="folder",
@@ -367,7 +374,11 @@ class Document(Base, TimestampMixin):
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     processing_status: Mapped[ProcessingStatus] = mapped_column(
-        Enum(ProcessingStatus, name="processing_status", values_callable=lambda x: [e.value for e in x]),
+        Enum(
+            ProcessingStatus,
+            name="processing_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=ProcessingStatus.PENDING,
         nullable=False,
     )
@@ -404,9 +415,7 @@ class Document(Base, TimestampMixin):
     )
     document_type: Mapped[DocumentType | None] = relationship(back_populates="documents")
     correspondent: Mapped[Correspondent | None] = relationship(back_populates="documents")
-    tags: Mapped[list[Tag]] = relationship(
-        secondary="document_tags", back_populates="documents"
-    )
+    tags: Mapped[list[Tag]] = relationship(secondary="document_tags", back_populates="documents")
     pages: Mapped[list[DocumentPage]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="DocumentPage.page_number"
     )
@@ -442,7 +451,10 @@ class DocumentPage(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, default="", nullable=False)
@@ -481,9 +493,7 @@ class DocumentChunk(Base):
 
 class Job(Base, TimestampMixin):
     __tablename__ = "jobs"
-    __table_args__ = (
-        Index("ix_jobs_status_priority", "status", "priority", "created_at"),
-    )
+    __table_args__ = (Index("ix_jobs_status_priority", "status", "priority", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     job_type: Mapped[JobType] = mapped_column(
@@ -496,7 +506,10 @@ class Job(Base, TimestampMixin):
         nullable=False,
     )
     document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=True, index=True
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
     )
     priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -539,6 +552,37 @@ class AIProvider(Base, TimestampMixin):
     no_training: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     zero_retention: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True)
     extra: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    last_probe_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_probe_error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    last_probe_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_probe_model_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_probed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AIModelAssignment(Base, TimestampMixin):
+    __tablename__ = "ai_model_assignments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    role: Mapped[AIWorkloadRole] = mapped_column(
+        Enum(
+            AIWorkloadRole,
+            name="ai_workload_role",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        unique=True,
+        nullable=False,
+    )
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ai_providers.id", ondelete="SET NULL"), nullable=True
+    )
+    model: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    last_validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    provider: Mapped[AIProvider | None] = relationship()
 
 
 class AISettings(Base, TimestampMixin):
@@ -591,6 +635,7 @@ class AIUsage(Base):
     __table_args__ = (
         Index("ix_ai_usage_created_at", "created_at"),
         Index("ix_ai_usage_user_id", "user_id"),
+        Index("ix_ai_usage_created_operation", "created_at", "operation"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
@@ -604,6 +649,10 @@ class AIUsage(Base):
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reported_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    cost_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="completed", nullable=False)
     is_local: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -616,12 +665,19 @@ class AISuggestion(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     field: Mapped[str] = mapped_column(String(64), nullable=False)
     value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     status: Mapped[SuggestionStatus] = mapped_column(
-        Enum(SuggestionStatus, name="suggestion_status", values_callable=lambda x: [e.value for e in x]),
+        Enum(
+            SuggestionStatus,
+            name="suggestion_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=SuggestionStatus.PENDING,
         nullable=False,
     )
@@ -637,3 +693,24 @@ class AppSetting(Base, TimestampMixin):
 
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+
+class ApplicationLog(Base):
+    __tablename__ = "application_logs"
+    __table_args__ = (
+        Index("ix_application_logs_timestamp", "timestamp"),
+        Index("ix_application_logs_level_service", "level", "service"),
+        Index("ix_application_logs_request_id", "request_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    level: Mapped[str] = mapped_column(String(16), nullable=False)
+    service: Mapped[str] = mapped_column(String(32), nullable=False)
+    module: Mapped[str] = mapped_column(String(256), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    context: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    stack_trace: Mapped[str | None] = mapped_column(Text, nullable=True)

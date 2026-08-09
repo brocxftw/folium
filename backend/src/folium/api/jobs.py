@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from folium.api.schemas import JobOut, MessageOut
+from folium.api.schemas import JobOut
 from folium.auth.deps import CurrentUser, SafeSession
 from folium.db.session import get_db
 from folium.models import JobStatus
@@ -41,7 +41,11 @@ async def list_jobs(
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[JobOut]:
     jobs = await job_service.list_jobs(
-        db, status=status, document_id=document_id, limit=limit
+        db,
+        status=status,
+        document_id=document_id,
+        owner_id=None if _user.is_admin else _user.id,
+        limit=limit,
     )
     return [_job_out(j) for j in jobs]
 
@@ -52,7 +56,7 @@ async def get_job(
     _user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> JobOut:
-    job = await job_service.get_job(db, job_id)
+    job = await job_service.get_job(db, job_id, owner_id=None if _user.is_admin else _user.id)
     return _job_out(job)
 
 
@@ -63,5 +67,5 @@ async def cancel_job(
     _user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> JobOut:
-    job = await job_service.cancel_job(db, job_id)
+    job = await job_service.cancel_job(db, job_id, owner_id=None if _user.is_admin else _user.id)
     return _job_out(job)

@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
+from datetime import UTC, datetime
 
 from folium.core.config import get_settings
 from folium.core.logging import get_logger, setup_logging
 from folium.db.session import session_scope
+from folium.models import AppSetting
 from folium.services import jobs as job_service
 from folium.storage.service import StorageService
 from folium.workers.processor import process_consume_file, process_job
@@ -21,7 +23,6 @@ def worker_id() -> str:
 
 
 async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
-    settings = get_settings()
     async with session_scope() as session:
         await job_service.requeue_stale_running(session)
 
@@ -54,9 +55,7 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
                         and failed.document_id is not None
                         and failed.job_type in PREFLIGHT_JOB_TYPES
                     ):
-                        await mark_preflight_failed(
-                            session, failed.document_id, str(exc)
-                        )
+                        await mark_preflight_failed(session, failed.document_id, str(exc))
 
     asyncio.create_task(_run())
 
@@ -78,9 +77,9 @@ async def _poll_consume(stability_wait: float) -> None:
             async with session_scope() as session:
                 doc_id = await process_consume_file(session, path, storage=storage)
             if doc_id:
-                logger.info("Consumed %s -> document %s", path.name, doc_id)
+                logger.info("Consumed file -> document %s", doc_id)
         except Exception as exc:
-            logger.exception("Failed to consume %s: %s", path, exc)
+            logger.exception("Failed to consume file: %s", exc)
 
 
 async def _poll_trash_purge(last_run: list[float]) -> None:
@@ -120,6 +119,13 @@ async def worker_loop() -> None:
     logger.info("Worker %s started (concurrency=%s)", wid, settings.job_concurrency)
 
     while True:
+        async with session_scope() as session:
+            heartbeat = await session.get(AppSetting, "worker_heartbeat")
+            value = {"at": datetime.now(UTC).isoformat(), "worker_id": wid}
+            if heartbeat is None:
+                session.add(AppSetting(key="worker_heartbeat", value=value))
+            else:
+                heartbeat.value = value
         tasks = [
             _poll_jobs(wid, sem),
             _poll_consume(settings.consume_poll_interval_seconds),
@@ -130,7 +136,7 @@ async def worker_loop() -> None:
 
 
 def run_worker() -> None:
-    setup_logging()
+    setup_logging("worker")
     storage = StorageService()
     storage.ensure_layout()
     asyncio.run(worker_loop())

@@ -15,12 +15,12 @@ import {
   SettingsLayout,
   ProfileSettingsPage,
   UsersSettingsPage,
-  StorageSettingsPage,
-  AIProvidersSettingsPage,
-  AIPolicySettingsPage,
-  AIProfilesSettingsPage,
-  SystemSettingsPage,
+  AdminSettingsGuard,
 } from "@/features/settings/SettingsLayout";
+import { ArtificialIntelligencePage } from "@/features/settings/ArtificialIntelligencePage";
+import { SystemPage } from "@/features/settings/SystemPage";
+import { LogsPage } from "@/features/settings/LogsPage";
+import { AboutPage } from "@/features/settings/AboutPage";
 import { TrashPage } from "@/features/trash/TrashPage";
 import { NotFoundPage } from "@/features/not-found/NotFoundPage";
 
@@ -68,12 +68,16 @@ export default function App() {
             <Route path="/settings" element={<SettingsLayout />}>
               <Route index element={<Navigate to="profile" replace />} />
               <Route path="profile" element={<ProfileSettingsPage />} />
-              <Route path="users" element={<UsersSettingsPage />} />
-              <Route path="storage" element={<StorageSettingsPage />} />
-              <Route path="ai-providers" element={<AIProvidersSettingsPage />} />
-              <Route path="ai-policy" element={<AIPolicySettingsPage />} />
-              <Route path="ai-profiles" element={<AIProfilesSettingsPage />} />
-              <Route path="system" element={<SystemSettingsPage />} />
+              <Route path="profile/users" element={<UsersSettingsPage />} />
+              <Route path="artificial-intelligence" element={<AdminSettingsGuard><ArtificialIntelligencePage /></AdminSettingsGuard>} />
+              <Route path="system" element={<AdminSettingsGuard><SystemPage /></AdminSettingsGuard>} />
+              <Route path="logs" element={<AdminSettingsGuard><LogsPage /></AdminSettingsGuard>} />
+              <Route path="about" element={<AboutPage />} />
+              <Route path="users" element={<Navigate to="/settings/profile/users" replace />} />
+              <Route path="storage" element={<Navigate to="/settings/system#storage" replace />} />
+              <Route path="ai-providers" element={<Navigate to="/settings/artificial-intelligence?tab=providers" replace />} />
+              <Route path="ai-policy" element={<Navigate to="/settings/artificial-intelligence?tab=policy" replace />} />
+              <Route path="ai-profiles" element={<Navigate to="/settings/artificial-intelligence?tab=advanced" replace />} />
             </Route>
             <Route path="*" element={<NotFoundPage />} />
           </Route>

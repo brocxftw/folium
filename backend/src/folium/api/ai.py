@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
+import time
 import uuid
-from datetime import UTC, datetime
-from typing import Annotated, Any
+from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
-from fastapi import APIRouter, Depends
+import httpx
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from folium.ai.assignments import ResolvedAssignment, ensure_assignments, resolve_assignment
 from folium.ai.profiles import PROFILE_PRESETS
 from folium.ai.registry import get_adapter
 from folium.ai.url_validation import validate_provider_base_url
 from folium.api.schemas import (
+    AIAssignmentOut,
+    AIAssignmentUpdate,
+    AICapabilitiesOut,
     AIPolicyOut,
     AIPolicyUpdate,
     AIProviderCreate,
+    AIProviderModelsOut,
     AIProviderOut,
+    AIProviderProbeOut,
     AIProviderUpdate,
     AIUsageSummary,
     MessageOut,
@@ -26,13 +34,16 @@ from folium.api.schemas import (
 from folium.auth.deps import AdminUser, CurrentUser, SafeSession
 from folium.bootstrap import ensure_ai_settings
 from folium.core.exceptions import ConflictError, NotFoundError, ValidationError
+from folium.core.redaction import redact_text
 from folium.core.security import decrypt_secret, encrypt_secret, mask_secret
 from folium.db.session import get_db
 from folium.models import (
+    AIModelAssignment,
     AIProfileName,
     AIProvider,
     AISettings,
     AISuggestion,
+    AIWorkloadRole,
     Correspondent,
     Document,
     DocumentType,
@@ -74,6 +85,12 @@ def _provider_out(provider: AIProvider) -> AIProviderOut:
         supports_embeddings=provider.supports_embeddings,
         no_training=provider.no_training,
         zero_retention=provider.zero_retention,
+        last_probe_status=provider.last_probe_status,
+        last_probe_error=provider.last_probe_error,
+        last_probe_latency_ms=provider.last_probe_latency_ms,
+        last_probe_model_count=provider.last_probe_model_count,
+        last_probed_at=provider.last_probed_at,
+        last_success_at=provider.last_success_at,
     )
 
 
@@ -240,28 +257,242 @@ async def delete_provider(
     provider = await db.get(AIProvider, provider_id)
     if provider is None:
         raise NotFoundError("Provider not found")
+    dependencies = (
+        (
+            await db.execute(
+                select(AIModelAssignment.role).where(AIModelAssignment.provider_id == provider_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if dependencies:
+        roles = ", ".join(sorted(role.value for role in dependencies))
+        raise ConflictError(f"Provider is assigned to: {roles}. Reassign those workloads first.")
     await db.delete(provider)
     return MessageOut(message="Provider deleted")
 
 
-@router.post("/providers/{provider_id}/test", response_model=MessageOut)
+async def _discover_models(provider: AIProvider) -> list[str] | None:
+    if provider.kind not in {
+        ProviderKind.OPENAI_COMPATIBLE,
+        ProviderKind.OPENAI,
+        ProviderKind.OPENROUTER,
+        ProviderKind.OLLAMA,
+    }:
+        return None
+    headers: dict[str, str] = {}
+    if provider.encrypted_api_key:
+        headers["Authorization"] = f"Bearer {decrypt_secret(provider.encrypted_api_key)}"
+    url = provider.base_url.rstrip("/")
+    if not url.endswith("/v1"):
+        url += "/v1"
+    async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+        response = await client.get(f"{url}/models")
+        response.raise_for_status()
+        payload = response.json()
+    data = payload.get("data", payload) if isinstance(payload, dict) else payload
+    if not isinstance(data, list):
+        return []
+    return sorted(
+        {str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")}
+    )
+
+
+@router.get("/providers/{provider_id}/models", response_model=AIProviderModelsOut)
+async def discover_provider_models(
+    provider_id: uuid.UUID,
+    _admin: AdminUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AIProviderModelsOut:
+    provider = await db.get(AIProvider, provider_id)
+    if provider is None:
+        raise NotFoundError("Provider not found")
+    try:
+        models = await _discover_models(provider)
+    except Exception as exc:
+        raise ValidationError(redact_text(f"Model discovery failed: {exc}")[:500]) from exc
+    if models is None:
+        return AIProviderModelsOut(
+            models=[],
+            discoverable=False,
+            message="This provider does not expose model discovery; enter a model ID manually.",
+        )
+    return AIProviderModelsOut(models=models, discoverable=True)
+
+
+@router.post("/providers/{provider_id}/test", response_model=AIProviderProbeOut)
 async def test_provider_connection(
     provider_id: uuid.UUID,
     _sess: SafeSession,
     _admin: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> MessageOut:
+) -> AIProviderProbeOut:
     provider = await db.get(AIProvider, provider_id)
     if provider is None:
         raise NotFoundError("Provider not found")
     adapter = get_adapter(provider)
+    started = time.perf_counter()
+    tested_at = datetime.now(UTC)
     try:
         ok = await adapter.test_connection()
+        models = await _discover_models(provider)
+    except Exception as exc:
+        latency = round((time.perf_counter() - started) * 1000)
+        provider.last_probe_status = "offline"
+        provider.last_probe_error = redact_text(str(exc))[:512]
+        provider.last_probe_latency_ms = latency
+        provider.last_probed_at = tested_at
+        await db.flush()
+        return AIProviderProbeOut(
+            status="offline",
+            latency_ms=latency,
+            model_count=None,
+            tested_at=tested_at,
+            message=f"Provider connection failed: {provider.last_probe_error}",
+        )
     finally:
         await adapter.aclose()
     if not ok:
-        raise ValidationError("Provider connection test failed")
-    return MessageOut(message="Connection successful")
+        latency = round((time.perf_counter() - started) * 1000)
+        provider.last_probe_status = "offline"
+        provider.last_probe_error = "Provider connection test failed"
+        provider.last_probe_latency_ms = latency
+        provider.last_probe_model_count = None
+        provider.last_probed_at = tested_at
+        await db.flush()
+        return AIProviderProbeOut(
+            status="offline",
+            latency_ms=latency,
+            model_count=None,
+            tested_at=tested_at,
+            message=provider.last_probe_error,
+        )
+    latency = round((time.perf_counter() - started) * 1000)
+    provider.last_probe_status = "available"
+    provider.last_probe_error = None
+    provider.last_probe_latency_ms = latency
+    provider.last_probe_model_count = len(models) if models is not None else None
+    provider.last_probed_at = tested_at
+    provider.last_success_at = tested_at
+    await db.flush()
+    return AIProviderProbeOut(
+        status="available",
+        latency_ms=latency,
+        model_count=provider.last_probe_model_count,
+        tested_at=tested_at,
+        message="Connection successful",
+    )
+
+
+def _assignment_out(
+    role: AIWorkloadRole,
+    resolved: ResolvedAssignment,
+    settings_row: AISettings,
+) -> AIAssignmentOut:
+    provider = resolved.provider
+    if provider is None or not resolved.model:
+        status = "unconfigured"
+    elif not provider.enabled:
+        status = "disabled"
+    elif provider.last_probe_status == "offline":
+        status = "offline"
+    else:
+        status = "configured"
+    return AIAssignmentOut(
+        role=role.value,
+        provider_id=provider.id if provider else None,
+        provider_name=provider.name if provider else None,
+        model=resolved.model,
+        is_local=provider.is_local if provider else None,
+        enabled=bool(provider and provider.enabled),
+        status=status,
+        embedding_dimension=(
+            settings_row.active_embedding_dimension if role == AIWorkloadRole.EMBEDDING else None
+        ),
+        legacy_fallback=resolved.legacy_fallback,
+    )
+
+
+@router.get("/assignments", response_model=list[AIAssignmentOut])
+async def list_assignments(
+    _admin: AdminUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[AIAssignmentOut]:
+    settings_row = await ensure_ai_settings(db)
+    await ensure_assignments(db)
+    return [
+        _assignment_out(role, await resolve_assignment(db, role), settings_row)
+        for role in AIWorkloadRole
+    ]
+
+
+@router.patch("/assignments", response_model=AIAssignmentOut)
+async def update_assignment(
+    body: AIAssignmentUpdate,
+    _sess: SafeSession,
+    _admin: AdminUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AIAssignmentOut:
+    role = AIWorkloadRole(body.role)
+    rows = {row.role: row for row in await ensure_assignments(db)}
+    row = rows[role]
+    provider = await db.get(AIProvider, body.provider_id) if body.provider_id else None
+    if body.provider_id and provider is None:
+        raise ValidationError("Provider not found")
+    if provider and not provider.enabled:
+        raise ValidationError("Disabled providers cannot be assigned")
+    model = body.model.strip() if body.model else None
+    if provider and not model:
+        raise ValidationError("A model ID is required")
+    if role == AIWorkloadRole.EMBEDDING and provider and not provider.supports_embeddings:
+        raise ValidationError("Selected provider does not support embeddings")
+    settings_row = await ensure_ai_settings(db)
+    if provider and not provider.is_local:
+        remote_allowed = {
+            AIWorkloadRole.INDEXING: settings_row.allow_remote_qa,
+            AIWorkloadRole.CHAT: settings_row.allow_remote_qa,
+            AIWorkloadRole.EMBEDDING: settings_row.allow_remote_embeddings,
+            AIWorkloadRole.VISION: settings_row.allow_remote_vision,
+        }[role]
+        if (
+            settings_row.privacy_mode == PrivacyMode.LOCAL_ONLY
+            or settings_row.block_remote_ai
+            or not remote_allowed
+        ):
+            raise ValidationError("The current AI Policy blocks this remote workload assignment")
+    changed = row.provider_id != (provider.id if provider else None) or row.model != model
+    row.provider_id = provider.id if provider else None
+    row.model = model
+    if role == AIWorkloadRole.EMBEDDING and changed:
+        settings_row.active_embedding_provider = None
+        settings_row.active_embedding_model = None
+        settings_row.active_embedding_dimension = None
+    await db.flush()
+    return _assignment_out(role, await resolve_assignment(db, role), settings_row)
+
+
+@router.get("/capabilities", response_model=AICapabilitiesOut)
+async def get_capabilities(
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AICapabilitiesOut:
+    settings_row = await ensure_ai_settings(db)
+    chat = await resolve_assignment(db, AIWorkloadRole.CHAT)
+    embedding = await resolve_assignment(db, AIWorkloadRole.EMBEDDING)
+    return AICapabilitiesOut(
+        chat_available=bool(chat.provider and chat.provider.enabled and chat.model),
+        embeddings_available=bool(
+            embedding.provider and embedding.provider.enabled and embedding.model
+        ),
+        auto_tagging=settings_row.auto_tagging,
+        auto_enrichment=settings_row.auto_enrichment,
+        warn_before_remote_chat=bool(
+            settings_row.warn_before_remote and chat.provider and not chat.provider.is_local
+        ),
+        chat_is_local=chat.provider.is_local if chat.provider else None,
+        privacy_mode=settings_row.privacy_mode.value,
+    )
 
 
 # ---- Policy ----
@@ -336,6 +567,55 @@ async def update_policy(
             settings_row.active_embedding_provider = embed_provider.name
             settings_row.active_embedding_model = embed_provider.embedding_model
 
+    remote_assignments = (
+        await db.execute(
+            select(AIModelAssignment, AIProvider)
+            .join(AIProvider, AIProvider.id == AIModelAssignment.provider_id)
+            .where(AIProvider.is_local.is_(False))
+        )
+    ).all()
+    conflicts: list[str] = []
+    for assignment, _provider in remote_assignments:
+        allowed = {
+            AIWorkloadRole.INDEXING: settings_row.allow_remote_qa,
+            AIWorkloadRole.CHAT: settings_row.allow_remote_qa,
+            AIWorkloadRole.EMBEDDING: settings_row.allow_remote_embeddings,
+            AIWorkloadRole.VISION: settings_row.allow_remote_vision,
+        }[assignment.role]
+        if (
+            settings_row.privacy_mode == PrivacyMode.LOCAL_ONLY
+            or settings_row.block_remote_ai
+            or not allowed
+        ):
+            conflicts.append(assignment.role.value)
+    if conflicts:
+        raise ValidationError(
+            "AI Policy conflicts with remote assignments: "
+            + ", ".join(sorted(conflicts))
+            + ". Reassign them to local providers first."
+        )
+
+    # Keep the legacy provider fields write-compatible for one release, while
+    # all runtime resolution remains assignment-only.
+    legacy_assignment_fields = {
+        "chat_provider_id": (
+            (AIWorkloadRole.INDEXING, AIWorkloadRole.CHAT),
+            "chat_model",
+        ),
+        "embedding_provider_id": ((AIWorkloadRole.EMBEDDING,), "embedding_model"),
+        "vision_provider_id": ((AIWorkloadRole.VISION,), "vision_model"),
+    }
+    if any(field in data for field in legacy_assignment_fields):
+        assignments = {row.role: row for row in await ensure_assignments(db)}
+        for field, (roles, model_field) in legacy_assignment_fields.items():
+            if field not in data:
+                continue
+            provider_id = getattr(settings_row, field)
+            provider = await db.get(AIProvider, provider_id) if provider_id else None
+            for role in roles:
+                assignments[role].provider_id = provider.id if provider else None
+                assignments[role].model = getattr(provider, model_field, None) if provider else None
+
     await db.flush()
     return _policy_out(settings_row)
 
@@ -345,101 +625,134 @@ async def update_policy(
 
 @router.get("/usage", response_model=AIUsageSummary)
 async def get_usage(
-    _user: CurrentUser,
+    _admin: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
+    range: str = Query(default="month", pattern="^(today|7d|30d|month)$"),
+    interval: str | None = Query(default=None, pattern="^(hour|day)$"),
 ) -> AIUsageSummary:
     from folium.models import AIUsage
 
     now = datetime.now(UTC)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_start = today_start.replace(day=1)
+    starts = {
+        "today": today_start,
+        "7d": today_start - timedelta(days=6),
+        "30d": today_start - timedelta(days=29),
+        "month": today_start.replace(day=1),
+    }
+    start = starts[range]
+    effective_interval = interval or ("hour" if range == "today" else "day")
+    trunc = func.date_trunc(effective_interval, AIUsage.created_at)
+    where = (AIUsage.created_at >= start, AIUsage.created_at <= now)
+    total = (
+        await db.execute(
+            select(
+                func.count(AIUsage.id),
+                func.sum(AIUsage.input_tokens),
+                func.sum(AIUsage.output_tokens),
+                func.sum(AIUsage.duration_ms),
+                func.sum(func.coalesce(AIUsage.reported_cost, AIUsage.estimated_cost)),
+                func.count(func.coalesce(AIUsage.reported_cost, AIUsage.estimated_cost)),
+                func.count(AIUsage.id).filter(AIUsage.is_local.is_(False)),
+                func.min(AIUsage.cost_currency),
+                func.count(func.distinct(AIUsage.cost_currency)),
+            ).where(*where)
+        )
+    ).one()
+    requests, cost_rows, remote_rows = int(total[0]), int(total[5]), int(total[6])
+    if requests and remote_rows == 0:
+        coverage = "local_only"
+    elif cost_rows == 0:
+        coverage = "none"
+    elif cost_rows < remote_rows:
+        coverage = "partial"
+    else:
+        coverage = "complete"
+    currency = total[7] if int(total[8]) == 1 else None
 
-    async def _aggregate(since: datetime) -> dict[str, Any]:
-        row = (
-            await db.execute(
-                select(
-                    func.count(AIUsage.id),
-                    func.coalesce(func.sum(AIUsage.input_tokens), 0),
-                    func.coalesce(func.sum(AIUsage.output_tokens), 0),
-                    func.coalesce(func.sum(AIUsage.estimated_cost), 0.0),
-                ).where(
-                    AIUsage.user_id == _user.id,
-                    AIUsage.created_at >= since,
-                )
+    series_rows = (
+        await db.execute(
+            select(
+                trunc.label("bucket"),
+                func.count(AIUsage.id),
+                func.sum(AIUsage.input_tokens),
+                func.sum(AIUsage.output_tokens),
+                func.sum(AIUsage.duration_ms),
             )
-        ).one()
-        return {
-            "requests": int(row[0]),
-            "input_tokens": int(row[1]),
-            "output_tokens": int(row[2]),
-            "estimated_cost": float(row[3]),
-        }
-
-    by_provider_rows = (
+            .where(*where)
+            .group_by(trunc)
+            .order_by(trunc)
+        )
+    ).all()
+    provider_rows = (
         await db.execute(
             select(
                 AIUsage.provider,
                 func.count(AIUsage.id),
-                func.coalesce(func.sum(AIUsage.input_tokens), 0),
-                func.coalesce(func.sum(AIUsage.output_tokens), 0),
+                func.sum(AIUsage.input_tokens),
+                func.sum(AIUsage.output_tokens),
             )
-            .where(
-                AIUsage.user_id == _user.id,
-                AIUsage.created_at >= month_start,
-            )
+            .where(*where)
             .group_by(AIUsage.provider)
             .order_by(func.count(AIUsage.id).desc())
         )
     ).all()
-
-    by_model_rows = (
+    operation_rows = (
         await db.execute(
-            select(
-                AIUsage.model,
-                func.count(AIUsage.id),
-                func.coalesce(func.sum(AIUsage.input_tokens), 0),
-            )
-            .where(
-                AIUsage.user_id == _user.id,
-                AIUsage.created_at >= month_start,
-            )
-            .group_by(AIUsage.model)
-            .order_by(func.count(AIUsage.id).desc())
-            .limit(20)
-        )
-    ).all()
-
-    by_operation_rows = (
-        await db.execute(
-            select(
-                AIUsage.operation,
-                func.count(AIUsage.id),
-            )
-            .where(
-                AIUsage.user_id == _user.id,
-                AIUsage.created_at >= month_start,
-            )
+            select(AIUsage.operation, func.count(AIUsage.id))
+            .where(*where)
             .group_by(AIUsage.operation)
-            .order_by(func.count(AIUsage.id).desc())
         )
     ).all()
+    workload_names = {
+        "embedding": ("embeddings", "Embeddings"),
+        "qa": ("chat", "Chat"),
+        "summary": ("indexing", "Indexing"),
+        "metadata_suggestion": ("indexing", "Indexing"),
+    }
+    grouped: dict[str, tuple[str, int]] = {}
+    for operation, count in operation_rows:
+        key, label = workload_names.get(operation, (operation, operation.replace("_", " ").title()))
+        grouped[key] = (label, grouped.get(key, (label, 0))[1] + int(count))
 
     return AIUsageSummary(
-        today=await _aggregate(today_start),
-        this_month=await _aggregate(month_start),
+        range=range,
+        interval=effective_interval,
+        starts_at=start,
+        ends_at=now,
+        totals={
+            "requests": requests,
+            "input_tokens": int(total[1]) if total[1] is not None else None,
+            "output_tokens": int(total[2]) if total[2] is not None else None,
+            "duration_ms": int(total[3]) if total[3] is not None else None,
+            "estimated_cost": float(total[4]) if total[4] is not None else None,
+            "cost_currency": currency,
+            "cost_coverage": coverage,
+        },
+        time_series=[
+            {
+                "bucket": row[0],
+                "requests": int(row[1]),
+                "input_tokens": int(row[2]) if row[2] is not None else None,
+                "output_tokens": int(row[3]) if row[3] is not None else None,
+                "duration_ms": int(row[4]) if row[4] is not None else None,
+            }
+            for row in series_rows
+        ],
         by_provider=[
             {
-                "provider": r[0],
-                "requests": int(r[1]),
-                "input_tokens": int(r[2]),
-                "output_tokens": int(r[3]),
+                "key": row[0],
+                "label": row[0],
+                "requests": int(row[1]),
+                "input_tokens": int(row[2]) if row[2] is not None else None,
+                "output_tokens": int(row[3]) if row[3] is not None else None,
             }
-            for r in by_provider_rows
+            for row in provider_rows
         ],
-        by_model=[
-            {"model": r[0], "requests": int(r[1]), "input_tokens": int(r[2])} for r in by_model_rows
+        by_workload=[
+            {"key": key, "label": label, "requests": count}
+            for key, (label, count) in sorted(grouped.items())
         ],
-        by_operation=[{"operation": r[0], "requests": int(r[1])} for r in by_operation_rows],
     )
 
 
@@ -499,7 +812,7 @@ async def _apply_suggestion(
                 doc.id,
                 folder_id,
                 owner_id=owner_id,
-                preserve_inbox=True if doc.inbox else False,
+                preserve_inbox=bool(doc.inbox),
             )
             doc_service.set_pending_folder_path(doc, None)
             if doc.inbox:
@@ -548,9 +861,7 @@ async def _apply_suggestion(
                     resolved.append(existing)
                     continue
                 try:
-                    created = await tag_service.create_tag(
-                        db, name=name, owner_id=owner_id
-                    )
+                    created = await tag_service.create_tag(db, name=name, owner_id=owner_id)
                     resolved.append(created)
                 except ConflictError:
                     again = (

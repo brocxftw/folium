@@ -59,7 +59,8 @@ export function AppShell({ children }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = usePersistedState("folium.sidebarOpen", true);
 
   const onDocuments = location.pathname.startsWith("/documents");
-  const showLibraryExplorer = sidebarOpen && !onDocuments;
+  const onSettings = location.pathname.startsWith("/settings");
+  const showLibraryExplorer = sidebarOpen && !onDocuments && !onSettings;
   const appVersion = health?.version;
 
   const handleLogout = async () => {
@@ -217,6 +218,7 @@ export function AppShell({ children }: AppShellProps) {
                 <TooltipTrigger asChild>
                   <NavLink
                     to="/settings"
+                    aria-label="Settings"
                     className="rounded p-1.5 text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text"
                   >
                     <Settings className="h-4 w-4" />
@@ -228,6 +230,7 @@ export function AppShell({ children }: AppShellProps) {
                 <TooltipTrigger asChild>
                   <button
                     type="button"
+                    aria-label="Log out"
                     onClick={handleLogout}
                     className="rounded p-1.5 text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text"
                   >

@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     documents_path: Path = Field(default=Path("/documents"), alias="DOCUMENTS_PATH")
     consume_path: Path = Field(default=Path("/consume"), alias="CONSUME_PATH")
     export_path: Path = Field(default=Path("/export"), alias="EXPORT_PATH")
+    documents_host_source: str | None = Field(default=None, alias="FOLIUM_DOCUMENTS_HOST_SOURCE")
 
     max_upload_size_mb: int = Field(default=100, alias="MAX_UPLOAD_SIZE_MB")
     allowed_mime_types: str = Field(
@@ -77,22 +78,16 @@ class Settings(BaseSettings):
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
 
     job_concurrency: int = Field(default=2, alias="JOB_CONCURRENCY")
-    consume_poll_interval_seconds: float = Field(
-        default=5.0, alias="CONSUME_POLL_INTERVAL_SECONDS"
-    )
+    consume_poll_interval_seconds: float = Field(default=5.0, alias="CONSUME_POLL_INTERVAL_SECONDS")
     job_poll_interval_seconds: float = Field(default=2.0, alias="JOB_POLL_INTERVAL_SECONDS")
     trash_retention_days: int = Field(default=30, alias="TRASH_RETENTION_DAYS")
     trash_purge_interval_seconds: float = Field(
         default=3600.0, alias="TRASH_PURGE_INTERVAL_SECONDS"
     )
 
-    ai_privacy_mode: PrivacyMode = Field(
-        default=PrivacyMode.LOCAL_ONLY, alias="AI_PRIVACY_MODE"
-    )
+    ai_privacy_mode: PrivacyMode = Field(default=PrivacyMode.LOCAL_ONLY, alias="AI_PRIVACY_MODE")
     ai_profile: AIProfile = Field(default=AIProfile.LIGHTWEIGHT, alias="AI_PROFILE")
-    ai_allow_remote_embeddings: bool = Field(
-        default=False, alias="AI_ALLOW_REMOTE_EMBEDDINGS"
-    )
+    ai_allow_remote_embeddings: bool = Field(default=False, alias="AI_ALLOW_REMOTE_EMBEDDINGS")
     ai_allow_remote_qa: bool = Field(default=False, alias="AI_ALLOW_REMOTE_QA")
     ai_allow_remote_vision: bool = Field(default=False, alias="AI_ALLOW_REMOTE_VISION")
     ai_warn_before_remote: bool = Field(default=True, alias="AI_WARN_BEFORE_REMOTE")
@@ -101,13 +96,19 @@ class Settings(BaseSettings):
     session_ttl_hours: int = Field(default=168, alias="SESSION_TTL_HOURS")
     csrf_cookie_name: str = Field(default="folium_csrf", alias="CSRF_COOKIE_NAME")
     frontend_origin: str = Field(default="http://localhost:8080", alias="FRONTEND_ORIGIN")
-    password_reset_token_ttl_hours: int = Field(
-        default=1, alias="PASSWORD_RESET_TOKEN_TTL_HOURS"
-    )
+    password_reset_token_ttl_hours: int = Field(default=1, alias="PASSWORD_RESET_TOKEN_TTL_HOURS")
     max_avatar_size_mb: int = Field(default=2, alias="MAX_AVATAR_SIZE_MB")
-    consume_owner_username: str | None = Field(
-        default=None, alias="CONSUME_OWNER_USERNAME"
+    consume_owner_username: str | None = Field(default=None, alias="CONSUME_OWNER_USERNAME")
+    application_log_retention_days: int = Field(
+        default=30, alias="APPLICATION_LOG_RETENTION_DAYS", ge=1, le=365
     )
+    build_revision: str | None = Field(default=None, alias="FOLIUM_BUILD_REVISION")
+    build_date: str | None = Field(default=None, alias="FOLIUM_BUILD_DATE")
+    repository_url: str | None = Field(default=None, alias="FOLIUM_REPOSITORY_URL")
+    issues_url: str | None = Field(default=None, alias="FOLIUM_ISSUES_URL")
+    docs_url: str | None = Field(default=None, alias="FOLIUM_DOCS_URL")
+    releases_url: str | None = Field(default=None, alias="FOLIUM_RELEASES_URL")
+    license_url: str | None = Field(default=None, alias="FOLIUM_LICENSE_URL")
 
     @property
     def max_upload_bytes(self) -> int:

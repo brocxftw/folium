@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from folium.ai.assignments import resolve_assignment
 from folium.ai.rag import RAGScope
 from folium.ai.rag import ask as rag_ask
 from folium.ai.registry import get_adapter
@@ -15,7 +16,7 @@ from folium.auth.deps import CurrentUser, SafeSession
 from folium.bootstrap import ensure_ai_settings
 from folium.core.exceptions import PrivacyViolationError, ValidationError
 from folium.db.session import get_db
-from folium.models import AIProvider
+from folium.models import AIWorkloadRole
 from folium.search.resolve import EvidenceSearchParams, resolve_evidence_document_ids
 
 router = APIRouter(prefix="/api/ask", tags=["ask"])
@@ -29,11 +30,12 @@ async def ask_workspace(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AskResponse:
     settings_row = await ensure_ai_settings(db)
-    if settings_row.chat_provider_id is None:
+    chat = await resolve_assignment(db, AIWorkloadRole.CHAT)
+    if chat.provider is None or not chat.model:
         raise ValidationError("No chat provider configured")
 
-    chat_provider = await db.get(AIProvider, settings_row.chat_provider_id)
-    if chat_provider is None or not chat_provider.enabled:
+    chat_provider = chat.provider
+    if not chat_provider.enabled:
         raise ValidationError("Chat provider is not available")
 
     if settings_row.warn_before_remote and not chat_provider.is_local and not body.confirm_remote:
@@ -41,9 +43,10 @@ async def ask_workspace(
 
     embed_adapter = None
     embed_provider = None
-    if settings_row.embedding_provider_id is not None:
-        embed_provider = await db.get(AIProvider, settings_row.embedding_provider_id)
-        if embed_provider is not None and embed_provider.enabled:
+    embedding = await resolve_assignment(db, AIWorkloadRole.EMBEDDING)
+    if embedding.provider is not None:
+        embed_provider = embedding.provider
+        if embed_provider.enabled and embedding.model:
             embed_adapter = get_adapter(embed_provider)
 
     scope = RAGScope(
@@ -82,12 +85,8 @@ async def ask_workspace(
         embed_model = None
         embed_dim = None
         if embed_provider is not None and embed_adapter is not None:
-            embed_provider_name = (
-                settings_row.active_embedding_provider or embed_provider.name
-            )
-            embed_model = (
-                settings_row.active_embedding_model or embed_provider.embedding_model
-            )
+            embed_provider_name = settings_row.active_embedding_provider or embed_provider.name
+            embed_model = settings_row.active_embedding_model or embedding.model
             embed_dim = settings_row.active_embedding_dimension
         doc_ids = await resolve_evidence_document_ids(
             db,
@@ -107,8 +106,11 @@ async def ask_workspace(
         settings=settings_row,
         chat_provider=chat_provider,
         chat_adapter=get_adapter(chat_provider),
+        chat_model=chat.model,
         scope=scope,
         embed_adapter=embed_adapter,
+        embedding_model=embedding.model,
+        embedding_provider=embed_provider.name if embed_provider else None,
     )
 
     return AskResponse(

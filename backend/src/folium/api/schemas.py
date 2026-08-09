@@ -129,6 +129,16 @@ class SessionOut(BaseModel):
     csrf_token: str
 
 
+class UserSessionOut(ORMModel):
+    id: UUID
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    user_agent: str | None
+    ip_address: str | None
+    current: bool = False
+
+
 # ---- Folders ----
 
 
@@ -419,9 +429,9 @@ class SearchResponse(BaseModel):
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
-    scope: Literal[
-        "document", "documents", "folder", "folder_tree", "search", "library"
-    ] = "document"
+    scope: Literal["document", "documents", "folder", "folder_tree", "search", "library"] = (
+        "document"
+    )
     document_id: UUID | None = None
     document_ids: list[UUID] | None = None
     folder_id: UUID | None = None
@@ -470,9 +480,7 @@ class JobOut(ORMModel):
 
 class AIProviderCreate(BaseModel):
     name: str
-    kind: Literal[
-        "openai_compatible", "openai", "openrouter", "ollama", "anthropic", "gemini"
-    ]
+    kind: Literal["openai_compatible", "openai", "openrouter", "ollama", "anthropic", "gemini"]
     base_url: str
     api_key: str | None = None
     is_local: bool = False
@@ -529,6 +537,54 @@ class AIProviderOut(ORMModel):
     supports_embeddings: bool
     no_training: bool
     zero_retention: bool
+    last_probe_status: str | None = None
+    last_probe_error: str | None = None
+    last_probe_latency_ms: int | None = None
+    last_probe_model_count: int | None = None
+    last_probed_at: datetime | None = None
+    last_success_at: datetime | None = None
+
+
+class AIProviderProbeOut(BaseModel):
+    status: Literal["available", "offline"]
+    latency_ms: int
+    model_count: int | None = None
+    tested_at: datetime
+    message: str
+
+
+class AIProviderModelsOut(BaseModel):
+    models: list[str]
+    discoverable: bool
+    message: str | None = None
+
+
+class AIAssignmentUpdate(BaseModel):
+    role: Literal["indexing", "embedding", "chat", "vision"]
+    provider_id: UUID | None = None
+    model: str | None = Field(default=None, max_length=256)
+
+
+class AIAssignmentOut(BaseModel):
+    role: Literal["indexing", "embedding", "chat", "vision"]
+    provider_id: UUID | None
+    provider_name: str | None
+    model: str | None
+    is_local: bool | None
+    enabled: bool
+    status: Literal["configured", "unconfigured", "disabled", "offline"]
+    embedding_dimension: int | None = None
+    legacy_fallback: bool = False
+
+
+class AICapabilitiesOut(BaseModel):
+    chat_available: bool
+    embeddings_available: bool
+    auto_tagging: bool
+    auto_enrichment: bool
+    warn_before_remote_chat: bool
+    chat_is_local: bool | None
+    privacy_mode: str
 
 
 class AIPolicyUpdate(BaseModel):
@@ -578,12 +634,42 @@ class AIPolicyOut(ORMModel):
     )
 
 
+class AIUsagePoint(BaseModel):
+    bucket: datetime
+    requests: int
+    input_tokens: int | None
+    output_tokens: int | None
+    duration_ms: int | None
+
+
+class AIUsageBreakdown(BaseModel):
+    key: str
+    label: str
+    requests: int
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+class AIUsageTotals(BaseModel):
+    requests: int
+    input_tokens: int | None
+    output_tokens: int | None
+    duration_ms: int | None
+    estimated_cost: float | None
+    cost_currency: str | None
+    cost_coverage: Literal["none", "partial", "complete", "local_only"]
+
+
 class AIUsageSummary(BaseModel):
-    today: dict[str, Any]
-    this_month: dict[str, Any]
-    by_provider: list[dict[str, Any]]
-    by_model: list[dict[str, Any]]
-    by_operation: list[dict[str, Any]]
+    range: Literal["today", "7d", "30d", "month"]
+    interval: Literal["hour", "day"]
+    timezone: Literal["UTC"] = "UTC"
+    starts_at: datetime
+    ends_at: datetime
+    totals: AIUsageTotals
+    time_series: list[AIUsagePoint]
+    by_provider: list[AIUsageBreakdown]
+    by_workload: list[AIUsageBreakdown]
 
 
 class SuggestionOut(ORMModel):
@@ -611,6 +697,70 @@ class StorageHealthOut(BaseModel):
     consume_path: str
     export_path: str
     message: str
+
+
+class SystemSummaryOut(BaseModel):
+    version: str
+    schema_revision: str
+    process_uptime_seconds: int
+    deployment_mode: str
+    services: dict[str, str]
+    database_status: str
+    storage_status: str
+    worker_status: str
+    worker_last_seen_at: datetime | None
+    document_count: int
+    indexed_document_count: int
+    queued_jobs: int
+    running_jobs: int
+    runtime: dict[str, Any]
+
+
+class StorageMetricsOut(BaseModel):
+    configured_source: str | None
+    container_path: str
+    disk_total_bytes: int | None
+    disk_used_bytes: int | None
+    disk_free_bytes: int | None
+    folium_bytes: int | None
+    categories: dict[str, int | None]
+    database_bytes: int | None
+    database_categories: dict[str, int | None]
+    message: str
+
+
+class DiagnosticsOut(BaseModel):
+    generated_at: datetime
+    text: str
+
+
+class ApplicationLogOut(ORMModel):
+    id: UUID
+    timestamp: datetime
+    level: str
+    service: str
+    module: str
+    message: str
+    request_id: str | None
+    context: dict[str, Any]
+    stack_trace: str | None
+
+
+class ApplicationLogListOut(BaseModel):
+    items: list[ApplicationLogOut]
+    total: int
+    page: int
+    page_size: int
+    retention_days: int
+
+
+class AboutOut(BaseModel):
+    product: str = "Folium"
+    version: str
+    description: str
+    build_revision: str | None = None
+    build_date: str | None = None
+    project_links: dict[str, str]
 
 
 class MessageOut(BaseModel):

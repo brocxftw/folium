@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 import uuid
 from datetime import UTC, datetime
 from functools import partial
@@ -12,17 +13,18 @@ from functools import partial
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from folium.ai.assignments import resolve_assignment
 from folium.ai.base import ChatMessage
-from folium.ai.privacy import PrivacyGate
 from folium.ai.embeddings import pad_embedding
+from folium.ai.privacy import PrivacyGate
 from folium.ai.registry import get_adapter
 from folium.ai.usage import record_usage
 from folium.bootstrap import ensure_ai_settings
 from folium.core.config import get_settings
 from folium.core.logging import get_logger
 from folium.models import (
-    AIProvider,
     AISuggestion,
+    AIWorkloadRole,
     Correspondent,
     Document,
     DocumentChunk,
@@ -109,9 +111,7 @@ async def mark_preflight_ready(
     await session.flush()
 
 
-async def mark_preflight_failed(
-    session: AsyncSession, document_id: uuid.UUID, error: str
-) -> None:
+async def mark_preflight_failed(session: AsyncSession, document_id: uuid.UUID, error: str) -> None:
     doc = await _get_document(session, document_id)
     doc.processing_status = ProcessingStatus.FAILED
     doc.processing_error = error[:2000]
@@ -171,13 +171,15 @@ async def _enqueue_metadata_suggestion_or_finish(
         return
 
     ai_settings = await ensure_ai_settings(session)
+    indexing = await resolve_assignment(session, AIWorkloadRole.INDEXING)
     can_suggest = (
         ai_settings.auto_tagging
-        and ai_settings.chat_provider_id is not None
+        and indexing.provider is not None
+        and indexing.model is not None
         and _has_usable_extracted_text(doc)
     )
     if can_suggest:
-        provider = await session.get(AIProvider, ai_settings.chat_provider_id)
+        provider = indexing.provider
         if provider is not None and provider.enabled:
             try:
                 PrivacyGate(ai_settings, provider).assert_can_qa()
@@ -351,7 +353,11 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
             priority=(job.priority or 100) + 5,
         )
 
-    return {"ocr_completed": True, "method": extracted.method, "text_len": len(doc.extracted_text or "")}
+    return {
+        "ocr_completed": True,
+        "method": extracted.method,
+        "text_len": len(doc.extracted_text or ""),
+    }
 
 
 async def process_thumbnail(session: AsyncSession, job: Job) -> dict:
@@ -424,7 +430,9 @@ async def process_indexing(session: AsyncSession, job: Job) -> dict:
     await refresh_document_search_vector(session, doc.id)
 
     ai_settings = await ensure_ai_settings(session)
-    if ai_settings.embedding_provider_id is not None:
+    embedding = await resolve_assignment(session, AIWorkloadRole.EMBEDDING)
+    indexing = await resolve_assignment(session, AIWorkloadRole.INDEXING)
+    if embedding.provider is not None and embedding.model:
         await job_service.enqueue_job(
             session,
             job_type=JobType.EMBEDDING,
@@ -432,7 +440,7 @@ async def process_indexing(session: AsyncSession, job: Job) -> dict:
             priority=job.priority + 10,
         )
 
-    if ai_settings.auto_enrichment and ai_settings.chat_provider_id is not None:
+    if ai_settings.auto_enrichment and indexing.provider is not None and indexing.model:
         await job_service.enqueue_job(
             session,
             job_type=JobType.SUMMARY,
@@ -448,12 +456,12 @@ async def process_embedding(session: AsyncSession, job: Job) -> dict:
         raise ValueError("EMBEDDING job requires document_id")
     doc = await _get_document(session, job.document_id)
     ai_settings = await ensure_ai_settings(session)
-
-    if ai_settings.embedding_provider_id is None:
+    embedding = await resolve_assignment(session, AIWorkloadRole.EMBEDDING)
+    if embedding.provider is None or not embedding.model:
         return {"skipped": True, "reason": "no_embedding_provider"}
 
-    provider = await session.get(AIProvider, ai_settings.embedding_provider_id)
-    if provider is None or not provider.enabled or not provider.embedding_model:
+    provider = embedding.provider
+    if not provider.enabled:
         return {"skipped": True, "reason": "provider_unavailable"}
 
     PrivacyGate(ai_settings, provider).assert_can_embed()
@@ -476,8 +484,10 @@ async def process_embedding(session: AsyncSession, job: Job) -> dict:
         return {"embedded": 0}
 
     texts = [c.text for c in chunks]
-    model = ai_settings.active_embedding_model or provider.embedding_model
+    model = embedding.model
+    started = time.perf_counter()
     result = await adapter.embed(texts, model=model)
+    duration_ms = round((time.perf_counter() - started) * 1000)
     await adapter.aclose()
 
     if len(result.embeddings) != len(chunks):
@@ -486,7 +496,7 @@ async def process_embedding(session: AsyncSession, job: Job) -> dict:
     dimension = len(result.embeddings[0]) if result.embeddings else None
     for chunk, vector in zip(chunks, result.embeddings, strict=True):
         chunk.embedding = pad_embedding(vector)
-        chunk.embedding_provider = ai_settings.active_embedding_provider or provider.name
+        chunk.embedding_provider = provider.name
         chunk.embedding_model = result.model
         chunk.embedding_dimension = dimension
 
@@ -505,6 +515,7 @@ async def process_embedding(session: AsyncSession, job: Job) -> dict:
         input_tokens=result.input_tokens,
         is_local=provider.is_local,
         document_id=doc.id,
+        duration_ms=duration_ms,
     )
 
     return {"embedded": len(chunks), "dimension": dimension}
@@ -515,12 +526,12 @@ async def process_summary(session: AsyncSession, job: Job) -> dict:
         raise ValueError("SUMMARY job requires document_id")
     doc = await _get_document(session, job.document_id)
     ai_settings = await ensure_ai_settings(session)
-
-    if not ai_settings.auto_enrichment or ai_settings.chat_provider_id is None:
+    indexing = await resolve_assignment(session, AIWorkloadRole.INDEXING)
+    if not ai_settings.auto_enrichment or indexing.provider is None or not indexing.model:
         return {"skipped": True}
 
-    provider = await session.get(AIProvider, ai_settings.chat_provider_id)
-    if provider is None or not provider.enabled:
+    provider = indexing.provider
+    if not provider.enabled:
         return {"skipped": True}
 
     text = (doc.extracted_text or "").strip()
@@ -536,12 +547,14 @@ async def process_summary(session: AsyncSession, job: Job) -> dict:
         "Do not invent facts not present in the text.\n\n"
         f"{text[:12000]}"
     )
+    started = time.perf_counter()
     result = await adapter.chat(
         [ChatMessage(role="user", content=prompt)],
-        model=provider.chat_model,
+        model=indexing.model,
         max_tokens=provider.max_output_tokens or 1024,
         temperature=0.3,
     )
+    duration_ms = round((time.perf_counter() - started) * 1000)
     await adapter.aclose()
 
     doc.ai_summary = result.content.strip()
@@ -562,6 +575,7 @@ async def process_summary(session: AsyncSession, job: Job) -> dict:
         output_tokens=result.output_tokens,
         is_local=provider.is_local,
         document_id=doc.id,
+        duration_ms=duration_ms,
     )
 
     return {"summary_length": len(doc.ai_summary or "")}
@@ -631,13 +645,13 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         return {"skipped": True, "reason": "enqueued_ocr_first"}
 
     ai_settings = await ensure_ai_settings(session)
-
-    if not ai_settings.auto_tagging or ai_settings.chat_provider_id is None:
+    indexing = await resolve_assignment(session, AIWorkloadRole.INDEXING)
+    if not ai_settings.auto_tagging or indexing.provider is None or not indexing.model:
         await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
         return {"skipped": True, "reason": "auto_tagging_disabled"}
 
-    provider = await session.get(AIProvider, ai_settings.chat_provider_id)
-    if provider is None or not provider.enabled:
+    provider = indexing.provider
+    if not provider.enabled:
         await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
         return {"skipped": True, "reason": "provider_unavailable"}
 
@@ -668,26 +682,16 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         key=len,
     )
     types = (
-        (
-            await session.execute(
-                select(DocumentType).where(DocumentType.owner_id == doc.owner_id)
-            )
-        )
+        (await session.execute(select(DocumentType).where(DocumentType.owner_id == doc.owner_id)))
         .scalars()
         .all()
     )
     correspondents = (
-        (
-            await session.execute(
-                select(Correspondent).where(Correspondent.owner_id == doc.owner_id)
-            )
-        )
+        (await session.execute(select(Correspondent).where(Correspondent.owner_id == doc.owner_id)))
         .scalars()
         .all()
     )
-    tags = (
-        (await session.execute(select(Tag).where(Tag.owner_id == doc.owner_id))).scalars().all()
-    )
+    tags = (await session.execute(select(Tag).where(Tag.owner_id == doc.owner_id))).scalars().all()
 
     type_names = [t.name for t in types]
     correspondent_names = [c.name for c in correspondents]
@@ -724,23 +728,23 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
     # before emitting the final JSON in content. Too-low max_tokens truncates
     # mid-thought with empty content → zero suggestions.
     max_tokens = max(provider.max_output_tokens or 0, 48_000)
+    started = time.perf_counter()
     result = await adapter.chat(
         [ChatMessage(role="user", content=prompt)],
-        model=provider.chat_model,
+        model=indexing.model,
         max_tokens=max_tokens,
         temperature=0.2,
     )
+    duration_ms = round((time.perf_counter() - started) * 1000)
     await adapter.aclose()
 
     data = _parse_suggestion_json(result.content)
     if not data:
         logger.warning(
-            "metadata_suggestion JSON parse empty for doc=%s finish=%s "
-            "content_len=%s preview=%r",
+            "metadata_suggestion JSON parse empty for doc=%s finish=%s content_len=%s",
             doc.id,
             result.finish_reason,
             len(result.content or ""),
-            (result.content or "")[:240],
         )
     created = 0
 
@@ -799,8 +803,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
             created += 1
         elif folder_path and _is_system_folder_path(folder_path):
             logger.info(
-                "metadata_suggestion ignored system folder_path=%r for doc=%s",
-                folder_path,
+                "metadata_suggestion ignored a system folder for doc=%s",
                 doc.id,
             )
 
@@ -864,11 +867,9 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
 
     suggested_tags = data.get("tags")
     if isinstance(suggested_tags, list):
-        names = [
-            str(n).strip()
-            for n in suggested_tags
-            if isinstance(n, str) and str(n).strip()
-        ][:12]
+        names = [str(n).strip() for n in suggested_tags if isinstance(n, str) and str(n).strip()][
+            :12
+        ]
         if names:
             session.add(
                 AISuggestion(
@@ -898,6 +899,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         output_tokens=result.output_tokens,
         is_local=provider.is_local,
         document_id=doc.id,
+        duration_ms=duration_ms,
     )
     await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
     return {"suggestions": created, "needs_review": needs_review}

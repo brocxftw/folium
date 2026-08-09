@@ -50,16 +50,18 @@ function ProviderRow({
   onEdit,
   onDelete,
   onTest,
+  onToggle,
   testing,
 }: {
   provider: AIProvider;
   onEdit: () => void;
   onDelete: () => void;
   onTest: () => void;
+  onToggle: () => void;
   testing: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-md border border-surface-border p-3">
+    <div className="flex flex-wrap items-center gap-3 rounded-md border border-surface-border p-3">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-text-primary">{provider.name}</span>
@@ -78,6 +80,11 @@ function ProviderRow({
           {provider.has_api_key && (
             <span>Key: {provider.api_key_masked ?? "••••••••"}</span>
           )}
+          <span>
+            Status: {provider.last_probe_status || "not tested"}
+            {provider.last_probe_latency_ms != null ? ` · ${provider.last_probe_latency_ms}ms` : ""}
+            {provider.last_probe_model_count != null ? ` · ${provider.last_probe_model_count} models` : ""}
+          </span>
         </div>
       </div>
       <Button variant="ghost" size="sm" onClick={onTest} disabled={testing}>
@@ -87,7 +94,10 @@ function ProviderRow({
       <Button variant="ghost" size="sm" onClick={onEdit}>
         Edit
       </Button>
-      <Button variant="ghost" size="icon" onClick={onDelete}>
+      <Button variant="ghost" size="sm" onClick={onToggle}>
+        {provider.enabled ? "Disable" : "Enable"}
+      </Button>
+      <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Delete ${provider.name}`}>
         <Trash2 className="h-3.5 w-3.5 text-danger" />
       </Button>
     </div>
@@ -165,7 +175,11 @@ export function AIProvidersSettings() {
   const handleTest = async (id: string) => {
     try {
       const result = await testProvider.mutateAsync(id);
-      setTestResult({ id, ok: true, message: result.message || "Connection successful" });
+      setTestResult({
+        id,
+        ok: result.status === "available",
+        message: result.message || (result.status === "available" ? "Connection successful" : "Offline"),
+      });
     } catch (err) {
       setTestResult({
         id,
@@ -203,8 +217,15 @@ export function AIProvidersSettings() {
               <ProviderRow
                 provider={p}
                 onEdit={() => openEdit(p)}
-                onDelete={() => deleteProvider.mutate(p.id)}
+                onDelete={() => {
+                  if (window.confirm(`Delete provider “${p.name}”? Assigned providers must be reassigned first.`)) {
+                    deleteProvider.mutate(p.id);
+                  }
+                }}
                 onTest={() => handleTest(p.id)}
+                onToggle={() =>
+                  updateProvider.mutate({ id: p.id, data: { enabled: !p.enabled } })
+                }
                 testing={testProvider.isPending}
               />
               {testResult?.id === p.id && (
@@ -220,6 +241,9 @@ export function AIProvidersSettings() {
             </div>
           ))}
         </div>
+      )}
+      {deleteProvider.error && (
+        <p role="alert" className="text-sm text-danger">{deleteProvider.error.message}</p>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

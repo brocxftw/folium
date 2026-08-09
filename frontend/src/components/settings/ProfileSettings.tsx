@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   useChangePassword,
   useDeleteAvatar,
   useMyUsage,
+  useMySessions,
+  useRevokeSession,
+  useSignOutOtherSessions,
   useSession,
   useUpdateProfile,
   useUploadAvatar,
@@ -15,8 +18,12 @@ import { Input } from "@/components/ui/Input";
 
 export function ProfileSettings() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: session } = useSession();
   const { data: usage } = useMyUsage();
+  const { data: sessions = [], isLoading: sessionsLoading } = useMySessions();
+  const revokeSession = useRevokeSession();
+  const signOutOthers = useSignOutOtherSessions();
   const updateProfile = useUpdateProfile();
   const changePassword = useChangePassword();
   const uploadAvatar = useUploadAvatar();
@@ -103,13 +110,18 @@ export function ProfileSettings() {
   const hasAvatar = !!user?.has_avatar;
 
   return (
-    <div className="max-w-lg space-y-8">
+    <div className="mx-auto max-w-5xl space-y-8">
       <div>
         <h2 className="text-base font-semibold text-text-primary">Profile</h2>
         <p className="text-sm text-text-secondary mt-1">
           Manage your account details. Your documents stay private to you.
         </p>
       </div>
+      {(location.state as { notice?: string } | null)?.notice && (
+        <p role="status" className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+          {(location.state as { notice?: string }).notice}
+        </p>
+      )}
 
       <section className="space-y-3">
         <h3 className="text-sm font-medium text-text-primary">Account</h3>
@@ -253,6 +265,71 @@ export function ProfileSettings() {
           Change password
         </Button>
       </section>
+
+      <section className="space-y-3 border-t border-surface-border pt-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-medium text-text-primary">Active sessions</h3>
+            <p className="text-xs text-text-muted">Review and revoke devices signed in to your account.</p>
+          </div>
+          {sessions.filter((item) => !item.current).length > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => signOutOthers.mutate()}
+              disabled={signOutOthers.isPending}
+            >
+              Sign out other sessions
+            </Button>
+          )}
+        </div>
+        {sessionsLoading ? (
+          <p className="text-sm text-text-muted">Loading sessions…</p>
+        ) : sessions.length === 0 ? (
+          <p className="text-sm text-text-muted">No active sessions found.</p>
+        ) : (
+          <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
+            {sessions.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-text-primary">
+                    {item.user_agent || "Unknown device"} {item.current && <strong>(current)</strong>}
+                  </p>
+                  <p className="text-xs text-text-muted">
+                    Last active {new Date(item.last_seen_at).toLocaleString()}
+                    {item.ip_address ? ` · ${item.ip_address}` : ""}
+                  </p>
+                </div>
+                {!item.current && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => revokeSession.mutate(item.id)}
+                    disabled={revokeSession.isPending}
+                  >
+                    Revoke
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {user?.is_admin && (
+        <section className="border-t border-surface-border pt-6">
+          <Link
+            to="/settings/profile/users"
+            className="flex items-center justify-between rounded-md border border-surface-border p-4 text-sm hover:bg-surface-hover"
+          >
+            <span>
+              <strong className="block text-text-primary">User administration</strong>
+              <span className="text-text-muted">Manage invitations, roles, quotas, and password resets.</span>
+            </span>
+            <span aria-hidden="true">→</span>
+          </Link>
+        </section>
+      )}
 
       {usage && (
         <section className="space-y-2">

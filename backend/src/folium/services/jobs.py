@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.core.exceptions import NotFoundError
-from folium.models import Job, JobStatus, JobType
+from folium.models import Document, Job, JobStatus, JobType
 
 
 async def enqueue_job(
@@ -91,10 +91,10 @@ async def fail_job(session: AsyncSession, job_id: uuid.UUID, error: str) -> Job:
     return job
 
 
-async def cancel_job(session: AsyncSession, job_id: uuid.UUID) -> Job:
-    job = await session.get(Job, job_id)
-    if job is None:
-        raise NotFoundError("Job not found")
+async def cancel_job(
+    session: AsyncSession, job_id: uuid.UUID, *, owner_id: uuid.UUID | None = None
+) -> Job:
+    job = await get_job(session, job_id, owner_id=owner_id)
     if job.status in {JobStatus.COMPLETED, JobStatus.CANCELLED}:
         return job
     job.status = JobStatus.CANCELLED
@@ -104,8 +104,19 @@ async def cancel_job(session: AsyncSession, job_id: uuid.UUID) -> Job:
     return job
 
 
-async def get_job(session: AsyncSession, job_id: uuid.UUID) -> Job:
-    job = await session.get(Job, job_id)
+async def get_job(
+    session: AsyncSession, job_id: uuid.UUID, *, owner_id: uuid.UUID | None = None
+) -> Job:
+    if owner_id is None:
+        job = await session.get(Job, job_id)
+    else:
+        job = (
+            await session.execute(
+                select(Job)
+                .join(Document, Document.id == Job.document_id)
+                .where(Job.id == job_id, Document.owner_id == owner_id)
+            )
+        ).scalar_one_or_none()
     if job is None:
         raise NotFoundError("Job not found")
     return job
@@ -116,6 +127,7 @@ async def list_jobs(
     *,
     status: JobStatus | None = None,
     document_id: uuid.UUID | None = None,
+    owner_id: uuid.UUID | None = None,
     limit: int = 100,
 ) -> list[Job]:
     stmt = select(Job).order_by(Job.created_at.desc()).limit(limit)
@@ -123,6 +135,10 @@ async def list_jobs(
         stmt = stmt.where(Job.status == status)
     if document_id is not None:
         stmt = stmt.where(Job.document_id == document_id)
+    if owner_id is not None:
+        stmt = stmt.join(Document, Document.id == Job.document_id).where(
+            Document.owner_id == owner_id
+        )
     return list((await session.execute(stmt)).scalars().all())
 
 

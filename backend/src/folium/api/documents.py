@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from folium.ai.assignments import resolve_assignment
 from folium.ai.rag import RAGScope
 from folium.ai.rag import ask as rag_ask
 from folium.ai.registry import get_adapter
@@ -34,7 +35,7 @@ from folium.auth.deps import CurrentUser, SafeSession
 from folium.bootstrap import ensure_ai_settings
 from folium.core.exceptions import NotFoundError, PrivacyViolationError, ValidationError
 from folium.db.session import get_db
-from folium.models import DocumentPage, Tag
+from folium.models import AIWorkloadRole, DocumentPage, Tag
 from folium.services import documents as doc_service
 from folium.services import folders as folder_service
 from folium.storage.service import StorageService
@@ -48,25 +49,37 @@ def _doc_out(doc) -> DocumentOut:
 
 async def _resolve_ai_for_ask(db: AsyncSession, confirm_remote: bool):
     settings_row = await ensure_ai_settings(db)
-    if settings_row.chat_provider_id is None:
+    chat = await resolve_assignment(db, AIWorkloadRole.CHAT)
+    if chat.provider is None or not chat.model:
         raise ValidationError("No chat provider configured")
 
-    from folium.models import AIProvider
-
-    chat_provider = await db.get(AIProvider, settings_row.chat_provider_id)
-    if chat_provider is None or not chat_provider.enabled:
+    chat_provider = chat.provider
+    if not chat_provider.enabled:
         raise ValidationError("Chat provider is not available")
 
     if settings_row.warn_before_remote and not chat_provider.is_local and not confirm_remote:
         raise PrivacyViolationError("Remote AI usage requires confirm_remote=true")
 
     embed_adapter = None
-    if settings_row.embedding_provider_id is not None:
-        embed_provider = await db.get(AIProvider, settings_row.embedding_provider_id)
-        if embed_provider is not None and embed_provider.enabled:
+    embed_model = None
+    embed_provider_name = None
+    embedding = await resolve_assignment(db, AIWorkloadRole.EMBEDDING)
+    if embedding.provider is not None:
+        embed_provider = embedding.provider
+        if embed_provider.enabled and embedding.model:
             embed_adapter = get_adapter(embed_provider)
+            embed_model = embedding.model
+            embed_provider_name = embed_provider.name
 
-    return settings_row, chat_provider, get_adapter(chat_provider), embed_adapter
+    return (
+        settings_row,
+        chat_provider,
+        chat.model,
+        get_adapter(chat_provider),
+        embed_adapter,
+        embed_model,
+        embed_provider_name,
+    )
 
 
 @router.get("/api/documents", response_model=DocumentListOut)
@@ -79,10 +92,10 @@ async def list_documents(
     inbox_status: Literal["preparing", "ready", "needs_review", "failed"] | None = None,
     trashed: bool = False,
     unprocessed: bool | None = None,
-    tag_ids: list[uuid.UUID] | None = Query(default=None),
+    tag_ids: Annotated[list[uuid.UUID] | None, Query()] = None,
     q: str | None = None,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     sort: str = "added_date",
     order: str = "desc",
 ) -> DocumentListOut:
@@ -116,8 +129,8 @@ async def list_folder_documents(
     _user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     include_descendants: bool = False,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     sort: str = "added_date",
     order: str = "desc",
 ) -> DocumentListOut:
@@ -153,10 +166,10 @@ async def upload_document(
     _sess: SafeSession,
     _user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    file: UploadFile = File(...),
-    folder_id: uuid.UUID | None = Form(None),
-    relative_path: str | None = Form(None),
-    on_duplicate: Literal["error", "skip"] = Form("error"),
+    file: Annotated[UploadFile, File()],
+    folder_id: Annotated[uuid.UUID | None, Form()] = None,
+    relative_path: Annotated[str | None, Form()] = None,
+    on_duplicate: Annotated[Literal["error", "skip"], Form()] = "error",
 ) -> DocumentOut | UploadResultOut:
     """Upload a single file.
 
@@ -241,9 +254,7 @@ async def remove_documents_from_queue(
     storage = StorageService()
     removed = 0
     for doc_id in body.document_ids:
-        await doc_service.remove_from_queue(
-            db, doc_id, owner_id=_user.id, storage=storage
-        )
+        await doc_service.remove_from_queue(db, doc_id, owner_id=_user.id, storage=storage)
         removed += 1
     return MessageOut(message=f"Removed {removed} document(s) from the queue")
 
@@ -407,9 +418,7 @@ async def document_content(
         document_id=doc.id,
         title=doc.title,
         page_count=doc.page_count or len(pages),
-        pages=[
-            DocumentPageContentOut(page_number=p.page_number, text=p.text) for p in pages
-        ],
+        pages=[DocumentPageContentOut(page_number=p.page_number, text=p.text) for p in pages],
     )
 
 
@@ -422,9 +431,15 @@ async def ask_document(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AskResponse:
     await doc_service.get_document(db, document_id, owner_id=_user.id)
-    settings_row, chat_provider, chat_adapter, embed_adapter = await _resolve_ai_for_ask(
-        db, body.confirm_remote
-    )
+    (
+        settings_row,
+        chat_provider,
+        chat_model,
+        chat_adapter,
+        embed_adapter,
+        embed_model,
+        embed_provider_name,
+    ) = await _resolve_ai_for_ask(db, body.confirm_remote)
     scope = RAGScope(kind="document", document_id=document_id)
     result = await rag_ask(
         db,
@@ -433,8 +448,11 @@ async def ask_document(
         settings=settings_row,
         chat_provider=chat_provider,
         chat_adapter=chat_adapter,
+        chat_model=chat_model,
         scope=scope,
         embed_adapter=embed_adapter,
+        embedding_model=embed_model,
+        embedding_provider=embed_provider_name,
     )
     return AskResponse(
         answer=result.answer,
