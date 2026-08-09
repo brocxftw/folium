@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { FolderUp, Search, Sparkles, Upload } from "lucide-react";
-import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
@@ -21,6 +20,7 @@ interface DocumentsHeaderProps {
   semanticAvailable?: boolean;
   onSearchCommit: (q: string) => void;
   onSearchModeChange: (mode: SearchMode) => void;
+  onAsk: () => void;
   onUploadFiles: () => void;
   onUploadFolder: () => void;
   uploadBusy?: boolean;
@@ -35,6 +35,7 @@ export function DocumentsHeader({
   semanticAvailable = true,
   onSearchCommit,
   onSearchModeChange,
+  onAsk,
   onUploadFiles,
   onUploadFolder,
   uploadBusy,
@@ -81,13 +82,10 @@ export function DocumentsHeader({
             />
           </form>
 
-          <Link
-            to="/ask"
-            className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-surface-border bg-surface-muted px-2 text-xs font-medium text-text-primary hover:bg-surface-hover"
-          >
+          <Button size="sm" variant="secondary" onClick={onAsk}>
             <Sparkles className="h-3.5 w-3.5" />
             Ask Folium
-          </Link>
+          </Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

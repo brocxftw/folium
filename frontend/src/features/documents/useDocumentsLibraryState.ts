@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import type { DocumentListParams, SearchMode, SearchRequest } from "@/lib/api/types";
+import type { DocumentListParams, SearchMode, SearchRequest, SearchScopeSnapshot } from "@/lib/api/types";
 
 export type LibraryView = "all" | "recent" | "unprocessed";
 export type LibrarySort = "added_date" | "title" | "modified_date" | "created_date";
@@ -165,6 +165,22 @@ export function libraryStateToEvidenceSearchRequest(
     inbox: state.view === "unprocessed" ? undefined : false,
     page: state.page,
     page_size: state.pageSize,
+  };
+}
+
+export function libraryStateToSearchSnapshot(
+  state: DocumentsLibraryState,
+): SearchScopeSnapshot | undefined {
+  const query = state.q.trim();
+  if (!query) return undefined;
+  return {
+    query,
+    mode: state.searchMode,
+    folder_id: state.folderId,
+    include_descendants: !!state.folderId,
+    tag_ids: state.tagIds.length ? state.tagIds : undefined,
+    unprocessed: state.view === "unprocessed" ? true : undefined,
+    inbox: state.view === "unprocessed" ? undefined : false,
   };
 }
 

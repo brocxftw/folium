@@ -1,5 +1,6 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { useDocument } from "@/lib/api/hooks";
+import type { Document } from "@/lib/api/types";
 import { DocumentViewer } from "@/components/viewer/DocumentViewer";
 import { DocumentInspector } from "@/components/inspector/DocumentInspector";
 import { Button } from "@/components/ui/Button";
@@ -18,6 +19,7 @@ interface DocumentViewerModalProps {
   page?: number;
   onActiveIdChange: (id: string | null) => void;
   onPageChange?: (page: number) => void;
+  onAsk?: (document: Document) => void;
 }
 
 export function DocumentViewerModal({
@@ -26,6 +28,7 @@ export function DocumentViewerModal({
   page,
   onActiveIdChange,
   onPageChange,
+  onAsk,
 }: DocumentViewerModalProps) {
   const open = Boolean(activeId);
   const index = activeId ? documentIds.indexOf(activeId) : -1;
@@ -62,6 +65,18 @@ export function DocumentViewerModal({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {doc && onAsk && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mr-1"
+                disabled={!canAskDocument(doc)}
+                onClick={() => onAsk(doc)}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Ask
+              </Button>
+            )}
             <Button
               size="icon"
               variant="ghost"

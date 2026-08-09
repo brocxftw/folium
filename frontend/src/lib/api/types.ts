@@ -353,6 +353,25 @@ export interface SearchResponse {
 
 // ---- Ask / RAG ----
 
+export interface SearchScopeSnapshot {
+  query: string;
+  mode?: SearchMode;
+  folder_id?: UUID;
+  include_descendants?: boolean;
+  folder_ids?: UUID[];
+  tag_ids?: UUID[];
+  document_type_id?: UUID;
+  correspondent_id?: UUID;
+  mime_type?: string;
+  is_archived?: boolean;
+  inbox?: boolean;
+  date_from?: string;
+  date_to?: string;
+  document_indexed?: boolean;
+  has_embeddings?: boolean;
+  unprocessed?: boolean;
+}
+
 export type AskScope =
   | "document"
   | "documents"
@@ -368,6 +387,7 @@ export interface AskRequest {
   document_ids?: UUID[];
   folder_id?: UUID;
   search_query?: string;
+  search?: SearchScopeSnapshot;
   confirm_remote?: boolean;
 }
 
