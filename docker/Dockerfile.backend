@@ -3,23 +3,23 @@ FROM python:3.13-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    UV_SYSTEM_PYTHON=1
+    UV_SYSTEM_PYTHON=1 \
+    PADDLE_PDX_CACHE_HOME=/app/.paddleocr \
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True \
+    PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT=0 \
+    FLAGS_use_mkldnn=0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
-        tesseract-ocr \
-        tesseract-ocr-eng \
-        ghostscript \
-        qpdf \
-        pngquant \
-        unpaper \
         libmagic1 \
         libgl1 \
         libglib2.0-0 \
+        libgomp1 \
+        libgfortran5 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 1000 folium && useradd -u 1000 -g folium -m -s /bin/bash folium \
-    && mkdir -p /documents /consume /export /app \
+    && mkdir -p /documents /consume /export /app /app/.paddleocr \
     && chown -R folium:folium /documents /consume /export /app
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -30,7 +30,12 @@ COPY backend/src /app/src
 COPY backend/alembic /app/alembic
 COPY backend/alembic.ini /app/alembic.ini
 
-RUN uv pip install --system -e ".[ocr]" \
+# PaddlePaddle CPU wheels are published on the official index (not always on PyPI).
+# --no-cache avoids filling the layer with huge wheel extract temps.
+RUN uv pip install --system --no-cache \
+        paddlepaddle==3.3.0 \
+        -i https://www.paddlepaddle.org.cn/packages/stable/cpu/ \
+    && uv pip install --system --no-cache -e ".[ocr]" \
     && chown -R folium:folium /app
 
 COPY docker/backend-entrypoint.sh /app/entrypoint.sh

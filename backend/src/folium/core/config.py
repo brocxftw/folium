@@ -72,6 +72,7 @@ class Settings(BaseSettings):
         alias="ALLOWED_MIME_TYPES",
     )
 
+    # Folium/legacy Tesseract-style codes (eng, chi_sim, …); mapped to PaddleOCR lang.
     ocr_language: str = Field(default="eng", alias="OCR_LANGUAGE")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
 

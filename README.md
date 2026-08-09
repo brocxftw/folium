@@ -160,11 +160,13 @@ Each document belongs to exactly one logical folder. Tags provide cross-cutting 
 
 Local only — no LLM required:
 
-- PDF embedded text via PyMuPDF
-- Scanned PDFs via OCRmyPDF + Tesseract
-- Images via Tesseract
+- PDF embedded text via PyMuPDF (fast pre-flight)
+- Scanned PDFs via **PaddleOCR PP-OCRv6** (CPU) on rendered pages
+- Images via PaddleOCR PP-OCRv6
 - DOCX via python-docx
 - TXT / Markdown as UTF-8
+
+`OCR_LANGUAGE` accepts Folium/legacy codes (`eng`, `chi_sim`, …) and is mapped to PaddleOCR languages. Folium uses the **PP-OCRv6 small** tier on CPU. Models download into `PADDLE_PDX_CACHE_HOME` (Compose binds `./data/paddleocr` by default) on first OCR.
 
 Page-aware text is stored for citations and search.
 

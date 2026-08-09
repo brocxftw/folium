@@ -31,7 +31,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ocr = [
-    "ocrmypdf>=16.0.0",
+    "paddleocr>=3.0.0",
 ]
 dev = [
     "pytest>=8.3.0",
@@ -90,5 +90,5 @@ mypy_path = "src"
 packages = ["folium"]
 
 [[tool.mypy.overrides]]
-module = ["magic.*", "docx.*", "fitz.*", "pymupdf.*", "ocrmypdf.*", "pgvector.*"]
+module = ["magic.*", "docx.*", "fitz.*", "pymupdf.*", "paddleocr.*", "paddle.*", "pgvector.*"]
 ignore_missing_imports = true

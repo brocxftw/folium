@@ -47,9 +47,11 @@ frontend/coverage/
 data/documents/**
 data/consume/**
 data/export/**
+data/paddleocr/**
 !data/documents/.gitkeep
 !data/consume/.gitkeep
 !data/export/.gitkeep
+!data/paddleocr/.gitkeep
 !data/documents/**/.gitkeep
 !data/consume/**/.gitkeep
 !data/export/**/.gitkeep
