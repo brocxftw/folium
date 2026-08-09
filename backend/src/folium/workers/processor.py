@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.ai.base import ChatMessage
 from folium.ai.privacy import PrivacyGate
+from folium.ai.embeddings import pad_embedding
 from folium.ai.registry import get_adapter
 from folium.ai.usage import record_usage
 from folium.bootstrap import ensure_ai_settings
@@ -484,7 +485,7 @@ async def process_embedding(session: AsyncSession, job: Job) -> dict:
 
     dimension = len(result.embeddings[0]) if result.embeddings else None
     for chunk, vector in zip(chunks, result.embeddings, strict=True):
-        chunk.embedding = vector
+        chunk.embedding = pad_embedding(vector)
         chunk.embedding_provider = ai_settings.active_embedding_provider or provider.name
         chunk.embedding_model = result.model
         chunk.embedding_dimension = dimension
