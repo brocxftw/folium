@@ -38,6 +38,7 @@ import type {
   SearchResponse,
   Session,
   StorageHealth,
+  Suggestion,
   Tag,
   TagCreate,
   TagUpdate,
@@ -69,6 +70,8 @@ export const queryKeys = {
   aiProviders: ["ai", "providers"] as const,
   aiPolicy: ["ai", "policy"] as const,
   aiUsage: ["ai", "usage"] as const,
+  aiSuggestions: (documentId?: string) =>
+    ["ai", "suggestions", documentId ?? "all"] as const,
   storageHealth: ["storage", "health"] as const,
   health: ["health"] as const,
 };
@@ -508,11 +511,18 @@ function documentParamsToQuery(params: DocumentListParams): Record<string, strin
   return q;
 }
 
-export function useDocuments(params: DocumentListParams = {}) {
+export function useDocuments(
+  params: DocumentListParams = {},
+  options?: Pick<
+    UseQueryOptions<DocumentList, Error>,
+    "refetchInterval" | "enabled" | "staleTime"
+  >,
+) {
   return useQuery({
     queryKey: queryKeys.documents(params),
     queryFn: () =>
       api.get<DocumentList>("/api/documents", documentParamsToQuery(params)),
+    ...options,
   });
 }
 
@@ -792,6 +802,60 @@ export function useAIUsage() {
   return useQuery({
     queryKey: queryKeys.aiUsage,
     queryFn: () => api.get<AIUsageSummary>("/api/ai/usage"),
+  });
+}
+
+export function usePendingSuggestions(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.aiSuggestions(),
+    queryFn: () =>
+      api.get<Suggestion[]>("/api/ai/suggestions", {
+        status: "pending",
+      }),
+    enabled,
+    refetchInterval: 4_000,
+  });
+}
+
+export function useDocumentSuggestions(documentId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.aiSuggestions(documentId),
+    queryFn: () =>
+      api.get<Suggestion[]>("/api/ai/suggestions", {
+        document_id: documentId!,
+        status: "pending",
+      }),
+    enabled: Boolean(documentId),
+    refetchInterval: (query) => {
+      const rows = query.state.data;
+      return rows && rows.length > 0 ? false : 4_000;
+    },
+  });
+}
+
+export function useAcceptSuggestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<Suggestion>(`/api/ai/suggestions/${id}/accept`),
+    onSuccess: (suggestion) => {
+      qc.invalidateQueries({ queryKey: ["ai", "suggestions"] });
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: queryKeys.document(suggestion.document_id) });
+      qc.invalidateQueries({ queryKey: queryKeys.tags });
+      qc.invalidateQueries({ queryKey: queryKeys.folders });
+    },
+  });
+}
+
+export function useRejectSuggestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<Suggestion>(`/api/ai/suggestions/${id}/reject`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ai", "suggestions"] });
+    },
   });
 }
 

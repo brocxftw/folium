@@ -182,18 +182,27 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
             raise AIProviderError("Chat completion response missing message.")
 
         content = message.get("content")
+        finish_reason = first.get("finish_reason")
+        finish_reason_str = finish_reason if isinstance(finish_reason, str) else None
+
         if not isinstance(content, str) or not content.strip():
             # Reasoning models (e.g. Qwen3 thinking) may return empty content and
-            # put the visible answer in reasoning_content when max_tokens is tight.
+            # put the visible answer in reasoning_content. If finish_reason is
+            # "length", the model ran out of tokens mid-thought — that truncated
+            # reasoning is not a usable answer; fail clearly so callers raise the budget.
             reasoning = message.get("reasoning_content")
+            if finish_reason_str == "length":
+                raise AIProviderError(
+                    "Chat completion truncated before producing content "
+                    "(thinking model exhausted max_tokens). "
+                    "Increase the provider max_output_tokens."
+                )
             if isinstance(reasoning, str) and reasoning.strip():
                 content = reasoning
             else:
                 raise AIProviderError("Chat completion response missing content.")
 
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
-        finish_reason = first.get("finish_reason")
-        finish_reason_str = finish_reason if isinstance(finish_reason, str) else None
 
         return ChatResult(
             content=content,

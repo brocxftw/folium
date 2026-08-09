@@ -452,6 +452,19 @@ async def process_summary(session: AsyncSession, job: Job) -> dict:
 _FOLDER_PATH_RE = re.compile(r"^[\w][\w /&'.-]{0,200}$", re.UNICODE)
 
 
+def _normalize_folder_path(path: str) -> str:
+    path = path.strip().strip("/")
+    return re.sub(r"\s*/\s*", " / ", path)
+
+
+def _is_system_folder_path(path: str) -> bool:
+    """Inbox / Trash / bare Documents root are not valid filing targets."""
+    normalized = path.replace(" / ", "/").strip("/").lower()
+    if normalized in {"inbox", "trash", "documents", "documents/inbox", "documents/trash"}:
+        return True
+    return normalized.endswith("/inbox") or normalized.endswith("/trash")
+
+
 def _parse_suggestion_json(content: str) -> dict:
     text = content.strip()
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
@@ -542,13 +555,21 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
     prompt = (
         "You help file documents into a personal archive. "
         "Return ONLY valid JSON with keys: "
-        "folder_path (string path like 'Finance / Insurance', or null), "
-        "create_folder (boolean — true if folder_path does not already exist), "
+        "folder_path (string using ' / ' separators, or null), "
+        "create_folder (boolean — true if folder_path is not in Existing folders), "
         "title (string or null), "
         "document_type (string name or null), "
         "correspondent (string name or null), "
         "tags (array of short tag strings), "
         "needs_review (boolean — true if unsure).\n\n"
+        "Folder rules:\n"
+        "- Prefer a specific filing destination from the document subject "
+        "(person, org, topic, year), e.g. 'Identity / Aishah Binti Abdul Azim' "
+        "for a birth certificate or 'Finance / Salary / 2025' for a payslip.\n"
+        "- Prefer an Existing folder when it clearly fits; otherwise invent a "
+        "new path and set create_folder true.\n"
+        "- Never suggest Inbox, Trash, or Documents alone.\n"
+        "- Paths must use ' / ' between segments (not underscores).\n\n"
         f"Existing folders:\n{json.dumps(folder_paths[:80])}\n"
         f"Existing document types:\n{json.dumps(type_names)}\n"
         f"Existing correspondents:\n{json.dumps(correspondent_names)}\n"
@@ -558,15 +579,28 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
     )
 
     adapter = get_adapter(provider)
+    # Thinking models (e.g. Qwen3) spend large budgets on reasoning_content
+    # before emitting the final JSON in content. Too-low max_tokens truncates
+    # mid-thought with empty content → zero suggestions.
+    max_tokens = max(provider.max_output_tokens or 0, 48_000)
     result = await adapter.chat(
         [ChatMessage(role="user", content=prompt)],
         model=provider.chat_model,
-        max_tokens=provider.max_output_tokens or 2048,
+        max_tokens=max_tokens,
         temperature=0.2,
     )
     await adapter.aclose()
 
     data = _parse_suggestion_json(result.content)
+    if not data:
+        logger.warning(
+            "metadata_suggestion JSON parse empty for doc=%s finish=%s "
+            "content_len=%s preview=%r",
+            doc.id,
+            result.finish_reason,
+            len(result.content or ""),
+            (result.content or "")[:240],
+        )
     created = 0
 
     # Clear prior pending suggestions for this document
@@ -579,9 +613,12 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
 
     folder_path = data.get("folder_path")
     if isinstance(folder_path, str):
-        folder_path = folder_path.strip().strip("/")
-        folder_path = re.sub(r"\s*/\s*", " / ", folder_path)
-        if folder_path and _FOLDER_PATH_RE.match(folder_path.replace(" / ", "/")):
+        folder_path = _normalize_folder_path(folder_path)
+        if (
+            folder_path
+            and not _is_system_folder_path(folder_path)
+            and _FOLDER_PATH_RE.match(folder_path.replace(" / ", "/"))
+        ):
             normalized = folder_path.replace(" / ", "/")
             existing = next(
                 (
@@ -592,7 +629,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
                 ),
                 None,
             )
-            create_folder = bool(data.get("create_folder")) and existing is None
+            create_folder = existing is None
             if existing is None:
                 # Also match leaf-only against path_cache ends
                 for f in folders:
@@ -604,7 +641,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
             value: dict = {
                 "path": existing.path_cache if existing else folder_path,
                 "exists": existing is not None,
-                "create": create_folder and existing is None,
+                "create": create_folder,
             }
             if existing is not None:
                 value["folder_id"] = str(existing.id)
@@ -619,6 +656,12 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
                 )
             )
             created += 1
+        elif folder_path and _is_system_folder_path(folder_path):
+            logger.info(
+                "metadata_suggestion ignored system folder_path=%r for doc=%s",
+                folder_path,
+                doc.id,
+            )
 
     title = data.get("title")
     if isinstance(title, str) and title.strip():

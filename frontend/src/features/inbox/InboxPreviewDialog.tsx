@@ -12,6 +12,7 @@ import { InboxFolderControl } from "./InboxFolderControl";
 import { InboxTagsControl } from "./InboxTagsControl";
 import { InboxTypeControl } from "./InboxTypeControl";
 import { InboxStatusBadge } from "./InboxStatusBadge";
+import { InboxSuggestions } from "./InboxSuggestions";
 import { documentSecondaryMeta } from "./formatMeta";
 
 interface InboxPreviewDialogProps {
@@ -98,6 +99,7 @@ export function InboxPreviewDialog({
                     <p className="mt-2 text-xs text-danger">{doc.processing_error}</p>
                   )}
                 </div>
+                <InboxSuggestions documentId={doc.id} />
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">
                     Folder

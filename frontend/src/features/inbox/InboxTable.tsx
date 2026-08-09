@@ -1,5 +1,5 @@
 import { Eye, RotateCcw, Trash2 } from "lucide-react";
-import type { Document, InboxStatus } from "@/lib/api/types";
+import type { Document, InboxStatus, Suggestion } from "@/lib/api/types";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
 import {
@@ -12,6 +12,7 @@ import { InboxStatusBadge } from "./InboxStatusBadge";
 import { InboxFolderControl } from "./InboxFolderControl";
 import { InboxTagsControl } from "./InboxTagsControl";
 import { InboxTypeControl } from "./InboxTypeControl";
+import { SuggestionChip } from "./InboxSuggestions";
 import { documentSecondaryMeta } from "./formatMeta";
 
 interface InboxTableProps {
@@ -21,8 +22,17 @@ interface InboxTableProps {
   onPreview: (id: string) => void;
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
+  /** Pending AISuggestions keyed by document id */
+  suggestionsByDoc?: Record<string, Suggestion[]>;
   isLoading?: boolean;
   empty?: React.ReactNode;
+}
+
+function fieldSuggestion(
+  rows: Suggestion[] | undefined,
+  field: string,
+): Suggestion | undefined {
+  return rows?.find((s) => s.field === field);
 }
 
 export function InboxTable({
@@ -32,6 +42,7 @@ export function InboxTable({
   onPreview,
   onRemove,
   onRetry,
+  suggestionsByDoc = {},
   isLoading,
   empty,
 }: InboxTableProps) {
@@ -75,8 +86,8 @@ export function InboxTable({
               />
             </th>
             <th className="px-2 py-2 font-medium">Document</th>
-            <th className="px-2 py-2 font-medium w-[160px]">Folder</th>
-            <th className="px-2 py-2 font-medium w-[180px]">Tags</th>
+            <th className="px-2 py-2 font-medium w-[200px]">Folder</th>
+            <th className="px-2 py-2 font-medium w-[200px]">Tags</th>
             <th className="px-2 py-2 font-medium w-[130px]">Type</th>
             <th className="px-2 py-2 font-medium w-[120px]">Status</th>
             <th className="px-2 py-2 font-medium w-[88px]" />
@@ -85,6 +96,11 @@ export function InboxTable({
         <tbody>
           {documents.map((doc) => {
             const status = (doc.inbox_status ?? null) as InboxStatus | null;
+            const sug = suggestionsByDoc[doc.id] ?? [];
+            const folderSug = fieldSuggestion(sug, "folder");
+            const tagsSug = fieldSuggestion(sug, "tags");
+            const titleSug = fieldSuggestion(sug, "title");
+            const typeSug = fieldSuggestion(sug, "document_type");
             return (
               <tr
                 key={doc.id}
@@ -108,15 +124,39 @@ export function InboxTable({
                   <div className="truncate text-[11px] text-text-muted">
                     {documentSecondaryMeta(doc)}
                   </div>
+                  {titleSug && (
+                    <div className="mt-1 max-w-[280px]">
+                      <SuggestionChip suggestion={titleSug} stopPropagation compact />
+                    </div>
+                  )}
                 </td>
                 <td className="px-2 py-2 align-middle">
-                  <InboxFolderControl document={doc} stopPropagation />
+                  <div className="space-y-1">
+                    {folderSug && !doc.pending_folder_path ? (
+                      <SuggestionChip suggestion={folderSug} stopPropagation compact />
+                    ) : (
+                      <InboxFolderControl document={doc} stopPropagation />
+                    )}
+                    {folderSug && !doc.pending_folder_path && (
+                      <InboxFolderControl document={doc} stopPropagation />
+                    )}
+                  </div>
                 </td>
                 <td className="px-2 py-2 align-middle">
-                  <InboxTagsControl document={doc} stopPropagation />
+                  <div className="space-y-1">
+                    <InboxTagsControl document={doc} stopPropagation />
+                    {tagsSug && doc.tags.length === 0 && (
+                      <SuggestionChip suggestion={tagsSug} stopPropagation compact />
+                    )}
+                  </div>
                 </td>
                 <td className="px-2 py-2 align-middle">
-                  <InboxTypeControl document={doc} stopPropagation />
+                  <div className="space-y-1">
+                    <InboxTypeControl document={doc} stopPropagation />
+                    {typeSug && !doc.document_type_id && (
+                      <SuggestionChip suggestion={typeSug} stopPropagation compact />
+                    )}
+                  </div>
                 </td>
                 <td className="px-2 py-2 align-middle">
                   <InboxStatusBadge status={status} error={doc.processing_error} />

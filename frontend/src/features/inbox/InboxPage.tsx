@@ -5,12 +5,13 @@ import {
   useBulkAction,
   useDocuments,
   useFolders,
+  usePendingSuggestions,
   useProcessInboxDocuments,
   useRemoveFromQueue,
   useRetryPreflight,
   useTags,
 } from "@/lib/api/hooks";
-import type { Document, InboxStatus } from "@/lib/api/types";
+import type { Document, InboxStatus, Suggestion } from "@/lib/api/types";
 import { useDocumentUploader } from "@/lib/api/upload";
 import type { UploadEntry } from "@/lib/uploadTree";
 import { cn } from "@/lib/utils";
@@ -93,11 +94,34 @@ export function InboxPage() {
     page_size: 100,
   };
 
-  const { data: docList, isLoading, refetch, isFetching } = useDocuments(listParams);
-  const { data: allInbox } = useDocuments({ inbox: true, page_size: 100 });
+  const pollWhilePreparing = (query: {
+    state: { data?: { items?: Document[] } };
+  }) => {
+    const items = query.state.data?.items ?? [];
+    const busy = items.some(
+      (d) =>
+        d.inbox_status === "preparing" ||
+        d.processing_status === "pending" ||
+        d.processing_status === "processing",
+    );
+    return busy ? 3000 : false;
+  };
+
+  const { data: docList, isLoading, refetch, isFetching } = useDocuments(
+    listParams,
+    { refetchInterval: pollWhilePreparing },
+  );
+  const { data: allInbox } = useDocuments(
+    { inbox: true, page_size: 100 },
+    { refetchInterval: pollWhilePreparing },
+  );
   const { data: folders = [] } = useFolders();
   const { data: tags = [] } = useTags();
   const { data: aiPolicy } = useAIPolicy();
+  const aiSuggestionsAvailable = Boolean(
+    aiPolicy?.auto_tagging && aiPolicy.chat_provider_id,
+  );
+  const { data: pendingSuggestions = [] } = usePendingSuggestions(aiSuggestionsAvailable);
 
   const bulkAction = useBulkAction();
   const processDocs = useProcessInboxDocuments();
@@ -107,6 +131,14 @@ export function InboxPage() {
 
   const documents = docList?.items ?? [];
   const documentIds = documents.map((d) => d.id);
+
+  const suggestionsByDoc = useMemo(() => {
+    const map: Record<string, Suggestion[]> = {};
+    for (const s of pendingSuggestions) {
+      (map[s.document_id] ??= []).push(s);
+    }
+    return map;
+  }, [pendingSuggestions]);
 
   const counts = useMemo(() => {
     const items = allInbox?.items ?? [];
@@ -128,10 +160,6 @@ export function InboxPage() {
   const processTargets =
     selectedIds.size > 0 ? selectedDocs.filter(isProcessable) : documents.filter(isProcessable);
   const processCount = processTargets.length;
-
-  const aiSuggestionsAvailable = Boolean(
-    aiPolicy?.auto_tagging && aiPolicy.chat_provider_id,
-  );
 
   const handleUploadFiles = async (files: FileList) => {
     await uploader.uploadFileList(files);
@@ -236,7 +264,12 @@ export function InboxPage() {
               </p>
             )}
             {aiSuggestionsAvailable && (
-              <p className="mt-1 text-[11px] text-emerald-800">AI suggestions available</p>
+              <p className="mt-1 text-[11px] text-emerald-800">
+                AI suggestions available
+                {pendingSuggestions.length > 0
+                  ? ` · ${pendingSuggestions.length} pending`
+                  : ""}
+              </p>
             )}
           </div>
           <DropdownMenu>
@@ -390,6 +423,7 @@ export function InboxPage() {
           onPreview={setPreviewId}
           onRemove={(id) => setRemoveIds([id])}
           onRetry={(id) => void retryPreflight.mutateAsync(id).then(() => refetch())}
+          suggestionsByDoc={suggestionsByDoc}
           isLoading={isLoading}
           empty={
             <div className="max-w-sm text-center">
