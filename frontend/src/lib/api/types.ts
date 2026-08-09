@@ -309,8 +309,19 @@ export interface SearchRequest {
   inbox?: boolean;
   date_from?: string;
   date_to?: string;
+  document_indexed?: boolean;
+  has_embeddings?: boolean;
+  unprocessed?: boolean;
   page?: number;
   page_size?: number;
+}
+
+export interface SearchMatch {
+  kind: "document" | "page" | "chunk";
+  score: number;
+  snippet: string | null;
+  page_number: number | null;
+  chunk_id: UUID | null;
 }
 
 export interface SearchHit {
@@ -319,13 +330,25 @@ export interface SearchHit {
   snippet: string | null;
   page_number: number | null;
   chunk_id: UUID | null;
+  matches?: SearchMatch[];
+}
+
+export interface SemanticCoverage {
+  available: boolean;
+  embedded_documents: number;
+  searchable_documents: number;
+  partial: boolean;
 }
 
 export interface SearchResponse {
   items: SearchHit[];
   total: number;
+  document_total?: number;
+  match_total?: number;
   mode: string;
+  effective_mode?: string | null;
   semantic_available: boolean;
+  semantic_coverage?: SemanticCoverage | null;
 }
 
 // ---- Ask / RAG ----

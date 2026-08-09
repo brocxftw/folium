@@ -9,6 +9,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.models import Document, DocumentPage, Tag
+from folium.search.filters import DocumentSearchFilters, apply_document_search_filters
 
 _ENGLISH_CONFIG = "english"
 
@@ -70,6 +71,26 @@ async def build_document_search_vector(session: AsyncSession, document_id: uuid.
     await refresh_document_search_vector(session, document_id)
 
 
+def _base_filters(
+    *,
+    owner_id: uuid.UUID,
+    folder_id: uuid.UUID | None = None,
+    folder_ids: list[uuid.UUID] | None = None,
+    include_trashed: bool = False,
+    inbox_only: bool | None = None,
+    filters: DocumentSearchFilters | None = None,
+) -> DocumentSearchFilters:
+    if filters is not None:
+        return filters
+    return DocumentSearchFilters(
+        owner_id=owner_id,
+        folder_id=folder_id,
+        folder_ids=folder_ids,
+        include_trashed=include_trashed,
+        inbox=inbox_only,
+    )
+
+
 async def search_documents(
     session: AsyncSession,
     query: str,
@@ -79,6 +100,7 @@ async def search_documents(
     folder_ids: list[uuid.UUID] | None = None,
     include_trashed: bool = False,
     inbox_only: bool | None = None,
+    filters: DocumentSearchFilters | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> list[DocumentSearchHit]:
@@ -103,13 +125,16 @@ async def search_documents(
         .limit(max(1, min(limit, 100)))
         .offset(max(0, offset))
     )
-    stmt = _apply_document_filters(
+    stmt = apply_document_search_filters(
         stmt,
-        owner_id=owner_id,
-        folder_id=folder_id,
-        folder_ids=folder_ids,
-        include_trashed=include_trashed,
-        inbox_only=inbox_only,
+        _base_filters(
+            owner_id=owner_id,
+            folder_id=folder_id,
+            folder_ids=folder_ids,
+            include_trashed=include_trashed,
+            inbox_only=inbox_only,
+            filters=filters,
+        ),
     )
 
     rows = await session.execute(stmt)
@@ -124,6 +149,21 @@ async def search_documents(
     ]
 
 
+async def count_documents_matching(
+    session: AsyncSession,
+    query: str,
+    *,
+    filters: DocumentSearchFilters,
+) -> int:
+    cleaned = query.strip()
+    if not cleaned:
+        return 0
+    tsquery = func.websearch_to_tsquery(_ENGLISH_CONFIG, cleaned)
+    stmt = select(func.count(Document.id)).where(Document.search_vector.op("@@")(tsquery))
+    stmt = apply_document_search_filters(stmt, filters)
+    return int((await session.execute(stmt)).scalar_one())
+
+
 async def search_pages(
     session: AsyncSession,
     query: str,
@@ -132,6 +172,7 @@ async def search_pages(
     folder_id: uuid.UUID | None = None,
     folder_ids: list[uuid.UUID] | None = None,
     include_trashed: bool = False,
+    filters: DocumentSearchFilters | None = None,
     limit: int = 40,
     offset: int = 0,
 ) -> list[PageSearchHit]:
@@ -164,12 +205,15 @@ async def search_pages(
         .limit(max(1, min(limit, 200)))
         .offset(max(0, offset))
     )
-    stmt = _apply_document_filters(
+    stmt = apply_document_search_filters(
         stmt,
-        owner_id=owner_id,
-        folder_id=folder_id,
-        folder_ids=folder_ids,
-        include_trashed=include_trashed,
+        _base_filters(
+            owner_id=owner_id,
+            folder_id=folder_id,
+            folder_ids=folder_ids,
+            include_trashed=include_trashed,
+            filters=filters,
+        ),
     )
 
     rows = await session.execute(stmt)
@@ -186,6 +230,25 @@ async def search_pages(
     ]
 
 
+async def count_pages_matching(
+    session: AsyncSession,
+    query: str,
+    *,
+    filters: DocumentSearchFilters,
+) -> int:
+    cleaned = query.strip()
+    if not cleaned:
+        return 0
+    tsquery = func.websearch_to_tsquery(_ENGLISH_CONFIG, cleaned)
+    stmt = (
+        select(func.count(DocumentPage.id))
+        .join(Document, Document.id == DocumentPage.document_id)
+        .where(DocumentPage.search_vector.op("@@")(tsquery))
+    )
+    stmt = apply_document_search_filters(stmt, filters)
+    return int((await session.execute(stmt)).scalar_one())
+
+
 def _join_search_parts(*parts: str | None) -> str:
     return " ".join(part.strip() for part in parts if part and part.strip())
 
@@ -199,26 +262,3 @@ async def _document_tag_names(session: AsyncSession, document_id: uuid.UUID) -> 
         .where(DocumentTag.document_id == document_id)
     )
     return [name for (name,) in result.all()]
-
-
-def _apply_document_filters(
-    stmt,
-    *,
-    owner_id: uuid.UUID,
-    folder_id: uuid.UUID | None,
-    folder_ids: list[uuid.UUID] | None,
-    include_trashed: bool,
-    inbox_only: bool | None = None,
-):
-    stmt = stmt.where(Document.owner_id == owner_id)
-    if not include_trashed:
-        stmt = stmt.where(Document.is_trashed.is_(False))
-    if folder_id is not None:
-        stmt = stmt.where(Document.folder_id == folder_id)
-    if folder_ids:
-        stmt = stmt.where(Document.folder_id.in_(folder_ids))
-    if inbox_only is True:
-        stmt = stmt.where(Document.inbox.is_(True))
-    elif inbox_only is False:
-        stmt = stmt.where(Document.inbox.is_(False))
-    return stmt

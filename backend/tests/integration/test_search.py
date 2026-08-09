@@ -20,7 +20,12 @@ async def test_keyword_search_after_extraction(
     assert response.status_code == 200
     body = response.json()
     assert body["total"] >= 1
+    assert body["document_total"] >= 1
+    assert body["match_total"] >= 1
     assert any("LPPSA" in (hit.get("snippet") or hit["document"]["title"]) for hit in body["items"])
+    hit = next(h for h in body["items"] if h["document"]["id"] == uploaded_txt_doc["id"])
+    assert isinstance(hit.get("matches"), list)
+    assert len(hit["matches"]) >= 1
 
 
 @pytest.mark.asyncio
@@ -61,3 +66,46 @@ async def test_folder_scoped_search(
     ids = {hit["document"]["id"] for hit in in_folder.json()["items"]}
     assert scoped.json()["id"] in ids
     assert uploaded_txt_doc["id"] not in ids
+
+
+@pytest.mark.asyncio
+async def test_search_tag_filter_and_coverage_fields(
+    auth_client: AsyncClient,
+    uploaded_txt_doc: dict,
+) -> None:
+    tag = await auth_client.post("/api/tags", json={"name": f"search-tag-{uuid.uuid4().hex[:8]}"})
+    assert tag.status_code == 201
+    tag_id = tag.json()["id"]
+
+    patched = await auth_client.patch(
+        f"/api/documents/{uploaded_txt_doc['id']}/metadata",
+        json={"tag_ids": [tag_id]},
+    )
+    assert patched.status_code == 200
+
+    with_tag = await auth_client.post(
+        "/api/search",
+        json={"query": "LPPSA", "mode": "keyword", "tag_ids": [tag_id]},
+    )
+    assert with_tag.status_code == 200
+    body = with_tag.json()
+    assert body["document_total"] >= 1
+    assert "semantic_available" in body
+    assert body.get("semantic_coverage") is not None
+    assert uploaded_txt_doc["id"] in {h["document"]["id"] for h in body["items"]}
+
+    other_tag = await auth_client.post(
+        "/api/tags", json={"name": f"other-tag-{uuid.uuid4().hex[:8]}"}
+    )
+    assert other_tag.status_code == 201
+    empty = await auth_client.post(
+        "/api/search",
+        json={
+            "query": "LPPSA",
+            "mode": "keyword",
+            "tag_ids": [other_tag.json()["id"]],
+        },
+    )
+    assert empty.status_code == 200
+    assert empty.json()["document_total"] == 0
+    assert empty.json()["items"] == []

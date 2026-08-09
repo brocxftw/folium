@@ -1,9 +1,8 @@
-import { useState } from "react";
-import { Search, FileText } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { cn, formatDate } from "@/lib/utils";
-import { useSearchMutation, useFolders } from "@/lib/api/hooks";
-import type { SearchMode, SearchHit } from "@/lib/api/types";
+import { useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useFolders, useSearch, useTags } from "@/lib/api/hooks";
+import type { SearchMode, SearchRequest } from "@/lib/api/types";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
@@ -13,71 +12,95 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/Select";
-import { TagList } from "@/components/tags/TagList";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs";
+import { EvidenceSearchResults } from "./EvidenceSearchResults";
 
 export function SearchWorkspace() {
   const navigate = useNavigate();
-  const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<SearchMode>("hybrid");
-  const [folderId, setFolderId] = useState<string>("");
-  const [results, setResults] = useState<SearchHit[]>([]);
-  const [total, setTotal] = useState(0);
-  const [semanticAvailable, setSemanticAvailable] = useState(true);
-  const [searched, setSearched] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const [draft, setDraft] = useState(params.get("q") ?? "");
+  const mode = (params.get("mode") as SearchMode) || "hybrid";
+  const folderId = params.get("folder") ?? "";
+  const tagId = params.get("tag") ?? "";
+  const readiness = params.get("ready") ?? "any";
 
-  const searchMutation = useSearchMutation();
   const { data: folders = [] } = useFolders();
+  const { data: tags = [] } = useTags();
 
-  const handleSearch = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!query.trim()) return;
+  useEffect(() => {
+    setDraft(params.get("q") ?? "");
+  }, [params]);
 
-    try {
-      const res = await searchMutation.mutateAsync({
-        query: query.trim(),
-        mode,
-        folder_id: folderId || undefined,
-        include_descendants: true,
-        page_size: 50,
-      });
-      setResults(res.items);
-      setTotal(res.total);
-      setSemanticAvailable(res.semantic_available);
-      setSearched(true);
-    } catch {
-      setResults([]);
-      setTotal(0);
-      setSearched(true);
-    }
-  };
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const next = new URLSearchParams(params);
+      const trimmed = draft.trim();
+      if (trimmed) next.set("q", trimmed);
+      else next.delete("q");
+      if (next.toString() !== params.toString()) {
+        setParams(next, { replace: true });
+      }
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [draft, params, setParams]);
 
-  const openDocument = (hit: SearchHit) => {
-    const params = new URLSearchParams();
-    params.set("doc", hit.document.id);
-    if (hit.page_number) params.set("viewerPage", String(hit.page_number));
-    navigate(`/documents?${params.toString()}`);
+  const request: SearchRequest = useMemo(
+    () => ({
+      query: (params.get("q") ?? "").trim(),
+      mode,
+      folder_id: folderId || undefined,
+      include_descendants: true,
+      tag_ids: tagId ? [tagId] : undefined,
+      document_indexed: readiness === "indexed" ? true : undefined,
+      has_embeddings: readiness === "semantic" ? true : undefined,
+      unprocessed: readiness === "unprocessed" ? true : undefined,
+      page_size: 50,
+    }),
+    [params, mode, folderId, tagId, readiness],
+  );
+
+  const enabled = !!request.query;
+  const { data, isLoading, isFetching } = useSearch(request, enabled);
+
+  const patchParam = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (!value || value === "all" || value === "any") next.delete(key);
+    else next.set(key, value);
+    setParams(next, { replace: true });
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full flex-col">
       <div className="border-b border-surface-border bg-surface px-6 py-4">
-        <h1 className="text-lg font-semibold text-text-primary mb-4">Search</h1>
-        <form onSubmit={handleSearch} className="flex flex-wrap gap-3 items-end">
-          <div className="flex-1 min-w-[280px]">
+        <h1 className="mb-4 text-lg font-semibold text-text-primary">Search</h1>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const next = new URLSearchParams(params);
+            const trimmed = draft.trim();
+            if (trimmed) next.set("q", trimmed);
+            else next.delete("q");
+            setParams(next);
+          }}
+          className="flex flex-wrap items-end gap-3"
+        >
+          <div className="min-w-[280px] flex-1">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
               <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
                 placeholder="Search documents…"
-                className="pl-10 h-10"
+                className="h-10 pl-10"
                 autoFocus
               />
             </div>
           </div>
-          <Select value={folderId || "all"} onValueChange={(v) => setFolderId(v === "all" ? "" : v)}>
-            <SelectTrigger className="w-[180px] h-10">
+          <Select
+            value={folderId || "all"}
+            onValueChange={(v) => patchParam("folder", v === "all" ? "" : v)}
+          >
+            <SelectTrigger className="h-10 w-[180px]">
               <SelectValue placeholder="All folders" />
             </SelectTrigger>
             <SelectContent>
@@ -91,22 +114,52 @@ export function SearchWorkspace() {
                 ))}
             </SelectContent>
           </Select>
-          <Button type="submit" disabled={!query.trim() || searchMutation.isPending}>
+          <Select
+            value={tagId || "all"}
+            onValueChange={(v) => patchParam("tag", v === "all" ? "" : v)}
+          >
+            <SelectTrigger className="h-10 w-[160px]">
+              <SelectValue placeholder="All tags" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All tags</SelectItem>
+              {tags.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={readiness} onValueChange={(v) => patchParam("ready", v)}>
+            <SelectTrigger className="h-10 w-[170px]">
+              <SelectValue placeholder="Readiness" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">Any readiness</SelectItem>
+              <SelectItem value="indexed">Keyword ready</SelectItem>
+              <SelectItem value="semantic">Semantic ready</SelectItem>
+              <SelectItem value="unprocessed">Unprocessed</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button type="submit" disabled={!draft.trim() || isFetching}>
             Search
           </Button>
         </form>
 
-        <div className="mt-3 flex items-center gap-4">
-          <Tabs value={mode} onValueChange={(v) => setMode(v as SearchMode)}>
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <Tabs value={mode} onValueChange={(v) => patchParam("mode", v)}>
             <TabsList>
               <TabsTrigger value="hybrid">Hybrid</TabsTrigger>
               <TabsTrigger value="keyword">Keyword</TabsTrigger>
-              <TabsTrigger value="semantic" disabled={!semanticAvailable}>
+              <TabsTrigger
+                value="semantic"
+                disabled={data ? !data.semantic_available : false}
+              >
                 Semantic
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          {!semanticAvailable && (
+          {data && !data.semantic_available && (
             <span className="text-xs text-text-muted">
               Semantic search unavailable — configure an embedding provider
             </span>
@@ -115,63 +168,25 @@ export function SearchWorkspace() {
       </div>
 
       <div className="flex-1 overflow-auto p-6">
-        {searchMutation.isPending && (
-          <p className="text-text-muted text-sm">Searching…</p>
+        {!enabled && (
+          <p className="text-sm text-text-muted">Enter a query to search your library.</p>
         )}
-        {searched && !searchMutation.isPending && results.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Search className="h-10 w-10 text-text-muted/40 mb-3" />
-            <p className="text-sm text-text-secondary">No results found</p>
-            <p className="text-xs text-text-muted mt-1">Try different keywords or filters</p>
-          </div>
-        )}
-        {results.length > 0 && (
-          <div>
-            <p className="text-xs text-text-muted mb-4">{total} result{total !== 1 ? "s" : ""}</p>
-            <ul className="space-y-2">
-              {results.map((hit, i) => (
-                <li key={`${hit.document.id}-${i}`}>
-                  <button
-                    type="button"
-                    onClick={() => openDocument(hit)}
-                    className={cn(
-                      "w-full rounded-md border border-surface-border bg-surface p-4 text-left",
-                      "hover:border-accent/30 hover:bg-surface-hover transition-colors",
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <FileText className="h-4 w-4 shrink-0 text-text-muted mt-0.5" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-text-primary truncate">
-                            {hit.document.title}
-                          </span>
-                          {hit.page_number && (
-                            <span className="shrink-0 text-xs text-accent">
-                              p.{hit.page_number}
-                            </span>
-                          )}
-                          <span className="ml-auto shrink-0 text-xs text-text-muted">
-                            {formatDate(hit.document.added_date)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-text-muted mt-0.5 truncate">
-                          {hit.document.folder_path}
-                        </p>
-                        {hit.snippet && (
-                          <p
-                            className="text-[13px] text-text-secondary mt-2 line-clamp-2"
-                            dangerouslySetInnerHTML={{ __html: hit.snippet }}
-                          />
-                        )}
-                        <TagList tags={hit.document.tags} max={3} className="mt-2" />
-                      </div>
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {enabled && (
+          <EvidenceSearchResults
+            response={data}
+            isLoading={isLoading}
+            onOpen={(id, page) => {
+              const next = new URLSearchParams();
+              next.set("doc", id);
+              if (page) next.set("viewerPage", String(page));
+              navigate(`/documents?${next.toString()}`);
+            }}
+            askHref={
+              request.query
+                ? `/ask?q=${encodeURIComponent(request.query)}`
+                : undefined
+            }
+          />
         )}
       </div>
     </div>

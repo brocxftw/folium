@@ -3,6 +3,7 @@ import {
   useBulkAction,
   useDocuments,
   useFolders,
+  useSearch,
   useTags,
 } from "@/lib/api/hooks";
 import type { BulkAction } from "@/lib/api/types";
@@ -12,6 +13,7 @@ import { UploadDropzone } from "@/components/documents/UploadDropzone";
 import { UploadStatusBar } from "@/components/documents/UploadStatusBar";
 import { DocumentTable } from "@/components/documents/DocumentTable";
 import { Breadcrumbs } from "@/components/documents/Breadcrumbs";
+import { EvidenceSearchResults } from "@/components/search/EvidenceSearchResults";
 import { DocumentExplorerSidebar } from "./DocumentExplorerSidebar";
 import { DocumentsHeader } from "./DocumentsHeader";
 import { DocumentViewTabs } from "./DocumentViewTabs";
@@ -27,9 +29,7 @@ import { useDocumentsLibraryState } from "./useDocumentsLibraryState";
 function emptyMessageForView(
   view: string,
   hasFolder: boolean,
-  hasQuery: boolean,
 ): string {
-  if (hasQuery) return "No documents match this filter";
   if (view === "unprocessed") return "No unprocessed documents";
   if (view === "recent") return "No recently added documents";
   if (hasFolder) return "No documents in this folder";
@@ -44,6 +44,8 @@ export function DocumentsPage() {
     closeDocument,
     setViewerPage,
     listParams,
+    isEvidenceSearch,
+    evidenceRequest,
   } = useDocumentsLibraryState();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -53,9 +55,16 @@ export function DocumentsPage() {
   const { data: folders = [] } = useFolders();
   const { data: tags = [] } = useTags();
 
-  const { data: docList, isLoading, refetch, isFetching } = useDocuments(listParams);
+  const { data: docList, isLoading, refetch, isFetching } = useDocuments(listParams, {
+    enabled: !isEvidenceSearch,
+  });
 
-  // Bounded recent cards — always newest library docs (not unprocessed-only)
+  const {
+    data: searchResponse,
+    isFetching: isSearching,
+    isLoading: isSearchLoading,
+  } = useSearch(evidenceRequest, isEvidenceSearch);
+
   const { data: recentList } = useDocuments(
     {
       inbox: false,
@@ -66,13 +75,15 @@ export function DocumentsPage() {
       folder_id: state.folderId,
       include_descendants: !!state.folderId,
     },
-    { enabled: state.view !== "unprocessed" },
+    { enabled: state.view !== "unprocessed" && !isEvidenceSearch },
   );
 
   const bulkAction = useBulkAction();
   const uploader = useDocumentUploader();
 
-  const documents = docList?.items ?? [];
+  const browseDocuments = docList?.items ?? [];
+  const searchDocuments = searchResponse?.items.map((h) => h.document) ?? [];
+  const documents = isEvidenceSearch ? searchDocuments : browseDocuments;
   const documentIds = useMemo(() => documents.map((d) => d.id), [documents]);
 
   const folderName = useMemo(() => {
@@ -81,8 +92,9 @@ export function DocumentsPage() {
   }, [folders, state.folderId]);
 
   const title = folderName ?? "Documents";
-  const subtitle =
-    state.view === "unprocessed"
+  const subtitle = isEvidenceSearch
+    ? "Evidence search across your library"
+    : state.view === "unprocessed"
       ? "Documents still preparing, awaiting review, or indexing for retrieval"
       : state.view === "recent"
         ? "Recently added to your library"
@@ -93,7 +105,7 @@ export function DocumentsPage() {
     if (state.q.trim()) {
       chips.push({
         id: "q",
-        label: `Filter: ${state.q.trim()}`,
+        label: `Search: ${state.q.trim()}`,
         onClear: () => patch({ q: "" }),
       });
     }
@@ -153,16 +165,21 @@ export function DocumentsPage() {
     patch({ tagIds: next });
   };
 
-  // Clear selection when the result set identity changes
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [state.view, state.folderId, state.q, state.tagIds.join(","), state.page]);
+  }, [state.view, state.folderId, state.q, state.searchMode, state.tagIds.join(","), state.page]);
 
   const showRecentCards =
+    !isEvidenceSearch &&
     state.view !== "unprocessed" &&
-    !state.q.trim() &&
     state.tagIds.length === 0 &&
     state.page === 1;
+
+  const askHref = isEvidenceSearch
+    ? `/ask?q=${encodeURIComponent(state.q.trim())}`
+    : undefined;
+
+  const evidenceTotal = searchResponse?.document_total ?? searchResponse?.total ?? 0;
 
   return (
     <UploadDropzone
@@ -208,7 +225,11 @@ export function DocumentsPage() {
             title={title}
             subtitle={subtitle}
             searchQuery={state.q}
+            searchMode={state.searchMode}
+            evidenceActive={isEvidenceSearch}
+            semanticAvailable={searchResponse?.semantic_available ?? true}
             onSearchCommit={(q) => patch({ q })}
+            onSearchModeChange={(searchMode) => patch({ searchMode })}
             onUploadFiles={() => fileInputRef.current?.click()}
             onUploadFolder={() => folderInputRef.current?.click()}
             uploadBusy={uploader.busy}
@@ -233,7 +254,7 @@ export function DocumentsPage() {
                 view={state.view}
                 onChange={(view) => patch({ view })}
               />
-              {isFetching && !isLoading && (
+              {(isFetching || isSearching) && !(isLoading || isSearchLoading) && (
                 <span className="text-[11px] text-text-muted">Updating…</span>
               )}
             </div>
@@ -245,43 +266,99 @@ export function DocumentsPage() {
               />
             )}
 
-            <DocumentBulkToolbar
-              selectedCount={selectedIds.size}
-              onClear={() => setSelectedIds(new Set())}
-              onBulkAction={handleBulkAction}
-              isPending={bulkAction.isPending}
-              folders={folders}
-              tags={tags}
-            />
+            {!isEvidenceSearch && (
+              <DocumentBulkToolbar
+                selectedCount={selectedIds.size}
+                onClear={() => setSelectedIds(new Set())}
+                onBulkAction={handleBulkAction}
+                isPending={bulkAction.isPending}
+                folders={folders}
+                tags={tags}
+              />
+            )}
 
-            <DocumentResultsToolbar
-              total={docList?.total ?? 0}
-              page={state.page}
-              pageSize={state.pageSize}
-              sort={state.sort}
-              order={state.order}
-              onSortChange={(sort, order) => patch({ sort, order })}
-              filterChips={filterChips}
-            />
-
-            <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-md border border-surface-border">
-              <DocumentTable
-                documents={documents}
-                selectedIds={selectedIds}
-                activeId={state.docId}
-                onSelect={setSelectedIds}
-                onActiveChange={(id) => openDocument(id)}
-                isLoading={isLoading}
-                emptyMessage={emptyMessageForView(
-                  state.view,
-                  !!state.folderId,
-                  !!state.q.trim(),
-                )}
+            {!isEvidenceSearch && (
+              <DocumentResultsToolbar
+                total={docList?.total ?? 0}
                 page={state.page}
                 pageSize={state.pageSize}
-                total={docList?.total}
-                onPageChange={(page) => patch({ page })}
+                sort={state.sort}
+                order={state.order}
+                onSortChange={(sort, order) => patch({ sort, order })}
+                filterChips={filterChips}
               />
+            )}
+
+            {isEvidenceSearch && filterChips.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {filterChips.map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={chip.onClear}
+                    className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 py-0.5 text-[11px] text-text-secondary hover:bg-surface-hover"
+                  >
+                    {chip.label}
+                    <span aria-hidden>×</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-md border border-surface-border">
+              {isEvidenceSearch ? (
+                <div className="flex-1 overflow-auto p-3 scrollbar-thin">
+                  <EvidenceSearchResults
+                    response={searchResponse}
+                    isLoading={isSearchLoading}
+                    onOpen={(id, page) => openDocument(id, page ?? undefined)}
+                    askHref={askHref}
+                    emptyMessage="No evidence matches this search"
+                  />
+                  {evidenceTotal > state.pageSize && (
+                    <div className="mt-3 flex items-center justify-between text-xs text-text-muted">
+                      <span>
+                        Page {state.page} of{" "}
+                        {Math.max(1, Math.ceil(evidenceTotal / state.pageSize))}
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="hover:text-text-primary disabled:opacity-40"
+                          disabled={state.page <= 1}
+                          onClick={() => patch({ page: state.page - 1 })}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          className="hover:text-text-primary disabled:opacity-40"
+                          disabled={
+                            state.page >= Math.ceil(evidenceTotal / state.pageSize)
+                          }
+                          onClick={() => patch({ page: state.page + 1 })}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <DocumentTable
+                  documents={browseDocuments}
+                  selectedIds={selectedIds}
+                  activeId={state.docId}
+                  onSelect={setSelectedIds}
+                  onActiveChange={(id) => openDocument(id)}
+                  isLoading={isLoading}
+                  emptyMessage={emptyMessageForView(state.view, !!state.folderId)}
+                  page={state.page}
+                  pageSize={state.pageSize}
+                  total={docList?.total}
+                  onPageChange={(page) => patch({ page })}
+                />
+              )}
             </div>
           </div>
         </div>
