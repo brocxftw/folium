@@ -5,10 +5,11 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.models import Document, DocumentChunk
+from folium.search.filters import DocumentSearchFilters, apply_document_search_filters
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ async def search_chunks_semantic(
     folder_id: uuid.UUID | None = None,
     folder_ids: list[uuid.UUID] | None = None,
     include_trashed: bool = False,
+    filters: DocumentSearchFilters | None = None,
 ) -> list[SemanticHit]:
     """Cosine similarity search over document chunks in a specific embedding space."""
     if not query_embedding:
@@ -60,7 +62,6 @@ async def search_chunks_semantic(
         )
         .join(Document, Document.id == DocumentChunk.document_id)
         .where(
-            Document.owner_id == owner_id,
             DocumentChunk.embedding.isnot(None),
             DocumentChunk.embedding_provider == embedding_provider,
             DocumentChunk.embedding_model == embedding_model,
@@ -72,12 +73,14 @@ async def search_chunks_semantic(
 
     if document_ids:
         stmt = stmt.where(DocumentChunk.document_id.in_(document_ids))
-    if folder_id is not None:
-        stmt = stmt.where(Document.folder_id == folder_id)
-    if folder_ids:
-        stmt = stmt.where(Document.folder_id.in_(folder_ids))
-    if not include_trashed:
-        stmt = stmt.where(Document.is_trashed.is_(False))
+
+    filt = filters or DocumentSearchFilters(
+        owner_id=owner_id,
+        folder_id=folder_id,
+        folder_ids=folder_ids,
+        include_trashed=include_trashed,
+    )
+    stmt = apply_document_search_filters(stmt, filt)
 
     rows = await session.execute(stmt)
     return [
@@ -92,3 +95,35 @@ async def search_chunks_semantic(
         )
         for row in rows.all()
     ]
+
+
+async def count_embedded_documents(
+    session: AsyncSession,
+    *,
+    filters: DocumentSearchFilters,
+    embedding_provider: str,
+    embedding_model: str,
+    embedding_dimension: int,
+) -> int:
+    stmt = (
+        select(func.count(func.distinct(Document.id)))
+        .join(DocumentChunk, DocumentChunk.document_id == Document.id)
+        .where(
+            DocumentChunk.embedding.isnot(None),
+            DocumentChunk.embedding_provider == embedding_provider,
+            DocumentChunk.embedding_model == embedding_model,
+            DocumentChunk.embedding_dimension == embedding_dimension,
+        )
+    )
+    stmt = apply_document_search_filters(stmt, filters)
+    return int((await session.execute(stmt)).scalar_one())
+
+
+async def count_searchable_documents(
+    session: AsyncSession,
+    *,
+    filters: DocumentSearchFilters,
+) -> int:
+    stmt = select(func.count(Document.id))
+    stmt = apply_document_search_filters(stmt, filters)
+    return int((await session.execute(stmt)).scalar_one())

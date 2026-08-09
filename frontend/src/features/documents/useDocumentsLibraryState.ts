@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import type { DocumentListParams } from "@/lib/api/types";
+import type { DocumentListParams, SearchMode, SearchRequest } from "@/lib/api/types";
 
 export type LibraryView = "all" | "recent" | "unprocessed";
 export type LibrarySort = "added_date" | "title" | "modified_date" | "created_date";
@@ -10,6 +10,7 @@ export interface DocumentsLibraryState {
   view: LibraryView;
   folderId?: string;
   q: string;
+  searchMode: SearchMode;
   tagIds: string[];
   sort: LibrarySort;
   order: LibraryOrder;
@@ -22,6 +23,7 @@ export interface DocumentsLibraryState {
 const DEFAULTS: DocumentsLibraryState = {
   view: "all",
   q: "",
+  searchMode: "hybrid",
   tagIds: [],
   sort: "added_date",
   order: "desc",
@@ -50,6 +52,11 @@ function parseOrder(raw: string | null): LibraryOrder {
   return raw === "asc" ? "asc" : "desc";
 }
 
+function parseSearchMode(raw: string | null): SearchMode {
+  if (raw === "keyword" || raw === "semantic" || raw === "hybrid") return raw;
+  return "hybrid";
+}
+
 function parsePositiveInt(raw: string | null, fallback: number): number {
   if (!raw) return fallback;
   const n = Number.parseInt(raw, 10);
@@ -67,7 +74,6 @@ export function parseLibraryState(params: URLSearchParams): DocumentsLibraryStat
   }
 
   const viewerPageRaw = params.get("viewerPage") ?? params.get("vp");
-  // Legacy citation links used ?page= for the PDF page before list pagination.
   const legacyViewerPage =
     !viewerPageRaw && params.has("doc") && params.has("page") && !params.get("page")?.includes("-")
       ? params.get("page")
@@ -77,6 +83,7 @@ export function parseLibraryState(params: URLSearchParams): DocumentsLibraryStat
     view: parseView(params.get("view")),
     folderId: params.get("folder") || undefined,
     q: params.get("q") ?? "",
+    searchMode: parseSearchMode(params.get("smode") ?? params.get("mode")),
     tagIds: tags,
     sort: parseSort(params.get("sort")),
     order: parseOrder(params.get("order")),
@@ -100,6 +107,8 @@ export function libraryStateToSearchParams(
     "view",
     "folder",
     "q",
+    "smode",
+    "mode",
     "tag",
     "tags",
     "sort",
@@ -115,6 +124,7 @@ export function libraryStateToSearchParams(
   if (state.view !== "all") next.set("view", state.view);
   if (state.folderId) next.set("folder", state.folderId);
   if (state.q.trim()) next.set("q", state.q.trim());
+  if (state.searchMode !== "hybrid") next.set("smode", state.searchMode);
   for (const tag of state.tagIds) next.append("tag", tag);
   if (state.sort !== "added_date") next.set("sort", state.sort);
   if (state.order !== "desc") next.set("order", state.order);
@@ -133,7 +143,6 @@ export function libraryStateToListParams(state: DocumentsLibraryState): Document
     folder_id: state.folderId,
     include_descendants: !!state.folderId,
     tag_ids: state.tagIds.length ? state.tagIds : undefined,
-    q: state.q.trim() || undefined,
     sort: isRecent ? "added_date" : state.sort,
     order: isRecent ? "desc" : state.order,
     page: state.page,
@@ -143,11 +152,28 @@ export function libraryStateToListParams(state: DocumentsLibraryState): Document
   };
 }
 
+export function libraryStateToEvidenceSearchRequest(
+  state: DocumentsLibraryState,
+): SearchRequest {
+  return {
+    query: state.q.trim(),
+    mode: state.searchMode,
+    folder_id: state.folderId,
+    include_descendants: !!state.folderId,
+    tag_ids: state.tagIds.length ? state.tagIds : undefined,
+    unprocessed: state.view === "unprocessed" ? true : undefined,
+    inbox: state.view === "unprocessed" ? undefined : false,
+    page: state.page,
+    page_size: state.pageSize,
+  };
+}
+
 export function useDocumentsLibraryState() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const state = useMemo(() => parseLibraryState(searchParams), [searchParams]);
+  const isEvidenceSearch = !!state.q.trim();
 
   const patch = useCallback(
     (partial: Partial<DocumentsLibraryState>, options?: { replace?: boolean }) => {
@@ -155,12 +181,12 @@ export function useDocumentsLibraryState() {
         ...state,
         ...partial,
       };
-      // Reset page when filters/view/folder/query change (unless page itself is being set).
       if (
         partial.page === undefined &&
         (partial.view !== undefined ||
           partial.folderId !== undefined ||
           partial.q !== undefined ||
+          partial.searchMode !== undefined ||
           partial.tagIds !== undefined ||
           partial.sort !== undefined ||
           partial.order !== undefined)
@@ -175,7 +201,10 @@ export function useDocumentsLibraryState() {
 
   const openDocument = useCallback(
     (docId: string, viewerPage?: number) => {
-      patch({ docId, viewerPage: viewerPage && viewerPage > 1 ? viewerPage : undefined });
+      patch({
+        docId,
+        viewerPage: viewerPage && viewerPage > 1 ? viewerPage : undefined,
+      });
     },
     [patch],
   );
@@ -191,7 +220,6 @@ export function useDocumentsLibraryState() {
     [patch],
   );
 
-  /** Redirect helpers for legacy path routes. */
   const replaceLegacy = useCallback(
     (partial: Partial<DocumentsLibraryState>) => {
       const next = libraryStateToSearchParams({ ...DEFAULTS, ...partial });
@@ -207,6 +235,8 @@ export function useDocumentsLibraryState() {
     closeDocument,
     setViewerPage,
     replaceLegacy,
+    isEvidenceSearch,
     listParams: libraryStateToListParams(state),
+    evidenceRequest: libraryStateToEvidenceSearchRequest(state),
   };
 }

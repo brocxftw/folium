@@ -36,6 +36,7 @@ async def hybrid_search(
     folder_id: uuid.UUID | None = None,
     folder_ids: list[uuid.UUID] | None = None,
     include_trashed: bool = False,
+    filters=None,
     limit: int = 20,
     keyword_limit: int = 40,
     vector_limit: int = 40,
@@ -49,6 +50,7 @@ async def hybrid_search(
         folder_id=folder_id,
         folder_ids=folder_ids,
         include_trashed=include_trashed,
+        filters=filters,
         limit=keyword_limit,
     )
     vector_hits = await search_chunks_semantic(
@@ -61,6 +63,7 @@ async def hybrid_search(
         folder_id=folder_id,
         folder_ids=folder_ids,
         include_trashed=include_trashed,
+        filters=filters,
         limit=vector_limit,
     )
 
@@ -101,6 +104,7 @@ async def hybrid_search(
         folder_id=folder_id,
         folder_ids=folder_ids,
         include_trashed=include_trashed,
+        filters=filters,
         limit=min(keyword_limit, 20),
     )
     for rank, hit in enumerate(doc_keyword, start=1):
@@ -122,7 +126,7 @@ async def hybrid_search(
             title=item.title,
             sources=dict(item.sources),
         )
-        for item in ordered[: max(1, min(limit, 100))]
+        for item in ordered[: max(1, min(limit, 200))]
     ]
 
 

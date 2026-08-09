@@ -701,8 +701,9 @@ export function useUploadDocument() {
 export function useSearch(request: SearchRequest, enabled = true) {
   return useQuery({
     queryKey: queryKeys.search(request),
-    queryFn: () => api.post<SearchResponse>("/api/search", request),
+    queryFn: ({ signal }) => api.post<SearchResponse>("/api/search", request, { signal }),
     enabled: enabled && !!request.query?.trim(),
+    placeholderData: (prev) => prev,
   });
 }
 

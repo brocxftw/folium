@@ -351,8 +351,19 @@ class SearchRequest(BaseModel):
     inbox: bool | None = None
     date_from: date | None = None
     date_to: date | None = None
+    document_indexed: bool | None = None
+    has_embeddings: bool | None = None
+    unprocessed: bool | None = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=200)
+
+
+class SearchMatch(BaseModel):
+    kind: Literal["document", "page", "chunk"]
+    score: float
+    snippet: str | None = None
+    page_number: int | None = None
+    chunk_id: UUID | None = None
 
 
 class SearchHit(BaseModel):
@@ -361,13 +372,25 @@ class SearchHit(BaseModel):
     snippet: str | None = None
     page_number: int | None = None
     chunk_id: UUID | None = None
+    matches: list[SearchMatch] = Field(default_factory=list)
+
+
+class SemanticCoverage(BaseModel):
+    available: bool
+    embedded_documents: int = 0
+    searchable_documents: int = 0
+    partial: bool = False
 
 
 class SearchResponse(BaseModel):
     items: list[SearchHit]
     total: int
+    document_total: int
+    match_total: int
     mode: str
     semantic_available: bool
+    semantic_coverage: SemanticCoverage | None = None
+    effective_mode: str | None = None
 
 
 # ---- Ask / RAG ----

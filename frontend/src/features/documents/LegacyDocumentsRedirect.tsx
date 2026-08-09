@@ -15,6 +15,7 @@ export function LegacyDocumentsRedirect() {
   const next = libraryStateToSearchParams({
     view: "all",
     q: "",
+    searchMode: "hybrid",
     tagIds: [],
     sort: "added_date",
     order: "desc",

@@ -140,8 +140,8 @@ export const api = {
     return apiFetch<T>(buildUrl(path, params));
   },
 
-  post<T>(path: string, body?: unknown): Promise<T> {
-    return apiFetch<T>(path, { method: "POST", body });
+  post<T>(path: string, body?: unknown, init?: { signal?: AbortSignal }): Promise<T> {
+    return apiFetch<T>(path, { method: "POST", body, signal: init?.signal });
   },
 
   patch<T>(path: string, body?: unknown): Promise<T> {
