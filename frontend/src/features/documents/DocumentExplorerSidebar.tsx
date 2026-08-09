@@ -15,6 +15,7 @@ interface DocumentExplorerSidebarProps {
   onViewChange: (view: LibraryView) => void;
   onFolderSelect: (folderId: string | undefined) => void;
   onTagToggle: (tagId: string) => void;
+  onDropDocuments?: (folderId: string, documentIds: string[]) => void;
   className?: string;
 }
 
@@ -37,6 +38,7 @@ export function DocumentExplorerSidebar({
   onViewChange,
   onFolderSelect,
   onTagToggle,
+  onDropDocuments,
   className,
 }: DocumentExplorerSidebarProps) {
   return (
@@ -91,6 +93,7 @@ export function DocumentExplorerSidebar({
           folders={folders}
           selectedFolderId={folderId}
           onSelect={(id) => onFolderSelect(id)}
+          onDropDocuments={onDropDocuments}
           variant="surface"
         />
       </div>

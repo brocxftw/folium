@@ -9,6 +9,7 @@ import {
 import type { BulkAction, Citation } from "@/lib/api/types";
 import { useDocumentUploader } from "@/lib/api/upload";
 import type { UploadEntry } from "@/lib/uploadTree";
+import { usePersistedState } from "@/lib/usePersistedState";
 import { UploadDropzone } from "@/components/documents/UploadDropzone";
 import { UploadStatusBar } from "@/components/documents/UploadStatusBar";
 import { DocumentTable } from "@/components/documents/DocumentTable";
@@ -27,7 +28,12 @@ import {
   DocumentResultsToolbar,
   type BulkActionOptions,
 } from "./DocumentBulkToolbar";
+import { DocumentGrid } from "./DocumentGrid";
 import { DocumentViewerModal } from "./DocumentViewerModal";
+import {
+  DOCUMENTS_LAYOUT_PREF_KEY,
+  type DocumentsLayoutMode,
+} from "./documentSelection";
 import {
   libraryStateToSearchSnapshot,
   useDocumentsLibraryState,
@@ -60,6 +66,12 @@ export function DocumentsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [aiOpen, setAiOpen] = useState(false);
   const [aiScope, setAiScope] = useState<AIDrawerScope>({ kind: "library" });
+  const [layoutModeRaw, setLayoutMode] = usePersistedState<DocumentsLayoutMode>(
+    DOCUMENTS_LAYOUT_PREF_KEY,
+    "list",
+  );
+  const layoutMode: DocumentsLayoutMode =
+    layoutModeRaw === "grid" ? "grid" : "list";
 
   const { data: folders = [] } = useFolders();
   const { data: tags = [] } = useTags();
@@ -166,6 +178,20 @@ export function DocumentsPage() {
     setSelectedIds(new Set());
     void refetch();
   };
+
+  const handleDropDocuments = useCallback(
+    async (folderId: string, documentIds: string[]) => {
+      if (documentIds.length === 0) return;
+      await bulkAction.mutateAsync({
+        document_ids: documentIds,
+        action: "move",
+        folder_id: folderId,
+      });
+      setSelectedIds(new Set());
+      void refetch();
+    },
+    [bulkAction, refetch],
+  );
 
   const handleTagToggle = (tagId: string) => {
     const next = state.tagIds.includes(tagId)
@@ -290,6 +316,7 @@ export function DocumentsPage() {
             patch({ folderId, view: folderId ? "all" : state.view })
           }
           onTagToggle={handleTagToggle}
+          onDropDocuments={(folderId, ids) => void handleDropDocuments(folderId, ids)}
           className="hidden md:flex"
         />
 
@@ -366,6 +393,8 @@ export function DocumentsPage() {
                 sort={state.sort}
                 order={state.order}
                 onSortChange={(sort, order) => patch({ sort, order })}
+                layoutMode={layoutMode}
+                onLayoutModeChange={setLayoutMode}
                 filterChips={filterChips}
               />
             )}
@@ -433,6 +462,20 @@ export function DocumentsPage() {
                     </div>
                   )}
                 </div>
+              ) : layoutMode === "grid" ? (
+                <DocumentGrid
+                  documents={browseDocuments}
+                  selectedIds={selectedIds}
+                  activeId={state.docId}
+                  onSelect={setSelectedIds}
+                  onActiveChange={(id) => openDocument(id)}
+                  isLoading={isLoading}
+                  emptyMessage={emptyMessageForView(state.view, !!state.folderId)}
+                  page={state.page}
+                  pageSize={state.pageSize}
+                  total={docList?.total}
+                  onPageChange={(page) => patch({ page })}
+                />
               ) : (
                 <DocumentTable
                   documents={browseDocuments}

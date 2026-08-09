@@ -16,6 +16,8 @@ import { MoveToFolderDialog } from "@/components/documents/MoveToFolderDialog";
 import { useFolders, useTags } from "@/lib/api/hooks";
 import type { BulkAction, Folder, Tag as TagType } from "@/lib/api/types";
 import type { LibraryOrder, LibrarySort } from "./useDocumentsLibraryState";
+import { DocumentsLayoutToggle } from "./DocumentGrid";
+import type { DocumentsLayoutMode } from "./documentSelection";
 
 export interface BulkActionOptions {
   folder_id?: string;
@@ -36,6 +38,8 @@ interface DocumentResultsToolbarProps {
   sort: LibrarySort;
   order: LibraryOrder;
   onSortChange: (sort: LibrarySort, order: LibraryOrder) => void;
+  layoutMode?: DocumentsLayoutMode;
+  onLayoutModeChange?: (mode: DocumentsLayoutMode) => void;
   filterChips?: Array<{ id: string; label: string; onClear: () => void }>;
 }
 
@@ -46,6 +50,8 @@ export function DocumentResultsToolbar({
   sort,
   order,
   onSortChange,
+  layoutMode,
+  onLayoutModeChange,
   filterChips = [],
 }: DocumentResultsToolbarProps) {
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -69,7 +75,10 @@ export function DocumentResultsToolbar({
         </button>
       ))}
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-2">
+        {layoutMode && onLayoutModeChange && (
+          <DocumentsLayoutToggle mode={layoutMode} onChange={onLayoutModeChange} />
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="gap-1">
