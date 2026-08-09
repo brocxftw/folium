@@ -1,6 +1,6 @@
 import { NavLink, Navigate, Outlet } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { useSession } from "@/lib/api/hooks";
+import { usePasswordResetRequests, useSession } from "@/lib/api/hooks";
 import { StorageSettings } from "@/components/settings/StorageSettings";
 import { AIProvidersSettings } from "@/components/settings/AIProvidersSettings";
 import { AIPolicySettings } from "@/components/settings/AIPolicySettings";
@@ -22,6 +22,8 @@ const SETTINGS_NAV = [
 export function SettingsLayout() {
   const { data: session } = useSession();
   const isAdmin = !!session?.user.is_admin;
+  const { data: resetRequests = [] } = usePasswordResetRequests(isAdmin);
+  const pendingResets = isAdmin ? resetRequests.length : 0;
   const nav = SETTINGS_NAV.filter((item) => !item.adminOnly || isAdmin);
 
   return (
@@ -35,14 +37,19 @@ export function SettingsLayout() {
               to={to}
               className={({ isActive }) =>
                 cn(
-                  "block rounded-md px-3 py-2 text-[13px]",
+                  "flex items-center justify-between gap-2 rounded-md px-3 py-2 text-[13px]",
                   isActive
                     ? "bg-accent-muted text-accent font-medium"
                     : "text-text-secondary hover:bg-surface-hover hover:text-text-primary",
                 )
               }
             >
-              {label}
+              <span>{label}</span>
+              {to === "/settings/users" && pendingResets > 0 && (
+                <span className="rounded bg-accent-muted px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                  {pendingResets}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

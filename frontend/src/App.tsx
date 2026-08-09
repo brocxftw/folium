@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthGuard, GuestGuard } from "@/features/auth/AuthGuard";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { RegisterPage } from "@/features/auth/RegisterPage";
+import { ForgotPasswordPage } from "@/features/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "@/features/auth/ResetPasswordPage";
 import { InboxPage } from "@/features/inbox/InboxPage";
 import { DocumentsPage } from "@/features/documents/DocumentsPage";
 import { SearchPage } from "@/features/search/SearchPage";
@@ -38,6 +40,8 @@ export default function App() {
           <Route element={<GuestGuard />}>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
           </Route>
 
           <Route element={<AuthGuard />}>

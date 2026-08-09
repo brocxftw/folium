@@ -46,6 +46,7 @@ class UserOut(ORMModel):
     is_active: bool = True
     storage_quota_bytes: int | None = None
     ai_monthly_request_quota: int | None = None
+    has_avatar: bool = False
 
 
 class UserUsageOut(BaseModel):
@@ -72,6 +73,35 @@ class UserAdminUpdate(BaseModel):
 
 class AdminSetPasswordRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
+
+
+class ForgotPasswordRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+
+
+class ForgotPasswordOut(BaseModel):
+    message: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class ResetPasswordValidateOut(BaseModel):
+    valid: bool
+    username: str | None = None
+
+
+class PasswordResetRequestOut(ORMModel):
+    id: UUID
+    user_id: UUID
+    username: str
+    display_name: str
+    status: str
+    created_at: datetime
+    approved_at: datetime | None = None
+    reset_url_token: str | None = None  # only on approve
 
 
 class InviteCreateRequest(BaseModel):
