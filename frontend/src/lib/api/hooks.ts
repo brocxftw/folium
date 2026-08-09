@@ -20,7 +20,7 @@ import type {
   DocumentListParams,
   DocumentMetadataUpdate,
   DocumentMoveRequest,
-  DocumentPageContent,
+  DocumentContent,
   DocumentProcessResult,
   Folder,
   FolderCreate,
@@ -65,7 +65,8 @@ export const queryKeys = {
   folderDocuments: (folderId: string, params: DocumentListParams) =>
     ["folders", folderId, "documents", params] as const,
   search: (req: SearchRequest) => ["search", req] as const,
-  jobs: (status?: string) => ["jobs", status] as const,
+  jobs: (status?: string, documentId?: string) =>
+    ["jobs", status ?? "all", documentId ?? "all"] as const,
   job: (id: string) => ["jobs", id] as const,
   aiProviders: ["ai", "providers"] as const,
   aiPolicy: ["ai", "policy"] as const,
@@ -551,7 +552,7 @@ export function useDocument(id: string | undefined) {
 export function useDocumentContent(id: string | undefined) {
   return useQuery({
     queryKey: queryKeys.documentContent(id ?? ""),
-    queryFn: () => api.get<DocumentPageContent[]>(`/api/documents/${id}/content`),
+    queryFn: () => api.get<DocumentContent>(`/api/documents/${id}/content`),
     enabled: !!id,
   });
 }
@@ -666,6 +667,19 @@ export function useRetryPreflight() {
   });
 }
 
+export function useRetryOcr() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<Document>(`/api/documents/${id}/retry-ocr`),
+    onSuccess: (doc) => {
+      qc.setQueryData(queryKeys.document(doc.id), doc);
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: queryKeys.documentContent(doc.id) });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+}
+
 export function useUploadDocument() {
   const qc = useQueryClient();
   return useMutation({
@@ -716,10 +730,14 @@ export function useAsk() {
 
 // ---- Jobs ----
 
-export function useJobs(status?: string) {
+export function useJobs(status?: string, documentId?: string) {
   return useQuery({
-    queryKey: queryKeys.jobs(status),
-    queryFn: () => api.get<Job[]>("/api/jobs", status ? { status } : undefined),
+    queryKey: queryKeys.jobs(status, documentId),
+    queryFn: () =>
+      api.get<Job[]>("/api/jobs", {
+        ...(status ? { status } : {}),
+        ...(documentId ? { document_id: documentId } : {}),
+      }),
     refetchInterval: 5000,
   });
 }
@@ -866,6 +884,8 @@ export function useHealth() {
   return useQuery({
     queryKey: queryKeys.health,
     queryFn: () => api.get<{ status: string; version: string }>("/health"),
+    staleTime: Infinity,
+    gcTime: Infinity,
     retry: 1,
   });
 }

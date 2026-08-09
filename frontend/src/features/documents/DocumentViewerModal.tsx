@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useDocument } from "@/lib/api/hooks";
 import { DocumentViewer } from "@/components/viewer/DocumentViewer";
-import { MetadataPanel } from "@/components/inspector/MetadataPanel";
+import { DocumentInspector } from "@/components/inspector/DocumentInspector";
 import { Button } from "@/components/ui/Button";
 import {
   Dialog,
@@ -44,7 +44,7 @@ export function DocumentViewerModal({
         if (!next) onActiveIdChange(null);
       }}
     >
-      <DialogContent className="flex h-[min(92vh,900px)] w-[min(96vw,1200px)] max-w-none flex-col gap-0 overflow-hidden p-0">
+      <DialogContent className="flex h-[95vh] w-[95vw] max-w-none flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="flex flex-row items-start justify-between gap-3 border-b border-surface-border px-4 py-3 pr-12 space-y-0">
           <div className="min-w-0">
             <DialogTitle className="truncate text-base">
@@ -97,8 +97,8 @@ export function DocumentViewerModal({
               className="h-full"
             />
           </div>
-          <aside className="hidden w-[280px] shrink-0 flex-col overflow-y-auto border-l border-surface-border bg-surface md:flex">
-            <MetadataPanel document={doc} />
+          <aside className="hidden w-[320px] shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex">
+            <DocumentInspector document={doc} />
           </aside>
         </div>
       </DialogContent>

@@ -50,6 +50,7 @@ from folium.search.fts import (
 )
 from folium.services import jobs as job_service
 from folium.services.chunking import PageInput, chunk_pages
+from folium.services.documents import invalidate_retrieval_artifacts
 from folium.services.quotas import assert_ai_quota
 from folium.storage.service import StorageService
 
@@ -324,6 +325,9 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
     await refresh_page_search_vectors(session, doc.id)
     await refresh_document_search_vector(session, doc.id)
 
+    # OCR replaces page text — drop stale chunks/embeddings/summaries.
+    await invalidate_retrieval_artifacts(session, doc)
+
     logger.info(
         "OCR finished for doc=%s method=%s text_len=%s; enqueueing AI if eligible",
         doc.id,
@@ -336,6 +340,15 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
         priority=job.priority,
         exclude_job_id=job.id,
     )
+
+    # Library documents must be re-indexed for RAG after OCR.
+    if not doc.inbox:
+        await job_service.enqueue_job(
+            session,
+            job_type=JobType.INDEXING,
+            document_id=doc.id,
+            priority=(job.priority or 100) + 5,
+        )
 
     return {"ocr_completed": True, "method": extracted.method, "text_len": len(doc.extracted_text or "")}
 
@@ -385,6 +398,8 @@ async def process_indexing(session: AsyncSession, job: Job) -> dict:
     drafts = chunk_pages(page_inputs)
 
     await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == doc.id))
+    # Old embeddings belonged to deleted chunks; clear until EMBEDDING finishes.
+    doc.has_embeddings = False
 
     for draft in drafts:
         session.add(

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -24,6 +24,7 @@ from folium.core.files import (
 from folium.models import (
     Correspondent,
     Document,
+    DocumentChunk,
     DocumentType,
     Folder,
     FolderKind,
@@ -41,6 +42,25 @@ from folium.storage.service import StorageService
 INBOX_FOLDER_PATH_KEY = "inbox_folder_path"
 
 InboxStatus = Literal["preparing", "ready", "needs_review", "failed"]
+
+
+async def invalidate_retrieval_artifacts(
+    session: AsyncSession,
+    doc: Document,
+) -> None:
+    """Clear chunk/embedding/summary state after OCR or text changes.
+
+    Callers must refresh page/document FTS separately after page text updates,
+    then re-enqueue INDEXING when the document belongs in the library.
+    """
+    await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == doc.id))
+    doc.document_indexed = False
+    doc.indexed_at = None
+    doc.has_embeddings = False
+    doc.ai_summary = None
+    doc.ai_summary_meta = None
+    doc.modified_date = datetime.now(UTC)
+    await session.flush()
 
 
 @dataclass(slots=True)
@@ -493,6 +513,49 @@ async def retry_preflight(
         job_type=JobType.THUMBNAIL,
         document_id=doc.id,
         priority=priority + 10,
+    )
+    return await get_document(session, doc.id, owner_id=owner_id)
+
+
+async def retry_ocr(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    owner_id: uuid.UUID,
+    priority: int = 45,
+) -> Document:
+    """Re-run OCR after invalidating retrieval artifacts.
+
+    Safe for library documents: chunks, embeddings, and summaries are cleared
+    first; INDEXING is enqueued after OCR completes (non-inbox path).
+    """
+    doc = await get_document(session, document_id, owner_id=owner_id)
+
+    open_jobs = (
+        await session.execute(
+            select(Job).where(
+                Job.document_id == doc.id,
+                Job.job_type.in_([JobType.OCR, JobType.INDEXING, JobType.EMBEDDING, JobType.SUMMARY]),
+                Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
+            )
+        )
+    ).scalars().all()
+    for job in open_jobs:
+        job.status = JobStatus.CANCELLED
+        job.completed_at = datetime.now(UTC)
+        job.locked_by = None
+
+    await invalidate_retrieval_artifacts(session, doc)
+    doc.ocr_completed = False
+    doc.processing_status = ProcessingStatus.PROCESSING
+    doc.processing_error = None
+    await session.flush()
+
+    await enqueue_job(
+        session,
+        job_type=JobType.OCR,
+        document_id=doc.id,
+        priority=priority,
     )
     return await get_document(session, doc.id, owner_id=owner_id)
 

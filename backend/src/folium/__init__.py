@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from folium.core.version import get_app_version
+
+__version__ = get_app_version()
 
 version = __version__

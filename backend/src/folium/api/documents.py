@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -18,10 +18,12 @@ from folium.api.schemas import (
     AskResponse,
     BulkActionRequest,
     CitationOut,
+    DocumentContentOut,
     DocumentListOut,
     DocumentMetadataUpdate,
     DocumentMoveRequest,
     DocumentOut,
+    DocumentPageContentOut,
     DocumentProcessRequest,
     DocumentProcessResultOut,
     DocumentRemoveQueueRequest,
@@ -270,6 +272,17 @@ async def retry_preflight(
     return _doc_out(doc)
 
 
+@router.post("/api/documents/{document_id}/retry-ocr", response_model=DocumentOut)
+async def retry_ocr(
+    document_id: uuid.UUID,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentOut:
+    doc = await doc_service.retry_ocr(db, document_id, owner_id=_user.id)
+    return _doc_out(doc)
+
+
 @router.post("/api/documents/{document_id}/move", response_model=DocumentOut)
 async def move_document(
     document_id: uuid.UUID,
@@ -372,12 +385,12 @@ async def download_thumbnail(
     )
 
 
-@router.get("/api/documents/{document_id}/content")
+@router.get("/api/documents/{document_id}/content", response_model=DocumentContentOut)
 async def document_content(
     document_id: uuid.UUID,
     _user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict[str, Any]:
+) -> DocumentContentOut:
     doc = await doc_service.get_document(db, document_id, owner_id=_user.id)
     pages = (
         (
@@ -390,12 +403,14 @@ async def document_content(
         .scalars()
         .all()
     )
-    return {
-        "document_id": doc.id,
-        "title": doc.title,
-        "page_count": doc.page_count or len(pages),
-        "pages": [{"page_number": p.page_number, "text": p.text} for p in pages],
-    }
+    return DocumentContentOut(
+        document_id=doc.id,
+        title=doc.title,
+        page_count=doc.page_count or len(pages),
+        pages=[
+            DocumentPageContentOut(page_number=p.page_number, text=p.text) for p in pages
+        ],
+    )
 
 
 @router.post("/api/documents/{document_id}/ask", response_model=AskResponse)

@@ -270,6 +270,13 @@ export interface DocumentPageContent {
   text: string;
 }
 
+export interface DocumentContent {
+  document_id: string;
+  title: string;
+  page_count: number;
+  pages: DocumentPageContent[];
+}
+
 export interface DuplicateError {
   duplicate: boolean;
   existing_document_id: UUID;

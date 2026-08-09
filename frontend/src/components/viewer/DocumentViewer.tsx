@@ -1,5 +1,5 @@
+import { Download, ExternalLink, Printer } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Download } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 import { WorkerMessageHandler } from "pdfjs-dist/build/pdf.worker.min.mjs";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,6 @@ import type { Document } from "@/lib/api/types";
   WorkerMessageHandler,
 };
 pdfjsLib.GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdf.worker.min.mjs`;
-
 
 interface DocumentViewerProps {
   document: Document | undefined;
@@ -106,7 +105,6 @@ export function DocumentViewer({
           setFallbackUrl(objectUrl);
           setLoading(false);
         } catch (pdfErr: unknown) {
-          // Electron / worker failures: fall back to native PDF frame.
           if (cancelled) return;
           console.warn("pdf.js failed, using native fallback", pdfErr);
           setFallbackUrl(objectUrl);
@@ -171,7 +169,6 @@ export function DocumentViewer({
       } catch (err) {
         if (cancelled) return;
         if (err instanceof Error && err.name === "RenderingCancelledException") return;
-        // Keep native iframe fallback visible if canvas render fails.
         console.warn("PDF canvas render failed", err);
       }
     };
@@ -187,6 +184,31 @@ export function DocumentViewer({
     const next = Math.max(1, Math.min(totalPages, p));
     setPage(next);
     onPageChange?.(next);
+  };
+
+  const openOriginal = () => {
+    if (!document) return;
+    window.open(api.downloadUrl(document.id), "_blank", "noopener,noreferrer");
+  };
+
+  const printDocument = () => {
+    if (!fallbackUrl) {
+      openOriginal();
+      return;
+    }
+    const frame = window.open(fallbackUrl, "_blank", "noopener,noreferrer");
+    if (!frame) return;
+    const trigger = () => {
+      try {
+        frame.focus();
+        frame.print();
+      } catch {
+        // Some browsers block print on blob iframes; user can print manually.
+      }
+    };
+    frame.addEventListener("load", trigger);
+    // Fallback if load already fired.
+    setTimeout(trigger, 500);
   };
 
   if (!document) {
@@ -254,6 +276,25 @@ export function DocumentViewer({
             </button>
           </>
         )}
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+          title="Open original"
+          aria-label="Open original"
+          onClick={openOriginal}
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-hover disabled:opacity-40"
+          title="Print"
+          aria-label="Print"
+          disabled={!fallbackUrl && !isPdf && !isImage && !isText}
+          onClick={printDocument}
+        >
+          <Printer className="h-3.5 w-3.5" />
+        </button>
         <a
           href={api.downloadUrl(document.id)}
           download={document.original_filename}
@@ -282,7 +323,6 @@ export function DocumentViewer({
           </div>
         )}
 
-        {/* Native fallback when pdf.js is unavailable (e.g. some Electron shells). */}
         {!showCanvas && !loading && !error && fallbackUrl && isPdf && (
           <iframe
             src={fallbackUrl}
