@@ -1,7 +1,8 @@
-"""Structure-aware document chunking."""
+"""Structure-aware, token-safe document chunking."""
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 
@@ -12,11 +13,15 @@ try:
 except Exception:  # pragma: no cover - optional dependency path
     _ENCODER = None
 
-TARGET_MIN_TOKENS = 500
-TARGET_MAX_TOKENS = 800
-MAX_TOKENS = 1000
-MIN_TOKENS = 150
-OVERLAP_RATIO = 0.10
+CHUNKING_VERSION = "v2-token-safe"
+
+# Defaults used when no provider capability override is supplied.
+TARGET_MIN_TOKENS = 400
+TARGET_MAX_TOKENS = 512
+MAX_TOKENS = 512
+MIN_TOKENS = 100
+OVERLAP_TOKENS = 64
+OVERLAP_RATIO = 0.10  # fallback when overlap_tokens not used for block tails
 
 _HEADING_RE = re.compile(
     r"^(?:#{1,6}\s+.+|[A-Z0-9][A-Z0-9\s\-]{2,60}$|\d+(?:\.\d+)*[\.)]\s+.+)$"
@@ -32,10 +37,22 @@ class PageInput:
 @dataclass(frozen=True)
 class ChunkDraft:
     page_number: int | None
+    page_end: int | None
     section: str | None
     text: str
     token_count: int
     chunk_index: int
+    content_hash: str
+    chunking_version: str = CHUNKING_VERSION
+
+
+@dataclass(frozen=True)
+class ChunkingLimits:
+    target_min_tokens: int = TARGET_MIN_TOKENS
+    target_max_tokens: int = TARGET_MAX_TOKENS
+    max_tokens: int = MAX_TOKENS
+    min_tokens: int = MIN_TOKENS
+    overlap_tokens: int = OVERLAP_TOKENS
 
 
 def estimate_tokens(text: str) -> int:
@@ -49,12 +66,23 @@ def estimate_tokens(text: str) -> int:
     return max(1, int(words * 1.3))
 
 
-def chunk_pages(pages: list[PageInput | dict[str, object]]) -> list[ChunkDraft]:
-    """Split extracted pages into structure-aware chunks."""
+def content_hash(text: str) -> str:
+    """SHA-256 of normalised chunk text (stripped, NFC-ish via encode)."""
+    normalised = " ".join(text.split())
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
+
+
+def chunk_pages(
+    pages: list[PageInput | dict[str, object]],
+    *,
+    limits: ChunkingLimits | None = None,
+) -> list[ChunkDraft]:
+    """Split extracted pages into structure-aware, token-safe chunks."""
+    cfg = limits or ChunkingLimits()
     normalized = [_coerce_page(page) for page in pages]
     blocks: list[_Block] = []
     for page in normalized:
-        blocks.extend(_split_page_blocks(page.page_number, page.text))
+        blocks.extend(_split_page_blocks(page.page_number, page.text, cfg.max_tokens))
 
     if not blocks:
         return []
@@ -74,54 +102,138 @@ def chunk_pages(pages: list[PageInput | dict[str, object]]) -> list[ChunkDraft]:
             current = []
             current_tokens = 0
             return
+
+        page_start = current[0].page_number
+        page_end = current[-1].page_number
+        token_count = estimate_tokens(text)
+
+        # Hard guard: split again if the joined chunk somehow exceeds max.
+        if token_count > cfg.max_tokens:
+            for part in _split_text_by_tokens(text, cfg.max_tokens):
+                part_tokens = estimate_tokens(part)
+                chunks.append(
+                    ChunkDraft(
+                        page_number=page_start,
+                        page_end=page_end,
+                        section=current_section,
+                        text=part,
+                        token_count=part_tokens,
+                        chunk_index=chunk_index,
+                        content_hash=content_hash(part),
+                    )
+                )
+                chunk_index += 1
+            overlap_blocks = _overlap_tail(current, cfg.overlap_tokens)
+            current = overlap_blocks
+            current_tokens = sum(block.tokens for block in current)
+            return
+
         chunks.append(
             ChunkDraft(
-                page_number=current[0].page_number,
+                page_number=page_start,
+                page_end=page_end,
                 section=current_section,
                 text=text,
-                token_count=estimate_tokens(text),
+                token_count=token_count,
                 chunk_index=chunk_index,
+                content_hash=content_hash(text),
             )
         )
         chunk_index += 1
-        overlap_blocks = _overlap_tail(current)
+        overlap_blocks = _overlap_tail(current, cfg.overlap_tokens)
         current = overlap_blocks
         current_tokens = sum(block.tokens for block in current)
 
     for block in blocks:
         if block.is_heading:
-            if current and current_tokens >= MIN_TOKENS:
+            if current and current_tokens >= cfg.min_tokens:
                 flush()
             current_section = block.text.strip("# ").strip()
             if current and current[-1].page_number != block.page_number:
                 flush()
 
         prospective = current_tokens + block.tokens
-        if current and prospective > MAX_TOKENS:
+        if current and prospective > cfg.max_tokens:
             flush()
+
+        # Block itself may still exceed max after flush — split it.
+        if block.tokens > cfg.max_tokens:
+            if current:
+                flush()
+            for part in _split_text_by_tokens(block.text, cfg.max_tokens):
+                part_tokens = estimate_tokens(part)
+                chunks.append(
+                    ChunkDraft(
+                        page_number=block.page_number,
+                        page_end=block.page_number,
+                        section=current_section,
+                        text=part,
+                        token_count=part_tokens,
+                        chunk_index=chunk_index,
+                        content_hash=content_hash(part),
+                    )
+                )
+                chunk_index += 1
+            current = []
+            current_tokens = 0
+            continue
 
         current.append(block)
         current_tokens += block.tokens
 
-        if current_tokens >= TARGET_MAX_TOKENS:
+        if current_tokens >= cfg.target_max_tokens:
             flush()
-        elif current_tokens >= TARGET_MIN_TOKENS and block.is_heading:
+        elif current_tokens >= cfg.target_min_tokens and block.is_heading:
             flush()
 
     if current:
-        if chunks and current_tokens < MIN_TOKENS:
+        if chunks and current_tokens < cfg.min_tokens:
             merged_text = f"{chunks[-1].text}\n\n" + "\n\n".join(b.text for b in current)
-            chunks[-1] = ChunkDraft(
-                page_number=chunks[-1].page_number,
-                section=chunks[-1].section or current_section,
-                text=merged_text.strip(),
-                token_count=estimate_tokens(merged_text),
-                chunk_index=chunks[-1].chunk_index,
-            )
+            merged_tokens = estimate_tokens(merged_text)
+            if merged_tokens <= cfg.max_tokens:
+                page_end = current[-1].page_number
+                chunks[-1] = ChunkDraft(
+                    page_number=chunks[-1].page_number,
+                    page_end=page_end,
+                    section=chunks[-1].section or current_section,
+                    text=merged_text.strip(),
+                    token_count=merged_tokens,
+                    chunk_index=chunks[-1].chunk_index,
+                    content_hash=content_hash(merged_text),
+                )
+            else:
+                flush()
         else:
             flush()
 
     return chunks
+
+
+def split_oversized_text(
+    text: str,
+    *,
+    max_tokens: int,
+    page_number: int | None = None,
+    page_end: int | None = None,
+    section: str | None = None,
+    start_index: int = 0,
+) -> list[ChunkDraft]:
+    """Split a single oversized chunk into token-safe drafts."""
+    parts = _split_text_by_tokens(text, max_tokens)
+    drafts: list[ChunkDraft] = []
+    for offset, part in enumerate(parts):
+        drafts.append(
+            ChunkDraft(
+                page_number=page_number,
+                page_end=page_end if page_end is not None else page_number,
+                section=section,
+                text=part,
+                token_count=estimate_tokens(part),
+                chunk_index=start_index + offset,
+                content_hash=content_hash(part),
+            )
+        )
+    return drafts
 
 
 @dataclass
@@ -140,7 +252,7 @@ def _coerce_page(page: PageInput | dict[str, object]) -> PageInput:
     return PageInput(page_number=page_number, text=text)
 
 
-def _split_page_blocks(page_number: int, text: str) -> list[_Block]:
+def _split_page_blocks(page_number: int, text: str, max_tokens: int) -> list[_Block]:
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
     if not paragraphs:
         return []
@@ -151,32 +263,94 @@ def _split_page_blocks(page_number: int, text: str) -> list[_Block]:
             continue
         if len(lines) == 1:
             is_heading = bool(_HEADING_RE.match(lines[0]))
-            blocks.append(
-                _Block(
-                    page_number=page_number,
-                    text=lines[0],
-                    tokens=estimate_tokens(lines[0]),
-                    is_heading=is_heading,
-                )
+            blocks.extend(
+                _blocks_from_text(page_number, lines[0], is_heading=is_heading, max_tokens=max_tokens)
             )
             continue
         for line in lines:
             is_heading = bool(_HEADING_RE.match(line))
-            blocks.append(
-                _Block(
-                    page_number=page_number,
-                    text=line,
-                    tokens=estimate_tokens(line),
-                    is_heading=is_heading,
-                )
+            blocks.extend(
+                _blocks_from_text(page_number, line, is_heading=is_heading, max_tokens=max_tokens)
             )
     return blocks
 
 
-def _overlap_tail(blocks: list[_Block]) -> list[_Block]:
+def _blocks_from_text(
+    page_number: int,
+    text: str,
+    *,
+    is_heading: bool,
+    max_tokens: int,
+) -> list[_Block]:
+    tokens = estimate_tokens(text)
+    if tokens <= max_tokens:
+        return [
+            _Block(
+                page_number=page_number,
+                text=text,
+                tokens=tokens,
+                is_heading=is_heading,
+            )
+        ]
+    # Headings that are somehow huge still get split; only first part keeps heading flag.
+    parts = _split_text_by_tokens(text, max_tokens)
+    result: list[_Block] = []
+    for index, part in enumerate(parts):
+        result.append(
+            _Block(
+                page_number=page_number,
+                text=part,
+                tokens=estimate_tokens(part),
+                is_heading=is_heading and index == 0,
+            )
+        )
+    return result
+
+
+def _split_text_by_tokens(text: str, max_tokens: int) -> list[str]:
+    """Split text into pieces each <= max_tokens (estimated)."""
+    stripped = text.strip()
+    if not stripped:
+        return []
+    if estimate_tokens(stripped) <= max_tokens:
+        return [stripped]
+
+    if _ENCODER is not None:
+        token_ids = _ENCODER.encode(stripped)
+        parts: list[str] = []
+        for start in range(0, len(token_ids), max_tokens):
+            piece = _ENCODER.decode(token_ids[start : start + max_tokens]).strip()
+            if piece:
+                parts.append(piece)
+        return parts or [stripped]
+
+    # Fallback: approximate by words (~1.3 tokens/word → words ≈ tokens/1.3)
+    words = stripped.split()
+    words_per_chunk = max(1, int(max_tokens / 1.3))
+    parts = []
+    for start in range(0, len(words), words_per_chunk):
+        piece = " ".join(words[start : start + words_per_chunk]).strip()
+        if piece:
+            parts.append(piece)
+    # Recursively harden if estimate still overshoots.
+    hardened: list[str] = []
+    for part in parts:
+        if estimate_tokens(part) <= max_tokens:
+            hardened.append(part)
+        else:
+            # Character window last resort.
+            step = max(64, len(part) * max_tokens // max(estimate_tokens(part), 1))
+            for i in range(0, len(part), step):
+                slice_ = part[i : i + step].strip()
+                if slice_:
+                    hardened.append(slice_)
+    return hardened or [stripped]
+
+
+def _overlap_tail(blocks: list[_Block], overlap_tokens: int) -> list[_Block]:
     if not blocks:
         return []
-    target = max(1, int(sum(block.tokens for block in blocks) * OVERLAP_RATIO))
+    target = max(1, overlap_tokens)
     tail: list[_Block] = []
     running = 0
     for block in reversed(blocks):

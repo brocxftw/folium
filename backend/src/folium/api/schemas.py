@@ -282,6 +282,12 @@ class DocumentOut(ORMModel):
     text_extracted: bool
     document_indexed: bool
     has_embeddings: bool
+    chunks_total: int | None = None
+    chunks_embedded: int | None = None
+    chunks_failed: int | None = None
+    embedding_error: str | None = None
+    embedding_started_at: datetime | None = None
+    embedding_finished_at: datetime | None = None
     processing_error: str | None
     is_archived: bool
     is_trashed: bool
@@ -493,6 +499,11 @@ class AIProviderCreate(BaseModel):
     supports_vision: bool = False
     supports_structured_output: bool = False
     supports_embeddings: bool = False
+    embedding_max_input_tokens: int | None = None
+    embedding_recommended_chunk_tokens: int | None = None
+    embedding_batch_size: int | None = None
+    embedding_max_batch_size: int | None = None
+    embedding_concurrency: int | None = None
     no_training: bool = False
     zero_retention: bool = False
 
@@ -513,6 +524,11 @@ class AIProviderUpdate(BaseModel):
     supports_vision: bool | None = None
     supports_structured_output: bool | None = None
     supports_embeddings: bool | None = None
+    embedding_max_input_tokens: int | None = None
+    embedding_recommended_chunk_tokens: int | None = None
+    embedding_batch_size: int | None = None
+    embedding_max_batch_size: int | None = None
+    embedding_concurrency: int | None = None
     no_training: bool | None = None
     zero_retention: bool | None = None
 
@@ -535,6 +551,11 @@ class AIProviderOut(ORMModel):
     supports_vision: bool
     supports_structured_output: bool
     supports_embeddings: bool
+    embedding_max_input_tokens: int | None = None
+    embedding_recommended_chunk_tokens: int | None = None
+    embedding_batch_size: int | None = None
+    embedding_max_batch_size: int | None = None
+    embedding_concurrency: int | None = None
     no_training: bool
     zero_retention: bool
     last_probe_status: str | None = None

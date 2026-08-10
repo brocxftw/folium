@@ -26,7 +26,7 @@ export function summarizeScopeReadiness(
     if (canAskDocument(doc)) askReady += 1;
     const readiness = getRetrievalReadiness(doc);
     if (readiness === "semantic_ready") semanticReady += 1;
-    else if (readiness === "keyword_ready") keywordReady += 1;
+    else if (readiness === "keyword_ready" || readiness === "embedding") keywordReady += 1;
     else unavailable += 1;
   }
 

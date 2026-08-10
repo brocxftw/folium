@@ -68,6 +68,26 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
                     ):
                         await mark_preflight_failed(session, failed.document_id, str(exc))
 
+                    if (
+                        failed.status == JobStatus.FAILED
+                        and failed.document_id is not None
+                        and failed.job_type.value == "embedding"
+                    ):
+                        from folium.models import Document
+
+                        doc = await session.get(Document, failed.document_id)
+                        if doc is not None:
+                            # Keep completed vectors; surface actionable status.
+                            msg = str(exc)
+                            if len(msg) > 400:
+                                msg = msg[:397] + "..."
+                            doc.embedding_error = msg or "Embedding provider unavailable"
+                            if doc.chunks_embedded and doc.chunks_embedded > 0:
+                                from folium.models import ProcessingStatus
+
+                                doc.processing_status = ProcessingStatus.PARTIAL
+                                doc.has_embeddings = True
+
     asyncio.create_task(_run())
 
 

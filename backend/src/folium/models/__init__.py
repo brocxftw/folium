@@ -97,6 +97,13 @@ class SuggestionStatus(enum.StrEnum):
     REJECTED = "rejected"
 
 
+class ChunkEmbeddingStatus(enum.StrEnum):
+    PENDING = "pending"
+    EMBEDDING = "embedding"
+    EMBEDDED = "embedded"
+    FAILED = "failed"
+
+
 class FolderKind(enum.StrEnum):
     ROOT = "root"
     INBOX = "inbox"
@@ -387,6 +394,16 @@ class Document(Base, TimestampMixin):
     document_indexed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     has_embeddings: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chunks_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chunks_embedded: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chunks_failed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    embedding_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_trashed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -468,6 +485,7 @@ class DocumentChunk(Base):
     __table_args__ = (
         Index("ix_document_chunks_document_id", "document_id"),
         Index("ix_document_chunks_embedding_space", "embedding_provider", "embedding_model"),
+        Index("ix_document_chunks_document_status", "document_id", "embedding_status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
@@ -475,10 +493,24 @@ class DocumentChunk(Base):
         UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section: Mapped[str | None] = mapped_column(String(512), nullable=True)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    chunking_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    embedding_status: Mapped[ChunkEmbeddingStatus] = mapped_column(
+        Enum(
+            ChunkEmbeddingStatus,
+            name="chunk_embedding_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=ChunkEmbeddingStatus.PENDING,
+        nullable=False,
+    )
+    embedding_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     embedding_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     embedding_dimension: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -550,6 +582,13 @@ class AIProvider(Base, TimestampMixin):
     supports_vision: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     supports_structured_output: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     supports_embeddings: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Embedding pipeline capabilities (nullable → code defaults)
+    embedding_max_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_recommended_chunk_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_batch_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_max_batch_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_concurrency: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Optional provider privacy preferences (not Folium-enforced guarantees)
     no_training: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
