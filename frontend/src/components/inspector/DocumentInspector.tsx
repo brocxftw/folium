@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Folder, RefreshCw, Sparkles, Tags } from "lucide-react";
+import { RefreshCw, Sparkles, Tags } from "lucide-react";
 import { formatBytes, formatDate, formatDateTime } from "@/lib/utils";
 import type { Document } from "@/lib/api/types";
 import {
@@ -11,7 +11,8 @@ import {
   useRetryPreflight,
   useUpdateDocumentMetadata,
 } from "@/lib/api/hooks";
-import { TagList } from "@/components/tags/TagList";
+import { DocumentTagsControl } from "@/components/tags/DocumentTagsControl";
+import { DocumentFolderControl } from "@/components/documents/DocumentFolderControl";
 import { ProcessingStatus } from "./ProcessingStatus";
 import { AISummary } from "./AISummary";
 import { Input } from "@/components/ui/Input";
@@ -229,10 +230,7 @@ function MetadataFields({ document }: { document: Document }) {
         <label className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
           Folder
         </label>
-        <div className="mt-1 flex items-center gap-2 text-[13px] text-text-primary">
-          <Folder className="h-3.5 w-3.5 text-text-muted" />
-          <span>{document.folder_path ?? "—"}</span>
-        </div>
+        <DocumentFolderControl document={document} />
       </section>
 
       <section>
@@ -240,7 +238,7 @@ function MetadataFields({ document }: { document: Document }) {
           Tags
         </label>
         <div className="mt-1.5">
-          <TagList tags={document.tags} />
+          <DocumentTagsControl document={document} />
         </div>
       </section>
 

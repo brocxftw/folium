@@ -345,7 +345,13 @@ export function DocumentsPage() {
 
           {state.folderId && (
             <div className="border-b border-surface-border px-4 py-2">
-              <Breadcrumbs folderId={state.folderId} folders={folders} />
+              <Breadcrumbs
+                folderId={state.folderId}
+                folders={folders}
+                onNavigate={(folderId) =>
+                  patch({ folderId, view: folderId ? "all" : state.view })
+                }
+              />
             </div>
           )}
 
@@ -500,11 +506,20 @@ export function DocumentsPage() {
         documentIds={documentIds}
         activeId={state.docId ?? null}
         page={state.viewerPage}
+        folders={folders}
         onActiveIdChange={(id) => {
           if (id) openDocument(id);
           else closeDocument();
         }}
         onPageChange={setViewerPage}
+        onNavigateToFolder={(folderId) => {
+          closeDocument();
+          patch({ folderId, view: "all" });
+        }}
+        onTrashed={() => {
+          closeDocument();
+          void refetch();
+        }}
         onAsk={(doc) =>
           openAsk({
             kind: "document",
