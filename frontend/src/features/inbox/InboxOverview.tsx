@@ -1,12 +1,12 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Upload } from "lucide-react";
 import {
-  useDocuments,
+  useInboxOverview,
   useRemoveFromQueue,
   useRetryPreflight,
 } from "@/lib/api/hooks";
-import type { Document } from "@/lib/api/types";
 import type { useDocumentUploader } from "@/lib/api/upload";
 import { Button } from "@/components/ui/Button";
 import { UploadStatusBar } from "@/components/documents/UploadStatusBar";
@@ -22,62 +22,71 @@ import { InboxIngestionHero } from "./InboxIngestionHero";
 import { InboxOverviewMetrics } from "./InboxOverviewMetrics";
 import { InboxActivityPanel } from "./InboxActivityPanel";
 import { InboxPreviewDialog } from "./InboxPreviewDialog";
-import {
-  computeOverviewMetrics,
-  inDateRange,
-  type DateRangeDays,
-} from "./inboxPresentation";
+import type { DateRangeDays, OverviewMetrics } from "./inboxPresentation";
 
 type DocumentUploader = ReturnType<typeof useDocumentUploader>;
+
+interface InboxLocationState {
+  justProcessedIds?: string[];
+}
 
 interface InboxOverviewProps {
   uploader: DocumentUploader;
 }
 
+const HIGHLIGHT_MS = 8000;
+
 export function InboxOverview({ uploader }: InboxOverviewProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
   const [rangeDays, setRangeDays] = useState<DateRangeDays>(7);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [removeIds, setRemoveIds] = useState<string[] | null>(null);
+  const [justProcessedIds, setJustProcessedIds] = useState<Set<string>>(new Set());
 
-  const pollWhilePreparing = (query: {
-    state: { data?: { items?: Document[] } };
-  }) => {
-    const items = query.state.data?.items ?? [];
-    const busy = items.some(
-      (d) =>
-        d.inbox_status === "preparing" ||
-        d.processing_status === "pending" ||
-        d.processing_status === "processing",
-    );
-    return busy ? 3000 : false;
-  };
+  useEffect(() => {
+    const state = location.state as InboxLocationState | null;
+    const ids = state?.justProcessedIds ?? [];
+    if (ids.length === 0) return;
+    setJustProcessedIds(new Set(ids));
+    navigate("/inbox", { replace: true, state: null });
+    const timer = window.setTimeout(() => setJustProcessedIds(new Set()), HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [location.state, navigate]);
 
-  const { data: docList, isLoading, refetch, isFetching } = useDocuments(
-    {
-      inbox: true,
-      page_size: 200,
-      sort: "added_date",
-      order: "desc",
+  const {
+    data: overview,
+    isFetching: overviewFetching,
+    refetch: refetchOverview,
+  } = useInboxOverview(rangeDays, {
+    refetchInterval: (query) => {
+      const processing = query.state.data?.processing ?? 0;
+      return processing > 0 ? 3000 : false;
     },
-    { refetchInterval: pollWhilePreparing },
-  );
+  });
 
   const removeFromQueue = useRemoveFromQueue();
   const retryPreflight = useRetryPreflight();
 
-  const documents = docList?.items ?? [];
-  const rangedDocuments = useMemo(
-    () => documents.filter((d) => inDateRange(d, rangeDays)),
-    [documents, rangeDays],
-  );
-  const metrics = useMemo(
-    () => computeOverviewMetrics(documents, rangeDays),
-    [documents, rangeDays],
+  const metrics: OverviewMetrics = useMemo(
+    () => ({
+      processed: overview?.processed ?? 0,
+      failed: overview?.failed ?? 0,
+      processing: overview?.processing ?? 0,
+      totalIngested: overview?.total_ingested ?? 0,
+      successRate: overview?.success_rate ?? null,
+    }),
+    [overview],
   );
 
   const goWork = (withUpload = false) => {
     navigate(withUpload ? "/inbox?view=work&upload=1" : "/inbox?view=work");
+  };
+
+  const refreshAll = () => {
+    void refetchOverview();
+    void queryClient.invalidateQueries({ queryKey: ["inbox-activity"] });
   };
 
   const confirmRemove = async () => {
@@ -85,7 +94,7 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
     await removeFromQueue.mutateAsync(removeIds);
     if (previewId && removeIds.includes(previewId)) setPreviewId(null);
     setRemoveIds(null);
-    refetch();
+    refreshAll();
   };
 
   return (
@@ -96,6 +105,7 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
             <h1 className="text-lg font-bold leading-tight text-[#14212B]">Inbox</h1>
             <p className="mt-0.5 text-xs text-[#42515D]">
               Ingest documents and track processing
+              {overviewFetching ? " · refreshing…" : ""}
             </p>
           </div>
           <Button
@@ -115,10 +125,7 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
           onDismiss={uploader.clearSummary}
         />
 
-        <InboxIngestionHero
-          uploader={uploader}
-          onBrowse={() => goWork(true)}
-        />
+        <InboxIngestionHero uploader={uploader} onBrowse={() => goWork(true)} />
 
         <InboxOverviewMetrics
           metrics={metrics}
@@ -127,20 +134,22 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
         />
 
         <InboxActivityPanel
-          documents={rangedDocuments}
-          isLoading={isLoading}
-          isFetching={isFetching}
-          onRefresh={() => void refetch()}
+          rangeDays={rangeDays}
+          justProcessedIds={justProcessedIds}
           onPreview={setPreviewId}
           onOpenWork={() => goWork(false)}
-          onRetry={(id) => void retryPreflight.mutateAsync(id).then(() => refetch())}
+          onRetry={(id) =>
+            void retryPreflight.mutateAsync(id).then(() => {
+              refreshAll();
+            })
+          }
           onRemove={(id) => setRemoveIds([id])}
           onUpload={() => goWork(true)}
         />
       </div>
 
       <InboxPreviewDialog
-        documentIds={rangedDocuments.map((d) => d.id)}
+        documentIds={previewId ? [previewId] : []}
         activeId={previewId}
         onActiveIdChange={setPreviewId}
       />

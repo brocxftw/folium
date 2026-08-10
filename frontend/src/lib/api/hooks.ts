@@ -31,6 +31,9 @@ import type {
   FolderCreate,
   FolderDeleteRequest,
   FolderUpdate,
+  InboxActivityList,
+  InboxActivityParams,
+  InboxOverviewMetrics,
   Job,
   LoginRequest,
   Message,
@@ -85,6 +88,8 @@ export const queryKeys = {
     ["ai", "suggestions", documentId ?? "all"] as const,
   storageHealth: ["storage", "health"] as const,
   health: ["health"] as const,
+  inboxOverview: (rangeDays: number) => ["inbox-overview", rangeDays] as const,
+  inboxActivity: (params: InboxActivityParams) => ["inbox-activity", params] as const,
 };
 
 // ---- Auth ----
@@ -561,6 +566,40 @@ export function useDocuments(
   });
 }
 
+export function useInboxOverview(
+  rangeDays: 7 | 30,
+  options?: Pick<UseQueryOptions<InboxOverviewMetrics, Error>, "refetchInterval" | "enabled">,
+) {
+  return useQuery({
+    queryKey: queryKeys.inboxOverview(rangeDays),
+    queryFn: () =>
+      api.get<InboxOverviewMetrics>("/api/inbox/overview", { range_days: rangeDays }),
+    ...options,
+  });
+}
+
+export function useInboxActivity(
+  params: InboxActivityParams,
+  options?: Pick<
+    UseQueryOptions<InboxActivityList, Error>,
+    "refetchInterval" | "enabled"
+  >,
+) {
+  return useQuery({
+    queryKey: queryKeys.inboxActivity(params),
+    queryFn: () => {
+      const q: Record<string, string | number> = {};
+      if (params.range_days) q.range_days = params.range_days;
+      if (params.tab) q.tab = params.tab;
+      if (params.q) q.q = params.q;
+      if (params.page) q.page = params.page;
+      if (params.page_size) q.page_size = params.page_size;
+      return api.get<InboxActivityList>("/api/inbox/activity", q);
+    },
+    ...options,
+  });
+}
+
 export function useFolderDocuments(folderId: string | undefined, params: DocumentListParams = {}) {
   const merged = { ...params, folder_id: folderId };
   return useQuery({
@@ -673,6 +712,8 @@ export function useProcessInboxDocuments() {
       qc.invalidateQueries({ queryKey: ["documents"] });
       qc.invalidateQueries({ queryKey: queryKeys.folders });
       qc.invalidateQueries({ queryKey: ["inbox-count"] });
+      qc.invalidateQueries({ queryKey: ["inbox-overview"] });
+      qc.invalidateQueries({ queryKey: ["inbox-activity"] });
     },
   });
 }
@@ -685,6 +726,8 @@ export function useRemoveFromQueue() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["documents"] });
       qc.invalidateQueries({ queryKey: ["inbox-count"] });
+      qc.invalidateQueries({ queryKey: ["inbox-overview"] });
+      qc.invalidateQueries({ queryKey: ["inbox-activity"] });
     },
   });
 }
@@ -696,6 +739,8 @@ export function useRetryPreflight() {
       api.post<Document>(`/api/documents/${id}/retry-preflight`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["inbox-overview"] });
+      qc.invalidateQueries({ queryKey: ["inbox-activity"] });
     },
   });
 }

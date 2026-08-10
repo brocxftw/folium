@@ -281,6 +281,45 @@ export interface DocumentProcessResult {
   failed: Array<{ id: string; reason?: string }>;
 }
 
+export type InboxActivityStatus =
+  | "queued"
+  | "processing"
+  | "processed"
+  | "needs_review"
+  | "failed";
+
+export type InboxActivityTab = "recent" | "processed" | "failed";
+
+export interface InboxOverviewMetrics {
+  range_days: number;
+  processed: number;
+  failed: number;
+  processing: number;
+  total_ingested: number;
+  success_rate: number | null;
+}
+
+export interface InboxActivityItem extends Document {
+  activity_status: InboxActivityStatus;
+}
+
+export interface InboxActivityList {
+  items: InboxActivityItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  range_days: number;
+  tab: InboxActivityTab;
+}
+
+export interface InboxActivityParams {
+  range_days?: 7 | 30;
+  tab?: InboxActivityTab;
+  q?: string;
+  page?: number;
+  page_size?: number;
+}
+
 export interface DocumentPageContent {
   page_number: number;
   text: string;
