@@ -313,6 +313,30 @@ class DocumentListOut(BaseModel):
     page_size: int
 
 
+class InboxOverviewOut(BaseModel):
+    range_days: int
+    processed: int
+    failed: int
+    processing: int
+    total_ingested: int
+    success_rate: float | None = None
+
+
+class InboxActivityItemOut(DocumentOut):
+    activity_status: Literal[
+        "queued", "processing", "processed", "needs_review", "failed"
+    ]
+
+
+class InboxActivityListOut(BaseModel):
+    items: list[InboxActivityItemOut]
+    total: int
+    page: int
+    page_size: int
+    range_days: int
+    tab: Literal["recent", "processed", "failed"]
+
+
 class DocumentPageContentOut(BaseModel):
     page_number: int
     text: str

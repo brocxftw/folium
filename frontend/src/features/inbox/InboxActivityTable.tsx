@@ -12,8 +12,9 @@ import {
   FolderInput,
   RotateCcw,
   Trash2,
+  Sparkles,
 } from "lucide-react";
-import type { Document } from "@/lib/api/types";
+import type { InboxActivityItem, InboxActivityStatus } from "@/lib/api/types";
 import { cn, formatBytes, formatDateTime } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
@@ -29,16 +30,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/Tooltip";
-import {
-  fileTypeLabel,
-  presentationLabel,
-  processedAtValue,
-  toPresentationStatus,
-  type PresentationStatus,
-} from "./inboxPresentation";
+import { fileTypeLabel, presentationLabel, processedAtValue } from "./inboxPresentation";
 
 const BADGE_STYLES: Record<
-  PresentationStatus,
+  InboxActivityStatus,
   { className: string; icon: typeof Check }
 > = {
   processed: {
@@ -63,7 +58,7 @@ const BADGE_STYLES: Record<
   },
 };
 
-function FileTypeIcon({ doc }: { doc: Document }) {
+function FileTypeIcon({ doc }: { doc: InboxActivityItem }) {
   const mime = doc.mime_type;
   const className = "h-4 w-4 shrink-0 text-[#5D6B76]";
   if (mime === "application/pdf" || mime.startsWith("text/")) {
@@ -78,9 +73,23 @@ function FileTypeIcon({ doc }: { doc: Document }) {
   return <File className={className} strokeWidth={1.75} />;
 }
 
-function PresentationBadge({ doc }: { doc: Document }) {
-  const status = toPresentationStatus(doc);
-  if (!status) return <span className="text-xs text-text-muted">—</span>;
+function PresentationBadge({
+  doc,
+  justNow,
+}: {
+  doc: InboxActivityItem;
+  justNow: boolean;
+}) {
+  if (justNow) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded bg-[#E8F7EF] px-1.5 py-0.5 text-[11px] font-medium text-[#198754]">
+        <Sparkles className="h-3 w-3" strokeWidth={1.75} />
+        Just now
+      </span>
+    );
+  }
+
+  const status = doc.activity_status;
   const style = BADGE_STYLES[status];
   const Icon = style.icon;
   const badge = (
@@ -124,8 +133,9 @@ function PresentationBadge({ doc }: { doc: Document }) {
 }
 
 interface InboxActivityTableProps {
-  documents: Document[];
+  documents: InboxActivityItem[];
   selectedIds: Set<string>;
+  justProcessedIds: Set<string>;
   onSelect: (ids: Set<string>) => void;
   onPreview: (id: string) => void;
   onOpenWork: () => void;
@@ -138,6 +148,7 @@ interface InboxActivityTableProps {
 export function InboxActivityTable({
   documents,
   selectedIds,
+  justProcessedIds,
   onSelect,
   onPreview,
   onOpenWork,
@@ -197,13 +208,15 @@ export function InboxActivityTable({
         <tbody>
           {documents.map((doc) => {
             const selected = selectedIds.has(doc.id);
+            const justNow = justProcessedIds.has(doc.id);
             const processedAt = processedAtValue(doc);
             return (
               <tr
                 key={doc.id}
                 className={cn(
-                  "h-[58px] border-b border-[#EDF1F3] hover:bg-[#FAFCFD]",
+                  "h-[58px] border-b border-[#EDF1F3] transition-colors hover:bg-[#FAFCFD]",
                   selected && "bg-[#F0FBF9]",
+                  justNow && "border-l-2 border-l-[#22A06B] bg-row-selected",
                 )}
               >
                 <td className="px-3">
@@ -227,19 +240,25 @@ export function InboxActivityTable({
                         {doc.original_filename}
                       </span>
                       <span className="block truncate text-[11px] text-[#74828D]">
-                        {doc.title !== doc.original_filename ? doc.title : "Added to Inbox"}
+                        {justNow
+                          ? "Just processed"
+                          : doc.title !== doc.original_filename
+                            ? doc.title
+                            : doc.inbox
+                              ? "Added to Inbox"
+                              : "In library"}
                       </span>
                     </span>
                   </button>
                 </td>
                 <td className="px-3">
-                  <PresentationBadge doc={doc} />
+                  <PresentationBadge doc={doc} justNow={justNow} />
                 </td>
                 <td className="px-3 text-xs text-[#42515D]">{fileTypeLabel(doc)}</td>
                 <td className="px-3 text-xs text-[#42515D]">{formatBytes(doc.file_size)}</td>
                 <td className="px-3 text-xs text-[#42515D]">{formatDateTime(doc.added_date)}</td>
                 <td className="px-3 text-xs text-[#42515D]">
-                  {processedAt ? formatDateTime(processedAt) : "—"}
+                  {justNow ? "Just now" : processedAt ? formatDateTime(processedAt) : "—"}
                 </td>
                 <td className="px-3">
                   {doc.tags.length > 0 ? (
@@ -286,19 +305,21 @@ export function InboxActivityTable({
                         <DropdownMenuItem onClick={onOpenWork}>
                           Open review workspace
                         </DropdownMenuItem>
-                        {doc.inbox_status === "failed" && (
+                        {doc.activity_status === "failed" && (
                           <DropdownMenuItem onClick={() => onRetry(doc.id)}>
                             <RotateCcw className="h-3.5 w-3.5" />
                             Retry
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem
-                          className="text-danger"
-                          onClick={() => onRemove(doc.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Remove from queue
-                        </DropdownMenuItem>
+                        {doc.inbox && (
+                          <DropdownMenuItem
+                            className="text-danger"
+                            onClick={() => onRemove(doc.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Remove from queue
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>

@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Filter, RefreshCw, Search } from "lucide-react";
-import type { Document } from "@/lib/api/types";
+import { useInboxActivity } from "@/lib/api/hooks";
+import type { InboxActivityStatus, InboxActivityTab } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -10,21 +11,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/Popover";
 import { InboxActivityTable } from "./InboxActivityTable";
-import {
-  filterByActivityTab,
-  matchesPresentationFilter,
-  matchesSearch,
-  type ActivityTab,
-  type PresentationStatus,
-} from "./inboxPresentation";
+import type { DateRangeDays } from "./inboxPresentation";
 
-const TABS: { id: ActivityTab; label: string }[] = [
+const TABS: { id: InboxActivityTab; label: string }[] = [
   { id: "recent", label: "Recent activity" },
   { id: "processed", label: "Processed" },
   { id: "failed", label: "Failed" },
 ];
 
-const FILTER_OPTIONS: { id: PresentationStatus | "all"; label: string }[] = [
+const FILTER_OPTIONS: { id: InboxActivityStatus | "all"; label: string }[] = [
   { id: "all", label: "All statuses" },
   { id: "queued", label: "Queued" },
   { id: "processing", label: "Processing" },
@@ -36,10 +31,8 @@ const FILTER_OPTIONS: { id: PresentationStatus | "all"; label: string }[] = [
 const PAGE_SIZE = 10;
 
 interface InboxActivityPanelProps {
-  documents: Document[];
-  isLoading: boolean;
-  isFetching: boolean;
-  onRefresh: () => void;
+  rangeDays: DateRangeDays;
+  justProcessedIds: Set<string>;
   onPreview: (id: string) => void;
   onOpenWork: () => void;
   onRetry: (id: string) => void;
@@ -48,32 +41,62 @@ interface InboxActivityPanelProps {
 }
 
 export function InboxActivityPanel({
-  documents,
-  isLoading,
-  isFetching,
-  onRefresh,
+  rangeDays,
+  justProcessedIds,
   onPreview,
   onOpenWork,
   onRetry,
   onRemove,
   onUpload,
 }: InboxActivityPanelProps) {
-  const [tab, setTab] = useState<ActivityTab>("recent");
+  const [tab, setTab] = useState<InboxActivityTab>("recent");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<PresentationStatus | "all">("all");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<InboxActivityStatus | "all">("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const filtered = useMemo(() => {
-    return filterByActivityTab(documents, tab)
-      .filter((d) => matchesSearch(d, search))
-      .filter((d) => matchesPresentationFilter(d, statusFilter));
-  }, [documents, tab, search, statusFilter]);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(t);
+  }, [search]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pollWhileBusy = (query: {
+    state: { data?: { items?: Array<{ activity_status?: string; processing_status?: string }> } };
+  }) => {
+    const items = query.state.data?.items ?? [];
+    const busy = items.some(
+      (d) =>
+        d.activity_status === "queued" ||
+        d.activity_status === "processing" ||
+        d.processing_status === "pending" ||
+        d.processing_status === "processing",
+    );
+    return busy ? 3000 : false;
+  };
+
+  const { data, isLoading, isFetching, refetch } = useInboxActivity(
+    {
+      range_days: rangeDays,
+      tab,
+      q: debouncedSearch || undefined,
+      page,
+      page_size: PAGE_SIZE,
+    },
+    { refetchInterval: pollWhileBusy },
+  );
+
+  const items = (data?.items ?? []).filter((d) =>
+    statusFilter === "all" ? true : d.activity_status === statusFilter,
+  );
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const emptyCopy = (() => {
     if (tab === "failed") {
@@ -174,7 +197,7 @@ export function InboxActivityPanel({
             aria-label="Refresh"
             title="Refresh"
             disabled={isFetching}
-            onClick={onRefresh}
+            onClick={() => void refetch()}
           >
             <RefreshCw
               className={cn("h-3.5 w-3.5", isFetching && "animate-spin")}
@@ -185,8 +208,9 @@ export function InboxActivityPanel({
       </div>
 
       <InboxActivityTable
-        documents={pageItems}
+        documents={items}
         selectedIds={selectedIds}
+        justProcessedIds={justProcessedIds}
         onSelect={setSelectedIds}
         onPreview={onPreview}
         onOpenWork={onOpenWork}
@@ -208,11 +232,11 @@ export function InboxActivityPanel({
 
       <div className="flex items-center justify-between border-t border-[#E7ECEF] px-4 py-2.5 text-xs text-[#74828D]">
         <span>
-          {filtered.length === 0
+          {total === 0
             ? "Showing 0 documents"
-            : `Showing ${(safePage - 1) * PAGE_SIZE + 1} to ${Math.min(safePage * PAGE_SIZE, filtered.length)} of ${filtered.length} documents`}
+            : `Showing ${(safePage - 1) * PAGE_SIZE + 1} to ${Math.min(safePage * PAGE_SIZE, total)} of ${total} documents`}
         </span>
-        {filtered.length > PAGE_SIZE && (
+        {total > PAGE_SIZE && (
           <div className="flex items-center gap-1">
             {Array.from({ length: totalPages }, (_, i) => i + 1)
               .slice(Math.max(0, safePage - 3), Math.max(0, safePage - 3) + 5)

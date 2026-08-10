@@ -219,12 +219,16 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
     if (processCount === 0) return;
     const result = await processDocs.mutateAsync(processTargets.map((d) => d.id));
     setSelectedIds(new Set());
+    const processedIds = result.processed.map((p) => p.id);
+    if (processedIds.length > 0) {
+      navigate("/inbox", { state: { justProcessedIds: processedIds } });
+      return;
+    }
     const parts = [
-      `${result.processed.length} processed`,
       result.skipped.length ? `${result.skipped.length} skipped` : null,
       result.failed.length ? `${result.failed.length} failed` : null,
     ].filter(Boolean);
-    setResultMsg(parts.join(" · "));
+    setResultMsg(parts.join(" · ") || "Nothing processed");
     refetch();
   };
 
