@@ -713,6 +713,34 @@ export function useRetryOcr() {
   });
 }
 
+export function useReprocessEmbeddings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<Document>(`/api/documents/${id}/reprocess-embeddings`),
+    onSuccess: (doc) => {
+      qc.setQueryData(queryKeys.document(doc.id), doc);
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+}
+
+export function useReprocessSuggestions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<Document>(`/api/documents/${id}/reprocess-suggestions`),
+    onSuccess: (doc) => {
+      qc.setQueryData(queryKeys.document(doc.id), doc);
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: queryKeys.aiSuggestions(doc.id) });
+      qc.invalidateQueries({ queryKey: queryKeys.aiSuggestions() });
+    },
+  });
+}
+
 export function useUploadDocument() {
   const qc = useQueryClient();
   return useMutation({

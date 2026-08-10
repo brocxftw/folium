@@ -646,17 +646,27 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
 
     ai_settings = await ensure_ai_settings(session)
     indexing = await resolve_assignment(session, AIWorkloadRole.INDEXING)
-    if not ai_settings.auto_tagging or indexing.provider is None or not indexing.model:
+    manual = bool((job.payload or {}).get("manual"))
+    if indexing.provider is None or not indexing.model:
+        if manual:
+            raise ValueError("No indexing model assigned for suggestions")
+        await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
+        return {"skipped": True, "reason": "auto_tagging_disabled"}
+    if not manual and not ai_settings.auto_tagging:
         await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
         return {"skipped": True, "reason": "auto_tagging_disabled"}
 
     provider = indexing.provider
     if not provider.enabled:
+        if manual:
+            raise ValueError("Indexing provider is disabled")
         await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
         return {"skipped": True, "reason": "provider_unavailable"}
 
     text = (doc.extracted_text or "").strip()
     if len(text) < _MIN_TEXT_FOR_AI:
+        if manual:
+            raise ValueError("Not enough extracted text for suggestions")
         doc.needs_review = True
         await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
         return {"skipped": True, "reason": "insufficient_text"}

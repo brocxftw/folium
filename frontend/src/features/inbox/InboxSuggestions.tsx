@@ -104,6 +104,10 @@ interface InboxSuggestionsProps {
   /** When provided, skip the per-document fetch (table/page prefetch). */
   suggestions?: Suggestion[];
   className?: string;
+  /** Show a muted empty state instead of rendering nothing. */
+  showEmpty?: boolean;
+  /** Section label; pass empty string to hide. */
+  title?: string;
 }
 
 /** Preview sidebar list of pending AI suggestions. */
@@ -111,6 +115,8 @@ export function InboxSuggestions({
   documentId,
   suggestions: provided,
   className,
+  showEmpty = false,
+  title = "AI suggestions",
 }: InboxSuggestionsProps) {
   const { data: fetched = [], isLoading } = useDocumentSuggestions(
     provided === undefined ? documentId : undefined,
@@ -124,14 +130,19 @@ export function InboxSuggestions({
   }
 
   if (rows.length === 0) {
-    return null;
+    if (!showEmpty) return null;
+    return (
+      <p className={cn("text-xs text-text-muted", className)}>No pending suggestions.</p>
+    );
   }
 
   return (
     <div className={cn("space-y-2", className)}>
-      <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
-        AI suggestions
-      </p>
+      {title ? (
+        <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
+          {title}
+        </p>
+      ) : null}
       <ul className="space-y-1.5">
         {rows.map((s) => (
           <li key={s.id}>

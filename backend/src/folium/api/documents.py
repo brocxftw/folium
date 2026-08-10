@@ -294,6 +294,28 @@ async def retry_ocr(
     return _doc_out(doc)
 
 
+@router.post("/api/documents/{document_id}/reprocess-embeddings", response_model=DocumentOut)
+async def reprocess_embeddings(
+    document_id: uuid.UUID,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentOut:
+    doc = await doc_service.reprocess_embeddings(db, document_id, owner_id=_user.id)
+    return _doc_out(doc)
+
+
+@router.post("/api/documents/{document_id}/reprocess-suggestions", response_model=DocumentOut)
+async def reprocess_suggestions(
+    document_id: uuid.UUID,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentOut:
+    doc = await doc_service.reprocess_suggestions(db, document_id, owner_id=_user.id)
+    return _doc_out(doc)
+
+
 @router.post("/api/documents/{document_id}/move", response_model=DocumentOut)
 async def move_document(
     document_id: uuid.UUID,

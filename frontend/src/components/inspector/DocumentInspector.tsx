@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
-import { Folder, RefreshCw } from "lucide-react";
+import { Folder, RefreshCw, Sparkles, Tags } from "lucide-react";
 import { formatBytes, formatDate, formatDateTime } from "@/lib/utils";
 import type { Document } from "@/lib/api/types";
 import {
   useDocumentContent,
   useJobs,
+  useReprocessEmbeddings,
+  useReprocessSuggestions,
   useRetryOcr,
   useRetryPreflight,
   useUpdateDocumentMetadata,
@@ -21,6 +23,7 @@ import {
   canAskDocument,
 } from "@/features/documents/retrievalReadiness";
 import { RetrievalReadinessBadge } from "@/features/documents/RetrievalReadinessBadge";
+import { InboxSuggestions } from "@/features/inbox/InboxSuggestions";
 
 interface DocumentInspectorProps {
   document: Document | undefined;
@@ -88,6 +91,8 @@ export function DocumentInspector({
 function OverviewTab({ document }: { document: Document }) {
   const readiness = getReadinessInfo(document);
   const { data: jobs = [] } = useJobs(undefined, document.id);
+  const reprocessEmbeddings = useReprocessEmbeddings();
+  const reprocessSuggestions = useReprocessSuggestions();
   const recentJobs = useMemo(
     () =>
       [...jobs]
@@ -95,6 +100,11 @@ function OverviewTab({ document }: { document: Document }) {
         .slice(0, 8),
     [jobs],
   );
+  const busy = reprocessEmbeddings.isPending || reprocessSuggestions.isPending;
+  const canEmbed = document.document_indexed;
+  const canSuggest = document.text_extracted;
+  const actionError =
+    reprocessEmbeddings.error?.message || reprocessSuggestions.error?.message || null;
 
   return (
     <div className="space-y-5">
@@ -113,6 +123,50 @@ function OverviewTab({ document }: { document: Document }) {
 
       <ProcessingStatus document={document} />
       <AISummary document={document} />
+
+      <section>
+        <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+          Reprocess
+        </h4>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy || !canEmbed}
+            title={canEmbed ? undefined : "Index the document before re-embedding"}
+            onClick={() => void reprocessEmbeddings.mutateAsync(document.id)}
+          >
+            <Sparkles className={`h-3.5 w-3.5 ${reprocessEmbeddings.isPending ? "animate-spin" : ""}`} />
+            Re-embed
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy || !canSuggest}
+            title={canSuggest ? undefined : "Extract text before requesting suggestions"}
+            onClick={() => void reprocessSuggestions.mutateAsync(document.id)}
+          >
+            <Tags className={`h-3.5 w-3.5 ${reprocessSuggestions.isPending ? "animate-spin" : ""}`} />
+            Suggest tags & folder
+          </Button>
+        </div>
+        <p className="mt-2 text-[11px] text-text-muted">
+          Re-embed refreshes semantic search vectors. Suggestions create pending tag and folder
+          proposals you can accept or reject.
+        </p>
+        {actionError && (
+          <p role="alert" className="mt-2 text-[11px] text-danger">
+            {actionError}
+          </p>
+        )}
+      </section>
+
+      <section>
+        <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+          Pending suggestions
+        </h4>
+        <InboxSuggestions documentId={document.id} showEmpty title="" />
+      </section>
 
       <section>
         <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">
@@ -135,7 +189,9 @@ function OverviewTab({ document }: { document: Document }) {
                   {formatDateTime(job.created_at)}
                   {job.completed_at ? ` → ${formatDateTime(job.completed_at)}` : ""}
                 </p>
-                {job.error && <p className="mt-1 text-[11px] text-danger">{job.error}</p>}
+                {job.status === "failed" && job.error && (
+                  <p className="mt-1 text-[11px] text-danger">{job.error}</p>
+                )}
               </li>
             ))}
           </ul>

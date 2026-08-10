@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import nullcontext
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -14,6 +16,12 @@ from folium.ai.base import (
     ChatResult,
     EmbeddingResult,
     ModelCapabilities,
+)
+from folium.ai.provider_lock import provider_host_lock
+from folium.ai.retry import (
+    ADAPTER_RETRY_ATTEMPTS,
+    adapter_retry_delay_seconds,
+    is_transient_ai_error,
 )
 from folium.models import AIProvider
 
@@ -121,10 +129,46 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
         *,
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any] | list[Any]:
+        # Local hosts (LM Studio, etc.) serialize requests so chat/embed model
+        # swaps cannot unload each other mid-flight. Hold the lock across
+        # transient retries so a competing job cannot thrash the same host.
+        lock = provider_host_lock(self._base_url) if self.is_local else nullcontext()
+        async with lock:
+            return await self._request_with_retries(method, path, payload=payload)
+
+    async def _request_with_retries(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | list[Any]:
+        last_error: AIProviderError | None = None
+        for attempt in range(1, ADAPTER_RETRY_ATTEMPTS + 1):
+            try:
+                return await self._request_once(method, path, payload=payload)
+            except AIProviderError as exc:
+                last_error = exc
+                if not is_transient_ai_error(exc) or attempt >= ADAPTER_RETRY_ATTEMPTS:
+                    raise
+                await asyncio.sleep(adapter_retry_delay_seconds(attempt))
+        assert last_error is not None
+        raise last_error
+
+    async def _request_once(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | list[Any]:
         try:
             response = await self._client.request(method, path, json=payload)
         except httpx.TimeoutException as exc:
-            raise AIProviderError(f"Request to {self._provider.name} timed out.") from exc
+            raise AIProviderError(
+                f"Request to {self._provider.name} timed out.",
+                status_code=408,
+            ) from exc
         except httpx.HTTPError as exc:
             raise AIProviderError(
                 f"Network error contacting {self._provider.name}: {exc}"
