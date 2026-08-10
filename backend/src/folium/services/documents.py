@@ -79,6 +79,12 @@ async def invalidate_retrieval_artifacts(
     doc.document_indexed = False
     doc.indexed_at = None
     doc.has_embeddings = False
+    doc.chunks_total = None
+    doc.chunks_embedded = None
+    doc.chunks_failed = None
+    doc.embedding_error = None
+    doc.embedding_started_at = None
+    doc.embedding_finished_at = None
     doc.ai_summary = None
     doc.ai_summary_meta = None
     doc.modified_date = datetime.now(UTC)
@@ -609,13 +615,18 @@ async def reprocess_embeddings(
 
     await _cancel_open_jobs(session, doc.id, [JobType.EMBEDDING])
 
-    for chunk in chunks:
-        chunk.embedding = None
-        chunk.embedding_provider = None
-        chunk.embedding_model = None
-        chunk.embedding_dimension = None
+    from folium.services.embedding_pipeline import reset_chunk_embeddings
+
+    await reset_chunk_embeddings(session, doc.id)
     doc.has_embeddings = False
+    doc.chunks_embedded = 0
+    doc.chunks_failed = 0
+    doc.embedding_error = None
+    doc.embedding_started_at = None
+    doc.embedding_finished_at = None
     doc.modified_date = datetime.now(UTC)
+    if doc.processing_status == ProcessingStatus.PARTIAL:
+        doc.processing_status = ProcessingStatus.READY
     await session.flush()
 
     await enqueue_job(
@@ -1124,6 +1135,12 @@ def document_to_dict(doc: Document) -> dict:
         "text_extracted": doc.text_extracted,
         "document_indexed": doc.document_indexed,
         "has_embeddings": doc.has_embeddings,
+        "chunks_total": doc.chunks_total,
+        "chunks_embedded": doc.chunks_embedded,
+        "chunks_failed": doc.chunks_failed,
+        "embedding_error": doc.embedding_error,
+        "embedding_started_at": doc.embedding_started_at,
+        "embedding_finished_at": doc.embedding_finished_at,
         "processing_error": doc.processing_error,
         "is_archived": doc.is_archived,
         "is_trashed": doc.is_trashed,

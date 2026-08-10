@@ -138,6 +138,11 @@ export function AIProvidersSettings() {
       embedding_model: p.embedding_model ?? "",
       vision_model: p.vision_model ?? "",
       supports_embeddings: p.supports_embeddings,
+      embedding_max_input_tokens: p.embedding_max_input_tokens ?? undefined,
+      embedding_recommended_chunk_tokens: p.embedding_recommended_chunk_tokens ?? undefined,
+      embedding_batch_size: p.embedding_batch_size ?? undefined,
+      embedding_max_batch_size: p.embedding_max_batch_size ?? undefined,
+      embedding_concurrency: p.embedding_concurrency ?? undefined,
     });
     setApiKey("");
     setSaveError(null);
@@ -332,6 +337,76 @@ export function AIProvidersSettings() {
                 className="mt-1"
               />
             </div>
+            {Boolean(form.embedding_model) && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-text-muted">Embed max input tokens</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={form.embedding_max_input_tokens ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        embedding_max_input_tokens: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="8192"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted">Recommended chunk tokens</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={form.embedding_recommended_chunk_tokens ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        embedding_recommended_chunk_tokens: e.target.value
+                          ? Number(e.target.value)
+                          : undefined,
+                      })
+                    }
+                    placeholder="512"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted">Batch size</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={form.embedding_batch_size ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        embedding_batch_size: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="16"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted">Max batch size</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={form.embedding_max_batch_size ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        embedding_max_batch_size: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="32"
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+            )}
             <label className="flex items-center gap-2 text-sm">
               <Checkbox
                 checked={form.is_local}

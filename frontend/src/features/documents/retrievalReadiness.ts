@@ -5,6 +5,7 @@ export type RetrievalReadiness =
   | "review_required"
   | "ready_to_process"
   | "indexing"
+  | "embedding"
   | "keyword_ready"
   | "semantic_ready"
   | "failed"
@@ -38,6 +39,11 @@ const INFO: Record<RetrievalReadiness, Omit<ReadinessInfo, "key">> = {
     description: "Final chunk indexing has not finished yet.",
     tone: "muted",
   },
+  embedding: {
+    label: "Embedding",
+    description: "Chunks are indexed; semantic embeddings are still running.",
+    tone: "muted",
+  },
   keyword_ready: {
     label: "Keyword ready",
     description: "Indexed for keyword retrieval. Semantic embeddings are not available yet.",
@@ -55,10 +61,33 @@ const INFO: Record<RetrievalReadiness, Omit<ReadinessInfo, "key">> = {
   },
   partial: {
     label: "Partial",
-    description: "Processing completed with gaps. Keyword retrieval may be limited.",
+    description: "Processing completed with gaps. Some chunks may lack embeddings.",
     tone: "warning",
   },
 };
+
+export function getEmbeddingProgress(doc: Document): {
+  total: number;
+  embedded: number;
+  failed: number;
+  percent: number | null;
+} {
+  const total = doc.chunks_total ?? 0;
+  const embedded = doc.chunks_embedded ?? 0;
+  const failed = doc.chunks_failed ?? 0;
+  const percent = total > 0 ? Math.min(100, Math.round((embedded / total) * 100)) : null;
+  return { total, embedded, failed, percent };
+}
+
+function isEmbeddingInProgress(doc: Document): boolean {
+  if (!doc.document_indexed || doc.has_embeddings) return false;
+  if (doc.embedding_error) return false;
+  const total = doc.chunks_total ?? 0;
+  const embedded = doc.chunks_embedded ?? 0;
+  if (total > 0 && embedded < total) return true;
+  // Indexed with chunks but embeddings not started / still queued.
+  return total > 0 || doc.embedding_started_at != null;
+}
 
 export function getRetrievalReadiness(doc: Document): RetrievalReadiness {
   if (doc.processing_status === "failed") return "failed";
@@ -80,13 +109,23 @@ export function getRetrievalReadiness(doc: Document): RetrievalReadiness {
   }
 
   if (!doc.document_indexed) return "indexing";
-  if (doc.has_embeddings) return "semantic_ready";
+  if (doc.has_embeddings && (doc.chunks_failed ?? 0) === 0) return "semantic_ready";
+  if (doc.has_embeddings && (doc.chunks_failed ?? 0) > 0) return "partial";
+  if (isEmbeddingInProgress(doc)) return "embedding";
   return "keyword_ready";
 }
 
 export function getReadinessInfo(doc: Document): ReadinessInfo {
   const key = getRetrievalReadiness(doc);
-  return { key, ...INFO[key] };
+  const info = { key, ...INFO[key] };
+  if (key === "embedding") {
+    const { embedded, total, percent } = getEmbeddingProgress(doc);
+    if (total > 0 && percent != null) {
+      info.label = `Embedding ${percent}%`;
+      info.description = `Embedded ${embedded.toLocaleString()} of ${total.toLocaleString()} chunks.`;
+    }
+  }
+  return info;
 }
 
 export function isUnprocessedDocument(doc: Document): boolean {
@@ -96,6 +135,7 @@ export function isUnprocessedDocument(doc: Document): boolean {
     readiness === "review_required" ||
     readiness === "ready_to_process" ||
     readiness === "indexing" ||
+    readiness === "embedding" ||
     readiness === "failed" ||
     readiness === "partial"
   );

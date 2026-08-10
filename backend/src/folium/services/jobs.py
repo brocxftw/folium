@@ -67,6 +67,11 @@ async def complete_job(
     job = await session.get(Job, job_id)
     if job is None:
         raise NotFoundError("Job not found")
+    # Preserve cooperative cancellation if the job was cancelled mid-run.
+    if job.status == JobStatus.CANCELLED:
+        job.result = result
+        await session.flush()
+        return job
     job.status = JobStatus.COMPLETED
     job.result = result
     job.error = None
@@ -75,6 +80,15 @@ async def complete_job(
     job.locked_by = None
     await session.flush()
     return job
+
+
+async def touch_job_lock(session: AsyncSession, job_id: uuid.UUID) -> None:
+    """Refresh locked_at so long-running jobs are not reclaimed as stale."""
+    await session.execute(
+        update(Job)
+        .where(Job.id == job_id, Job.status == JobStatus.RUNNING)
+        .values(locked_at=datetime.now(UTC))
+    )
 
 
 async def fail_job(

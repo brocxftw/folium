@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.ai.assignments import resolve_assignment
 from folium.ai.base import ChatMessage
-from folium.ai.embeddings import pad_embedding
 from folium.ai.privacy import PrivacyGate
 from folium.ai.registry import get_adapter
 from folium.ai.usage import record_usage
@@ -25,6 +24,7 @@ from folium.core.logging import get_logger
 from folium.models import (
     AISuggestion,
     AIWorkloadRole,
+    ChunkEmbeddingStatus,
     Correspondent,
     Document,
     DocumentChunk,
@@ -54,6 +54,8 @@ from folium.search.fts import (
 from folium.services import jobs as job_service
 from folium.services.chunking import PageInput, chunk_pages
 from folium.services.documents import invalidate_retrieval_artifacts
+from folium.services.embedding_capabilities import resolve_embedding_capabilities
+from folium.services.embedding_pipeline import process_document_embeddings
 from folium.services.quotas import assert_ai_quota
 from folium.storage.service import StorageService
 
@@ -402,24 +404,37 @@ async def process_indexing(session: AsyncSession, job: Job) -> dict:
     )
 
     page_inputs = [PageInput(page_number=p.page_number, text=p.text) for p in pages]
-    drafts = chunk_pages(page_inputs)
+
+    embedding = await resolve_assignment(session, AIWorkloadRole.EMBEDDING)
+    caps = resolve_embedding_capabilities(embedding.provider)
+    drafts = chunk_pages(page_inputs, limits=caps.chunking_limits())
 
     await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == doc.id))
     # Old embeddings belonged to deleted chunks; clear until EMBEDDING finishes.
     doc.has_embeddings = False
+    doc.chunks_embedded = 0
+    doc.chunks_failed = 0
+    doc.embedding_error = None
+    doc.embedding_started_at = None
+    doc.embedding_finished_at = None
 
     for draft in drafts:
         session.add(
             DocumentChunk(
                 document_id=doc.id,
                 page_number=draft.page_number,
+                page_end=draft.page_end,
                 section=draft.section,
                 chunk_index=draft.chunk_index,
                 text=draft.text,
                 token_count=draft.token_count,
+                content_hash=draft.content_hash,
+                chunking_version=draft.chunking_version,
+                embedding_status=ChunkEmbeddingStatus.PENDING,
             )
         )
 
+    doc.chunks_total = len(drafts)
     doc.document_indexed = True
     doc.indexed_at = datetime.now(UTC)
     # Keep ready after final indexing (document already left inbox via Process).
@@ -430,7 +445,6 @@ async def process_indexing(session: AsyncSession, job: Job) -> dict:
     await refresh_document_search_vector(session, doc.id)
 
     ai_settings = await ensure_ai_settings(session)
-    embedding = await resolve_assignment(session, AIWorkloadRole.EMBEDDING)
     indexing = await resolve_assignment(session, AIWorkloadRole.INDEXING)
     if embedding.provider is not None and embedding.model:
         await job_service.enqueue_job(
@@ -448,77 +462,17 @@ async def process_indexing(session: AsyncSession, job: Job) -> dict:
             priority=job.priority + 20,
         )
 
+    logger.info(
+        "Indexed document_id=%s chunks=%s max_tokens=%s",
+        doc.id,
+        len(drafts),
+        caps.chunking_limits().max_tokens,
+    )
     return {"chunks": len(drafts)}
 
 
 async def process_embedding(session: AsyncSession, job: Job) -> dict:
-    if job.document_id is None:
-        raise ValueError("EMBEDDING job requires document_id")
-    doc = await _get_document(session, job.document_id)
-    ai_settings = await ensure_ai_settings(session)
-    embedding = await resolve_assignment(session, AIWorkloadRole.EMBEDDING)
-    if embedding.provider is None or not embedding.model:
-        return {"skipped": True, "reason": "no_embedding_provider"}
-
-    provider = embedding.provider
-    if not provider.enabled:
-        return {"skipped": True, "reason": "provider_unavailable"}
-
-    PrivacyGate(ai_settings, provider).assert_can_embed()
-    await assert_ai_quota(session, doc.owner_id)
-    adapter = get_adapter(provider)
-
-    chunks = (
-        (
-            await session.execute(
-                select(DocumentChunk)
-                .where(DocumentChunk.document_id == doc.id)
-                .order_by(DocumentChunk.chunk_index)
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    if not chunks:
-        return {"embedded": 0}
-
-    texts = [c.text for c in chunks]
-    model = embedding.model
-    started = time.perf_counter()
-    result = await adapter.embed(texts, model=model)
-    duration_ms = round((time.perf_counter() - started) * 1000)
-    await adapter.aclose()
-
-    if len(result.embeddings) != len(chunks):
-        raise ValueError("Embedding count mismatch")
-
-    dimension = len(result.embeddings[0]) if result.embeddings else None
-    for chunk, vector in zip(chunks, result.embeddings, strict=True):
-        chunk.embedding = pad_embedding(vector)
-        chunk.embedding_provider = provider.name
-        chunk.embedding_model = result.model
-        chunk.embedding_dimension = dimension
-
-    doc.has_embeddings = True
-    ai_settings.active_embedding_provider = provider.name
-    ai_settings.active_embedding_model = result.model
-    ai_settings.active_embedding_dimension = dimension
-    await session.flush()
-
-    await record_usage(
-        session,
-        user_id=doc.owner_id,
-        provider=provider.name,
-        model=result.model,
-        operation="embedding",
-        input_tokens=result.input_tokens,
-        is_local=provider.is_local,
-        document_id=doc.id,
-        duration_ms=duration_ms,
-    )
-
-    return {"embedded": len(chunks), "dimension": dimension}
+    return await process_document_embeddings(session, job)
 
 
 async def process_summary(session: AsyncSession, job: Job) -> dict:

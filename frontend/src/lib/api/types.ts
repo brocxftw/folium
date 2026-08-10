@@ -189,6 +189,12 @@ export interface Document {
   text_extracted: boolean;
   document_indexed: boolean;
   has_embeddings: boolean;
+  chunks_total?: number | null;
+  chunks_embedded?: number | null;
+  chunks_failed?: number | null;
+  embedding_error?: string | null;
+  embedding_started_at?: string | null;
+  embedding_finished_at?: string | null;
   processing_error: string | null;
   is_archived: boolean;
   is_trashed: boolean;
@@ -463,6 +469,11 @@ export interface AIProvider {
   supports_vision: boolean;
   supports_structured_output: boolean;
   supports_embeddings: boolean;
+  embedding_max_input_tokens?: number | null;
+  embedding_recommended_chunk_tokens?: number | null;
+  embedding_batch_size?: number | null;
+  embedding_max_batch_size?: number | null;
+  embedding_concurrency?: number | null;
   no_training: boolean;
   zero_retention: boolean;
   last_probe_status: string | null;
@@ -488,6 +499,11 @@ export interface AIProviderCreate {
   supports_vision?: boolean;
   supports_structured_output?: boolean;
   supports_embeddings?: boolean;
+  embedding_max_input_tokens?: number | null;
+  embedding_recommended_chunk_tokens?: number | null;
+  embedding_batch_size?: number | null;
+  embedding_max_batch_size?: number | null;
+  embedding_concurrency?: number | null;
   no_training?: boolean;
   zero_retention?: boolean;
 }
@@ -508,6 +524,11 @@ export interface AIProviderUpdate {
   supports_vision?: boolean;
   supports_structured_output?: boolean;
   supports_embeddings?: boolean;
+  embedding_max_input_tokens?: number | null;
+  embedding_recommended_chunk_tokens?: number | null;
+  embedding_batch_size?: number | null;
+  embedding_max_batch_size?: number | null;
+  embedding_concurrency?: number | null;
   no_training?: boolean;
   zero_retention?: boolean;
 }
