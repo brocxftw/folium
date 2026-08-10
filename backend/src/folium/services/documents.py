@@ -40,8 +40,30 @@ from folium.services.quotas import assert_storage_quota
 from folium.storage.service import StorageService
 
 INBOX_FOLDER_PATH_KEY = "inbox_folder_path"
+_MIN_TEXT_FOR_SUGGESTIONS = 20
 
 InboxStatus = Literal["preparing", "ready", "needs_review", "failed"]
+
+
+async def _cancel_open_jobs(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    job_types: list[JobType],
+) -> None:
+    open_jobs = (
+        await session.execute(
+            select(Job).where(
+                Job.document_id == document_id,
+                Job.job_type.in_(job_types),
+                Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
+            )
+        )
+    ).scalars().all()
+    for job in open_jobs:
+        job.status = JobStatus.CANCELLED
+        job.completed_at = datetime.now(UTC)
+        job.locked_by = None
+        job.available_at = None
 
 
 async def invalidate_retrieval_artifacts(
@@ -531,19 +553,11 @@ async def retry_ocr(
     """
     doc = await get_document(session, document_id, owner_id=owner_id)
 
-    open_jobs = (
-        await session.execute(
-            select(Job).where(
-                Job.document_id == doc.id,
-                Job.job_type.in_([JobType.OCR, JobType.INDEXING, JobType.EMBEDDING, JobType.SUMMARY]),
-                Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
-            )
-        )
-    ).scalars().all()
-    for job in open_jobs:
-        job.status = JobStatus.CANCELLED
-        job.completed_at = datetime.now(UTC)
-        job.locked_by = None
+    await _cancel_open_jobs(
+        session,
+        doc.id,
+        [JobType.OCR, JobType.INDEXING, JobType.EMBEDDING, JobType.SUMMARY],
+    )
 
     await invalidate_retrieval_artifacts(session, doc)
     doc.ocr_completed = False
@@ -556,6 +570,93 @@ async def retry_ocr(
         job_type=JobType.OCR,
         document_id=doc.id,
         priority=priority,
+    )
+    return await get_document(session, doc.id, owner_id=owner_id)
+
+
+async def reprocess_embeddings(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    owner_id: uuid.UUID,
+    priority: int = 50,
+) -> Document:
+    """Clear existing vectors and enqueue a fresh EMBEDDING job."""
+    from folium.ai.assignments import resolve_assignment
+    from folium.models import AIWorkloadRole
+
+    doc = await get_document(session, document_id, owner_id=owner_id)
+    if not doc.document_indexed:
+        raise ValidationError("Document must be indexed before re-embedding")
+
+    chunks = (
+        (
+            await session.execute(
+                select(DocumentChunk).where(DocumentChunk.document_id == doc.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not chunks:
+        raise ValidationError("No indexed chunks available to embed")
+
+    embedding = await resolve_assignment(session, AIWorkloadRole.EMBEDDING)
+    if embedding.provider is None or not embedding.model:
+        raise ValidationError("No embedding model is assigned")
+    if not embedding.provider.enabled:
+        raise ValidationError("Assigned embedding provider is disabled")
+
+    await _cancel_open_jobs(session, doc.id, [JobType.EMBEDDING])
+
+    for chunk in chunks:
+        chunk.embedding = None
+        chunk.embedding_provider = None
+        chunk.embedding_model = None
+        chunk.embedding_dimension = None
+    doc.has_embeddings = False
+    doc.modified_date = datetime.now(UTC)
+    await session.flush()
+
+    await enqueue_job(
+        session,
+        job_type=JobType.EMBEDDING,
+        document_id=doc.id,
+        priority=priority,
+    )
+    return await get_document(session, doc.id, owner_id=owner_id)
+
+
+async def reprocess_suggestions(
+    session: AsyncSession,
+    document_id: uuid.UUID,
+    *,
+    owner_id: uuid.UUID,
+    priority: int = 70,
+) -> Document:
+    """Enqueue a manual metadata suggestion pass (tags, folder, title, etc.)."""
+    from folium.ai.assignments import resolve_assignment
+    from folium.models import AIWorkloadRole
+
+    doc = await get_document(session, document_id, owner_id=owner_id)
+    text = (doc.extracted_text or "").strip()
+    if len(text) < _MIN_TEXT_FOR_SUGGESTIONS:
+        raise ValidationError("Not enough extracted text for suggestions")
+
+    indexing = await resolve_assignment(session, AIWorkloadRole.INDEXING)
+    if indexing.provider is None or not indexing.model:
+        raise ValidationError("No indexing model is assigned")
+    if not indexing.provider.enabled:
+        raise ValidationError("Assigned indexing provider is disabled")
+
+    await _cancel_open_jobs(session, doc.id, [JobType.METADATA_SUGGESTION])
+
+    await enqueue_job(
+        session,
+        job_type=JobType.METADATA_SUGGESTION,
+        document_id=doc.id,
+        priority=priority,
+        payload={"manual": True},
     )
     return await get_document(session, doc.id, owner_id=owner_id)
 

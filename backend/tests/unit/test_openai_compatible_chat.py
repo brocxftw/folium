@@ -12,11 +12,15 @@ from folium.ai.openai_compatible import OpenAICompatibleAdapter
 
 def _adapter() -> OpenAICompatibleAdapter:
     provider = MagicMock()
+    provider.name = "test-provider"
     provider.base_url = "http://localhost:1234/v1"
     provider.chat_model = "test-model"
     provider.embedding_model = None
     provider.max_output_tokens = 2048
     provider.supports_embeddings = False
+    provider.supports_vision = False
+    provider.context_window = 8192
+    provider.is_local = False
     return OpenAICompatibleAdapter(provider, api_key=None)
 
 

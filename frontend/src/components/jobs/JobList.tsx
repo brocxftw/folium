@@ -107,7 +107,7 @@ export function JobList() {
                     {formatDateTime(job.created_at)}
                   </td>
                   <td className="px-4 py-2 text-danger text-xs max-w-[200px] truncate">
-                    {job.error ?? "—"}
+                    {job.status === "failed" && job.error ? job.error : "—"}
                   </td>
                   <td className="px-4 py-2">
                     {(job.status === "queued" || job.status === "running") && (

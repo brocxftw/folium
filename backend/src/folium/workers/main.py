@@ -43,11 +43,22 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
             except Exception as exc:
                 logger.exception("Job %s failed: %s", job.id, exc)
                 async with session_scope() as session:
-                    failed = await job_service.fail_job(session, job.id, str(exc))
+                    from folium.ai.base import AIProviderError
+                    from folium.ai.retry import is_transient_ai_error, job_retry_delay_seconds
                     from folium.models import JobStatus
                     from folium.workers.processor import (
                         PREFLIGHT_JOB_TYPES,
                         mark_preflight_failed,
+                    )
+
+                    delay: float | None = None
+                    if isinstance(exc, AIProviderError) and is_transient_ai_error(exc):
+                        # retry_count is incremented inside fail_job; peek current value.
+                        current = await job_service.get_job(session, job.id)
+                        delay = job_retry_delay_seconds(current.retry_count + 1)
+
+                    failed = await job_service.fail_job(
+                        session, job.id, str(exc), delay_seconds=delay
                     )
 
                     if (

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.core.exceptions import NotFoundError
@@ -37,9 +37,13 @@ async def enqueue_job(
 
 async def claim_next(session: AsyncSession, worker_id: str) -> Job | None:
     """Claim the highest-priority queued job using SKIP LOCKED."""
+    now = datetime.now(UTC)
     stmt = (
         select(Job)
-        .where(Job.status == JobStatus.QUEUED)
+        .where(
+            Job.status == JobStatus.QUEUED,
+            or_(Job.available_at.is_(None), Job.available_at <= now),
+        )
         .order_by(Job.priority.asc(), Job.created_at.asc())
         .limit(1)
         .with_for_update(skip_locked=True)
@@ -50,8 +54,9 @@ async def claim_next(session: AsyncSession, worker_id: str) -> Job | None:
         return None
     job.status = JobStatus.RUNNING
     job.locked_by = worker_id
-    job.locked_at = datetime.now(UTC)
-    job.started_at = datetime.now(UTC)
+    job.locked_at = now
+    job.started_at = now
+    job.available_at = None
     await session.flush()
     return job
 
@@ -64,13 +69,21 @@ async def complete_job(
         raise NotFoundError("Job not found")
     job.status = JobStatus.COMPLETED
     job.result = result
+    job.error = None
+    job.available_at = None
     job.completed_at = datetime.now(UTC)
     job.locked_by = None
     await session.flush()
     return job
 
 
-async def fail_job(session: AsyncSession, job_id: uuid.UUID, error: str) -> Job:
+async def fail_job(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    error: str,
+    *,
+    delay_seconds: float | None = None,
+) -> Job:
     job = await session.get(Job, job_id)
     if job is None:
         raise NotFoundError("Job not found")
@@ -83,10 +96,15 @@ async def fail_job(session: AsyncSession, job_id: uuid.UUID, error: str) -> Job:
         job.started_at = None
         # Lower priority slightly on retry
         job.priority = min(job.priority + 5, 1000)
+        if delay_seconds is not None and delay_seconds > 0:
+            job.available_at = datetime.now(UTC) + timedelta(seconds=delay_seconds)
+        else:
+            job.available_at = None
     else:
         job.status = JobStatus.FAILED
         job.completed_at = datetime.now(UTC)
         job.locked_by = None
+        job.available_at = None
     await session.flush()
     return job
 
@@ -100,6 +118,7 @@ async def cancel_job(
     job.status = JobStatus.CANCELLED
     job.completed_at = datetime.now(UTC)
     job.locked_by = None
+    job.available_at = None
     await session.flush()
     return job
 
@@ -148,6 +167,6 @@ async def requeue_stale_running(session: AsyncSession, *, older_than_seconds: in
     result = await session.execute(
         update(Job)
         .where(Job.status == JobStatus.RUNNING, Job.locked_at < cutoff_dt)
-        .values(status=JobStatus.QUEUED, locked_by=None, locked_at=None)
+        .values(status=JobStatus.QUEUED, locked_by=None, locked_at=None, available_at=None)
     )
     return result.rowcount or 0
