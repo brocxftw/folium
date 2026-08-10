@@ -35,6 +35,10 @@ import {
   getDocumentDragIds,
   clearDocumentDragData,
 } from "@/features/documents/documentDrag";
+import {
+  MoveToFolderDialog,
+  collectFolderAndDescendantIds,
+} from "@/components/documents/MoveToFolderDialog";
 
 interface FolderTreeProps {
   folders: Folder[];
@@ -87,6 +91,7 @@ function FolderNode({
   onSelect,
   onCreateChild,
   onRename,
+  onMove,
   onDelete,
   onDropDocuments,
   variant,
@@ -99,6 +104,7 @@ function FolderNode({
   onSelect: (id: string) => void;
   onCreateChild: (parentId: string) => void;
   onRename: (folder: Folder) => void;
+  onMove: (folder: Folder) => void;
   onDelete: (folder: Folder) => void;
   onDropDocuments?: (folderId: string, documentIds: string[]) => void;
   variant: "sidebar" | "surface";
@@ -124,6 +130,7 @@ function FolderNode({
             onSelect={onSelect}
             onCreateChild={onCreateChild}
             onRename={onRename}
+            onMove={onMove}
             onDelete={onDelete}
             onDropDocuments={onDropDocuments}
             variant={variant}
@@ -246,6 +253,7 @@ function FolderNode({
                 New subfolder
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onRename(node)}>Rename</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onMove(node)}>Move…</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-danger"
@@ -270,6 +278,7 @@ function FolderNode({
               onSelect={onSelect}
               onCreateChild={onCreateChild}
               onRename={onRename}
+              onMove={onMove}
               onDelete={onDelete}
               onDropDocuments={onDropDocuments}
               variant={variant}
@@ -296,6 +305,7 @@ export function FolderTree({
     | { type: "delete"; folder: Folder }
     | null
   >(null);
+  const [moveFolder, setMoveFolder] = useState<Folder | null>(null);
   const [name, setName] = useState("");
 
   const createFolder = useCreateFolder();
@@ -306,6 +316,9 @@ export function FolderTree({
   const surface = variant === "surface";
 
   const tree = buildTree(folders);
+  const moveExcludeIds = moveFolder
+    ? collectFolderAndDescendantIds(folders, moveFolder.id)
+    : undefined;
 
   const toggle = (id: string) => {
     setExpanded((prev) => {
@@ -385,6 +398,7 @@ export function FolderTree({
               setName(folder.name);
               setDialog({ type: "rename", folder });
             }}
+            onMove={(folder) => setMoveFolder(folder)}
             onDelete={(folder) => setDialog({ type: "delete", folder })}
             onDropDocuments={onDropDocuments}
             variant={variant}
@@ -429,6 +443,31 @@ export function FolderTree({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MoveToFolderDialog
+        open={!!moveFolder}
+        onOpenChange={(open) => !open && setMoveFolder(null)}
+        folders={folders}
+        selectedCount={1}
+        title="Move folder"
+        description={
+          moveFolder
+            ? `Choose a new parent for “${moveFolder.name}”.`
+            : "Choose a new parent folder."
+        }
+        excludeFolderIds={moveExcludeIds}
+        allowRoot
+        confirmLabel="Move folder"
+        isPending={updateFolder.isPending}
+        onConfirm={async (parentId) => {
+          if (!moveFolder) return;
+          await updateFolder.mutateAsync({
+            id: moveFolder.id,
+            data: { parent_id: parentId },
+          });
+          setMoveFolder(null);
+        }}
+      />
     </div>
   );
 }

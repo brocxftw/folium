@@ -48,7 +48,7 @@ export function DocumentExplorerSidebar({
         className,
       )}
     >
-      <div className="border-b border-surface-border px-3 py-2">
+      <div className="px-3 py-2">
         <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
           Quick access
         </p>
@@ -96,10 +96,8 @@ export function DocumentExplorerSidebar({
           onDropDocuments={onDropDocuments}
           variant="surface"
         />
-      </div>
 
-      <div className="max-h-[200px] overflow-auto border-t border-surface-border py-2 scrollbar-thin">
-        <div className="px-3 py-1">
+        <div className="mt-2 px-3 py-1">
           <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
             Tags
           </span>
