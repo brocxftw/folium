@@ -33,7 +33,7 @@ from folium.ai.base import (
     EmbeddingResult,
     ModelCapabilities,
 )
-from folium.models import AISuggestion, Job, JobStatus, JobType, SuggestionStatus
+from folium.models import AIProvider, AISuggestion, Job, JobStatus, JobType, SuggestionStatus
 from folium.workers.processor import process_metadata_suggestion, process_text_extraction
 
 # ---------------------------------------------------------------------------
@@ -139,7 +139,10 @@ class _MockFilingAdapter(AIProviderAdapter):
         return None
 
 
-async def _enable_auto_tagging(auth_client: AsyncClient) -> str:
+async def _enable_auto_tagging(
+    auth_client: AsyncClient,
+    db_session: AsyncSession,
+) -> str:
     provider = await auth_client.post(
         "/api/ai/providers",
         json={
@@ -152,6 +155,12 @@ async def _enable_auto_tagging(auth_client: AsyncClient) -> str:
     )
     assert provider.status_code == 201, provider.text
     provider_id = provider.json()["id"]
+
+    # Metadata suggestion enqueue requires a recent successful health probe.
+    row = await db_session.get(AIProvider, uuid.UUID(provider_id))
+    assert row is not None
+    row.last_probe_status = "available"
+    await db_session.commit()
 
     policy = await auth_client.patch(
         "/api/ai/policy",
@@ -225,7 +234,7 @@ async def test_metadata_suggestion_creates_folder_and_tag_rows(
 ) -> None:
     """Core unit of the pipeline: mock LLM → pending folder + tags suggestions."""
     _banner("AI filing - suggestion creation (mocked LLM)")
-    await _enable_auto_tagging(auth_client)
+    await _enable_auto_tagging(auth_client, db_session)
     _step(1, "Enabled auto_tagging + local chat provider")
 
     adapter = _MockFilingAdapter(wrap_in_fence=True)
@@ -309,7 +318,7 @@ async def test_accept_folder_and_tags_then_process(
 ) -> None:
     """Full visual path: suggest → accept folder/tags → Process → library folder."""
     _banner("AI filing - accept folder/tags → Process (E2E)")
-    await _enable_auto_tagging(auth_client)
+    await _enable_auto_tagging(auth_client, db_session)
 
     adapter = _MockFilingAdapter()
     monkeypatch.setattr(
@@ -421,7 +430,7 @@ async def test_reject_folder_leaves_document_unfiled(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _enable_auto_tagging(auth_client)
+    await _enable_auto_tagging(auth_client, db_session)
     monkeypatch.setattr(
         "folium.workers.processor.get_adapter",
         lambda _provider, api_key=None: _MockFilingAdapter(),
@@ -495,6 +504,11 @@ async def test_live_lm_studio_folder_and_tag_suggestions(
     assert provider.status_code == 201, provider.text
     provider_id = provider.json()["id"]
     _step(1, "Created openai_compatible provider", provider_id)
+
+    row = await db_session.get(AIProvider, uuid.UUID(provider_id))
+    assert row is not None
+    row.last_probe_status = "available"
+    await db_session.commit()
 
     policy = await auth_client.patch(
         "/api/ai/policy",

@@ -8,11 +8,14 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from folium.models import Job, JobType
+from folium.models import AIProvider, Job, JobType
 from folium.workers.processor import process_embedding
 
 
-async def _configure_remote_providers(auth_client: AsyncClient) -> tuple[str, str]:
+async def _configure_remote_providers(
+    auth_client: AsyncClient,
+    db_session: AsyncSession | None = None,
+) -> tuple[str, str]:
     chat = await auth_client.post(
         "/api/ai/providers",
         json={
@@ -40,6 +43,14 @@ async def _configure_remote_providers(auth_client: AsyncClient) -> tuple[str, st
     )
     assert embed.status_code == 201
     embed_id = embed.json()["id"]
+
+    # Reach PrivacyGate (not the soft-skip probe gate) for embedding jobs.
+    if db_session is not None:
+        for provider_id in (chat_id, embed_id):
+            row = await db_session.get(AIProvider, uuid.UUID(provider_id))
+            assert row is not None
+            row.last_probe_status = "available"
+        await db_session.commit()
 
     policy = await auth_client.patch(
         "/api/ai/policy",
@@ -75,7 +86,7 @@ async def test_local_only_blocks_remote_embeddings(
     uploaded_txt_doc: dict,
     db_session: AsyncSession,
 ) -> None:
-    await _configure_remote_providers(auth_client)
+    await _configure_remote_providers(auth_client, db_session)
 
     from sqlalchemy import select
 

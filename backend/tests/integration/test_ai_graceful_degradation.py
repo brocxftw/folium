@@ -18,7 +18,7 @@ from folium.ai.base import (
     EmbeddingResult,
     ModelCapabilities,
 )
-from folium.models import Document, Job, JobStatus, JobType, ProcessingStatus
+from folium.models import AIProvider, Document, Job, JobStatus, JobType, ProcessingStatus
 from folium.workers.processor import process_metadata_suggestion, process_text_extraction
 
 
@@ -62,7 +62,10 @@ class _FailingAdapter(AIProviderAdapter):
         return None
 
 
-async def _enable_auto_tagging(auth_client: AsyncClient) -> str:
+async def _enable_auto_tagging(
+    auth_client: AsyncClient,
+    db_session: AsyncSession,
+) -> str:
     provider = await auth_client.post(
         "/api/ai/providers",
         json={
@@ -75,6 +78,12 @@ async def _enable_auto_tagging(auth_client: AsyncClient) -> str:
     )
     assert provider.status_code == 201, provider.text
     provider_id = provider.json()["id"]
+
+    # Suggestion enqueue requires a successful health probe.
+    row = await db_session.get(AIProvider, uuid.UUID(provider_id))
+    assert row is not None
+    row.last_probe_status = "available"
+    await db_session.commit()
 
     policy = await auth_client.patch(
         "/api/ai/policy",
@@ -179,7 +188,7 @@ async def test_metadata_suggestion_soft_skips_on_ai_error(
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _enable_auto_tagging(auth_client)
+    await _enable_auto_tagging(auth_client, db_session)
     monkeypatch.setattr(
         "folium.workers.processor.get_adapter",
         lambda _provider, api_key=None: _FailingAdapter(),
