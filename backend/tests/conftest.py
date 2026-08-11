@@ -62,6 +62,7 @@ _TRUNCATE_TABLES = (
     "ai_settings",
     "ai_providers",
     "folders",
+    "library_activity_counters",
     "users",
     "app_settings",
 )

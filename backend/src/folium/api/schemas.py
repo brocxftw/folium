@@ -201,6 +201,11 @@ class TagOut(ORMModel):
     document_count: int = 0
 
 
+class TagMerge(BaseModel):
+    source_tag_id: UUID
+    target_tag_id: UUID
+
+
 class NamedEntityCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
@@ -824,6 +829,62 @@ class AboutOut(BaseModel):
     build_revision: str | None = None
     build_date: str | None = None
     project_links: dict[str, str]
+
+
+class LibraryActivityOut(BaseModel):
+    documents_ingested: int
+    bytes_ingested: int
+    pages_processed: int
+    successful_processing: int
+    ocr_pages: int
+    failed_documents: int
+    duplicates_rejected: int
+    purged_documents: int
+    reset_at: datetime
+    since_label: str
+
+
+class LibrarySnapshotOut(BaseModel):
+    current_documents: int
+    library_size_bytes: int
+    folders: int
+    tags: int
+    archived: int
+    unprocessed: int
+
+
+class LibraryFileTypeOut(BaseModel):
+    type: str
+    mime_type: str
+    documents: int
+    size_bytes: int
+    percentage: float
+    usage_percent: int
+    icon_colour: str
+
+
+class LibraryFileTypesOut(BaseModel):
+    items: list[LibraryFileTypeOut]
+    total_types: int
+    total_documents: int
+    total_bytes: int
+
+
+class LibraryHealthOut(BaseModel):
+    needs_processing: int
+    failed_documents: int
+    missing_text: int
+    unused_tags: int
+    duplicate_content: int
+    empty_folders: int
+
+
+class LibraryOverviewOut(BaseModel):
+    activity: LibraryActivityOut
+    snapshot: LibrarySnapshotOut
+    file_types: LibraryFileTypesOut
+    health: LibraryHealthOut
+    tags: list[TagOut]
 
 
 class MessageOut(BaseModel):

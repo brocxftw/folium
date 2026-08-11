@@ -20,6 +20,7 @@ import {
 import { ArtificialIntelligencePage } from "@/features/settings/ArtificialIntelligencePage";
 import { SystemPage } from "@/features/settings/SystemPage";
 import { LogsPage } from "@/features/settings/LogsPage";
+import { LibraryPage } from "@/features/settings/LibraryPage";
 import { AboutPage } from "@/features/settings/AboutPage";
 import { TrashPage } from "@/features/trash/TrashPage";
 import { NotFoundPage } from "@/features/not-found/NotFoundPage";
@@ -70,6 +71,7 @@ export default function App() {
               <Route path="profile" element={<ProfileSettingsPage />} />
               <Route path="profile/users" element={<UsersSettingsPage />} />
               <Route path="artificial-intelligence" element={<AdminSettingsGuard><ArtificialIntelligencePage /></AdminSettingsGuard>} />
+              <Route path="library" element={<LibraryPage />} />
               <Route path="system" element={<AdminSettingsGuard><SystemPage /></AdminSettingsGuard>} />
               <Route path="logs" element={<AdminSettingsGuard><LogsPage /></AdminSettingsGuard>} />
               <Route path="about" element={<AboutPage />} />

@@ -35,6 +35,7 @@ from folium.models import (
     Tag,
 )
 from folium.services import folders as folder_service
+from folium.services import library_stats
 from folium.services.jobs import enqueue_job
 from folium.services.quotas import assert_storage_quota
 from folium.storage.service import StorageService
@@ -243,6 +244,11 @@ async def ingest_bytes(
     existing = await find_by_checksum(session, checksum, owner_id)
     if existing is not None:
         if on_duplicate == "skip":
+            await library_stats.bump_counters(
+                session,
+                owner_id,
+                duplicates_rejected=1,
+            )
             return IngestResult(
                 status="duplicate",
                 existing_document_id=str(existing.id),
@@ -318,6 +324,12 @@ async def ingest_bytes(
         priority=priority + 10,
     )
     created = await get_document(session, doc.id, owner_id=owner_id)
+    await library_stats.bump_counters(
+        session,
+        owner_id,
+        documents_ingested=1,
+        bytes_ingested=len(data),
+    )
     return IngestResult(status="created", document=created, relative_path=rel)
 
 
@@ -449,6 +461,11 @@ async def permanently_delete(
     doc = await get_document(session, document_id, owner_id=owner_id)
     if not doc.is_trashed and not (allow_inbox and doc.inbox):
         raise ValidationError("Document must be in Trash before permanent deletion")
+    await library_stats.bump_counters(
+        session,
+        doc.owner_id,
+        purged_documents=1,
+    )
     storage_key = doc.storage_key
     thumb = doc.thumbnail_key
     preview = doc.preview_key

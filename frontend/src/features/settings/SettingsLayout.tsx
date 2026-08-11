@@ -8,6 +8,7 @@ import { UsersSettings } from "@/components/settings/UsersSettings";
 const SETTINGS_NAV = [
   { to: "/settings/profile", label: "Profile", adminOnly: false },
   { to: "/settings/artificial-intelligence", label: "Artificial Intelligence", adminOnly: true },
+  { to: "/settings/library", label: "Library", adminOnly: false },
   { to: "/settings/system", label: "System", adminOnly: true },
   { to: "/settings/logs", label: "Logs", adminOnly: true },
   { to: "/settings/about", label: "About", adminOnly: false },

@@ -55,6 +55,7 @@ from folium.search.fts import (
     refresh_page_search_vectors,
 )
 from folium.services import jobs as job_service
+from folium.services import library_stats
 from folium.services.chunking import PageInput, chunk_pages
 from folium.services.documents import invalidate_retrieval_artifacts
 from folium.services.embedding_capabilities import resolve_embedding_capabilities
@@ -114,16 +115,30 @@ async def mark_preflight_ready(
     doc = await _get_document(session, document_id)
     if doc.processing_status == ProcessingStatus.FAILED:
         return
+    was_ready = doc.processing_status == ProcessingStatus.READY
     doc.processing_status = ProcessingStatus.READY
     doc.processing_error = None
     await session.flush()
+    if not was_ready:
+        await library_stats.bump_counters(
+            session,
+            doc.owner_id,
+            successful_processing=1,
+        )
 
 
 async def mark_preflight_failed(session: AsyncSession, document_id: uuid.UUID, error: str) -> None:
     doc = await _get_document(session, document_id)
+    was_failed = doc.processing_status == ProcessingStatus.FAILED
     doc.processing_status = ProcessingStatus.FAILED
     doc.processing_error = error[:2000]
     await session.flush()
+    if not was_failed:
+        await library_stats.bump_counters(
+            session,
+            doc.owner_id,
+            failed_documents=1,
+        )
 
 
 def _has_usable_extracted_text(doc: Document) -> bool:
@@ -231,6 +246,7 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
     storage = StorageService()
     path = storage.open_original_path(doc.storage_key)
     settings = get_settings()
+    prior_page_count = doc.page_count or 0
 
     # PDFs: native text only here. OCR is a separate job so AI can wait on it.
     # Images still OCR inline (that is their only text source).
@@ -278,6 +294,15 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
     doc.processing_error = None
     await session.flush()
 
+    page_delta = max(0, (doc.page_count or 0) - prior_page_count)
+    counter_deltas: dict[str, int] = {}
+    if page_delta:
+        counter_deltas["pages_processed"] = page_delta
+    if not is_pdf and doc.ocr_completed and page_delta:
+        counter_deltas["ocr_pages"] = page_delta
+    if counter_deltas:
+        await library_stats.bump_counters(session, doc.owner_id, **counter_deltas)
+
     await refresh_page_search_vectors(session, doc.id)
     await refresh_document_search_vector(session, doc.id)
 
@@ -316,6 +341,7 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
     storage = StorageService()
     path = storage.open_original_path(doc.storage_key)
     settings = get_settings()
+    prior_page_count = doc.page_count or 0
 
     # PP-OCRv6 must stay on the dedicated OCR thread (Paddle is not pool-safe).
     loop = asyncio.get_running_loop()
@@ -351,7 +377,14 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
         doc.language = extracted.language
     elif not doc.language:
         doc.language = detect_language_hint(doc.extracted_text or "")
+    ocr_page_count = extracted.page_count or len(extracted.pages)
+    doc.page_count = ocr_page_count
     await session.flush()
+
+    counter_deltas: dict[str, int] = {"ocr_pages": ocr_page_count}
+    if prior_page_count == 0:
+        counter_deltas["pages_processed"] = ocr_page_count
+    await library_stats.bump_counters(session, doc.owner_id, **counter_deltas)
 
     await refresh_page_search_vectors(session, doc.id)
     await refresh_document_search_vector(session, doc.id)

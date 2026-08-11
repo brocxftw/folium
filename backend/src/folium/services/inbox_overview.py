@@ -15,6 +15,7 @@ from folium.services.documents import (
     compute_inbox_status,
     document_to_dict,
 )
+from folium.services import library_stats as library_stats_service
 
 ActivityStatus = Literal["queued", "processing", "processed", "needs_review", "failed"]
 ActivityTab = Literal["recent", "processed", "failed"]
@@ -50,18 +51,14 @@ async def get_overview_metrics(
     owner_id: uuid.UUID,
     range_days: RangeDays,
 ) -> dict:
-    start = range_start(int(range_days))
-    owner_ok = and_(Document.owner_id == owner_id, Document.is_trashed.is_(False))
-    in_window = Document.added_date >= start
-
-    total_ingested = (
-        await session.execute(select(func.count(Document.id)).where(owner_ok, in_window))
-    ).scalar_one()
+    _ = range_days  # retained for activity listing compatibility only
+    activity = await library_stats_service.get_activity(session, owner_id)
 
     processing = (
         await session.execute(
             select(func.count(Document.id)).where(
-                owner_ok,
+                Document.owner_id == owner_id,
+                Document.is_trashed.is_(False),
                 Document.inbox.is_(True),
                 Document.processing_status.in_(
                     [ProcessingStatus.PENDING, ProcessingStatus.PROCESSING]
@@ -70,27 +67,9 @@ async def get_overview_metrics(
         )
     ).scalar_one()
 
-    failed = (
-        await session.execute(
-            select(func.count(Document.id)).where(
-                owner_ok,
-                Document.inbox.is_(True),
-                Document.processing_status == ProcessingStatus.FAILED,
-                in_window,
-            )
-        )
-    ).scalar_one()
-
-    processed = (
-        await session.execute(
-            select(func.count(Document.id)).where(
-                owner_ok,
-                Document.inbox.is_(False),
-                in_window,
-            )
-        )
-    ).scalar_one()
-
+    processed = activity["successful_processing"]
+    failed = activity["failed_documents"]
+    total_ingested = activity["documents_ingested"]
     terminal = int(processed) + int(failed)
     success_rate = (int(processed) / terminal * 100.0) if terminal else None
 

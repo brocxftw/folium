@@ -150,6 +150,67 @@ export interface TagUpdate {
   color?: string;
 }
 
+export interface TagMerge {
+  source_tag_id: UUID;
+  target_tag_id: UUID;
+}
+
+export interface LibraryActivity {
+  documents_ingested: number;
+  bytes_ingested: number;
+  pages_processed: number;
+  successful_processing: number;
+  ocr_pages: number;
+  failed_documents: number;
+  duplicates_rejected: number;
+  purged_documents: number;
+  reset_at: string;
+  since_label: string;
+}
+
+export interface LibrarySnapshot {
+  current_documents: number;
+  library_size_bytes: number;
+  folders: number;
+  tags: number;
+  archived: number;
+  unprocessed: number;
+}
+
+export interface LibraryFileType {
+  type: string;
+  mime_type: string;
+  documents: number;
+  size_bytes: number;
+  percentage: number;
+  usage_percent: number;
+  icon_colour: string;
+}
+
+export interface LibraryFileTypes {
+  items: LibraryFileType[];
+  total_types: number;
+  total_documents: number;
+  total_bytes: number;
+}
+
+export interface LibraryHealth {
+  needs_processing: number;
+  failed_documents: number;
+  missing_text: number;
+  unused_tags: number;
+  duplicate_content: number;
+  empty_folders: number;
+}
+
+export interface LibraryOverview {
+  activity: LibraryActivity;
+  snapshot: LibrarySnapshot;
+  file_types: LibraryFileTypes;
+  health: LibraryHealth;
+  tags: Tag[];
+}
+
 export interface NamedEntity {
   id: UUID;
   name: string;

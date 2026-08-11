@@ -41,7 +41,7 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const [rangeDays, setRangeDays] = useState<DateRangeDays>(7);
+  const [rangeDays] = useState<DateRangeDays>(7);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [removeIds, setRemoveIds] = useState<string[] | null>(null);
   const [justProcessedIds, setJustProcessedIds] = useState<Set<string>>(new Set());
@@ -60,7 +60,7 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
     data: overview,
     isFetching: overviewFetching,
     refetch: refetchOverview,
-  } = useInboxOverview(rangeDays, {
+  } = useInboxOverview({
     refetchInterval: (query) => {
       const processing = query.state.data?.processing ?? 0;
       return processing > 0 ? 3000 : false;
@@ -141,11 +141,7 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
 
         <InboxIngestionHero uploader={uploader} onBrowse={() => goWork(true)} />
 
-        <InboxOverviewMetrics
-          metrics={metrics}
-          rangeDays={rangeDays}
-          onRangeDaysChange={setRangeDays}
-        />
+        <InboxOverviewMetrics metrics={metrics} />
 
         <InboxActivityPanel
           rangeDays={rangeDays}
