@@ -931,10 +931,11 @@ export function useAIUsage(range: "today" | "7d" | "30d" | "month" = "month") {
   });
 }
 
-export function useAIAssignments() {
+export function useAIAssignments(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.aiAssignments,
     queryFn: () => api.get<AIAssignment[]>("/api/ai/assignments"),
+    enabled: options?.enabled ?? true,
   });
 }
 

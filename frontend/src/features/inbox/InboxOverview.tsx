@@ -8,6 +8,7 @@ import {
   useRetryPreflight,
 } from "@/lib/api/hooks";
 import type { useDocumentUploader } from "@/lib/api/upload";
+import type { InboxActivityItem } from "@/lib/api/types";
 import { Button } from "@/components/ui/Button";
 import {
   Dialog,
@@ -17,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/Dialog";
+import { libraryStateToSearchParams } from "@/features/documents/useDocumentsLibraryState";
 import { InboxIngestionHero } from "./InboxIngestionHero";
 import { InboxOverviewMetrics } from "./InboxOverviewMetrics";
 import { InboxActivityPanel } from "./InboxActivityPanel";
@@ -83,6 +85,26 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
     navigate(withUpload ? "/inbox?view=work&upload=1" : "/inbox?view=work");
   };
 
+  const openActivityDocument = (doc: InboxActivityItem) => {
+    if (doc.activity_status === "processed") {
+      const params = libraryStateToSearchParams({
+        view: "all",
+        folderId: doc.folder_id || undefined,
+        q: "",
+        searchMode: "hybrid",
+        tagIds: [],
+        sort: "added_date",
+        order: "desc",
+        page: 1,
+        pageSize: 50,
+        docId: doc.id,
+      });
+      navigate(`/documents?${params.toString()}`);
+      return;
+    }
+    goWork(false);
+  };
+
   const refreshAll = () => {
     void refetchOverview();
     void queryClient.invalidateQueries({ queryKey: ["inbox-activity"] });
@@ -129,7 +151,7 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
           rangeDays={rangeDays}
           justProcessedIds={justProcessedIds}
           onPreview={setPreviewId}
-          onOpenWork={() => goWork(false)}
+          onOpenDocument={openActivityDocument}
           onRetry={(id) =>
             void retryPreflight.mutateAsync(id).then(() => {
               refreshAll();

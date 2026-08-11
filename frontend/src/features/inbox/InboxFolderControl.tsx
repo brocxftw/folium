@@ -14,13 +14,21 @@ import { folderDisplayLabel } from "./formatMeta";
 interface InboxFolderControlProps {
   document: Document;
   stopPropagation?: boolean;
+  /** Override the trigger label (defaults to the current folder path). */
+  triggerLabel?: string;
+  triggerClassName?: string;
 }
 
 function isAssignable(f: Folder): boolean {
   return f.kind === "normal";
 }
 
-export function InboxFolderControl({ document: doc, stopPropagation }: InboxFolderControlProps) {
+export function InboxFolderControl({
+  document: doc,
+  stopPropagation,
+  triggerLabel,
+  triggerClassName,
+}: InboxFolderControlProps) {
   const { data: folders = [] } = useFolders();
   const update = useUpdateDocumentMetadata();
   const [open, setOpen] = useState(false);
@@ -36,6 +44,7 @@ export function InboxFolderControl({ document: doc, stopPropagation }: InboxFold
 
   const label = folderDisplayLabel(doc);
   const isNew = Boolean(doc.pending_folder_path);
+  const buttonLabel = triggerLabel ?? label;
 
   const assignFolder = async (folderId: string) => {
     await update.mutateAsync({
@@ -70,15 +79,20 @@ export function InboxFolderControl({ document: doc, stopPropagation }: InboxFold
         <button
           type="button"
           className={cn(
-            "max-w-[180px] truncate rounded px-1.5 py-0.5 text-left text-xs hover:bg-surface-hover",
-            isNew ? "text-emerald-800 font-medium" : "text-text-primary",
-            label === "—" && "text-text-muted",
+            triggerLabel
+              ? "shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-[#087F78] hover:bg-[#DDF7F3]"
+              : cn(
+                  "max-w-[180px] truncate rounded px-1.5 py-0.5 text-left text-xs hover:bg-surface-hover",
+                  isNew ? "text-emerald-800 font-medium" : "text-text-primary",
+                  label === "—" && "text-text-muted",
+                ),
+            triggerClassName,
           )}
           onClick={(e) => {
             if (stopPropagation) e.stopPropagation();
           }}
         >
-          {label}
+          {buttonLabel}
         </button>
       </PopoverTrigger>
       <PopoverContent
