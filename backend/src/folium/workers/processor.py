@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.ai.assignments import resolve_assignment
 from folium.ai.base import AIProviderError, ChatMessage
+from folium.ai.busy import provider_chat_guard
 from folium.ai.privacy import PrivacyGate
 from folium.ai.registry import get_adapter
 from folium.ai.retry import is_transient_ai_error
@@ -556,12 +557,13 @@ async def process_summary(session: AsyncSession, job: Job) -> dict:
             f"{text[:12000]}"
         )
         started = time.perf_counter()
-        result = await adapter.chat(
-            [ChatMessage(role="user", content=prompt)],
-            model=indexing.model,
-            max_tokens=provider.max_output_tokens or 1024,
-            temperature=0.3,
-        )
+        async with provider_chat_guard(provider.id):
+            result = await adapter.chat(
+                [ChatMessage(role="user", content=prompt)],
+                model=indexing.model,
+                max_tokens=provider.max_output_tokens or 1024,
+                temperature=0.3,
+            )
         duration_ms = round((time.perf_counter() - started) * 1000)
         await adapter.aclose()
     except (PrivacyViolationError, ValidationError) as exc:
@@ -632,6 +634,23 @@ def _parse_suggestion_json(content: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _require_suggestion_json(content: str, *, finish_reason: str | None) -> dict:
+    """Parse model output or raise a retryable provider error."""
+    data = _parse_suggestion_json(content)
+    if data:
+        return data
+    raise AIProviderError(
+        "Metadata suggestion response was truncated or not valid JSON "
+        f"(finish_reason={finish_reason or 'unknown'}, content_len={len(content or '')}). "
+        "Try again."
+    )
+
+
+# Filing JSON is small; cap output so runaway generations fail fast instead of
+# producing ~6k tokens of prose that truncates before valid JSON.
+_METADATA_SUGGESTION_MAX_TOKENS = 2048
+
+
 def _coerce_confidence(value: object) -> float | None:
     """Normalize a model confidence to [0, 1], or None if missing/invalid."""
     if value is None or isinstance(value, bool):
@@ -655,12 +674,29 @@ def _coerce_confidence(value: object) -> float | None:
     return round(score, 4)
 
 
+def _overall_confidence(data: dict) -> float | None:
+    """Average numeric scores from a confidence object or scalar."""
+    block = data.get("confidence")
+    if isinstance(block, dict):
+        values = [_coerce_confidence(v) for v in block.values()]
+        nums = [v for v in values if v is not None]
+        if nums:
+            return round(sum(nums) / len(nums), 4)
+        return None
+    return _coerce_confidence(block)
+
+
 def _field_confidence(data: dict, field: str) -> float | None:
     block = data.get("confidence")
     if isinstance(block, dict):
-        return _coerce_confidence(block.get(field))
+        specific = _coerce_confidence(block.get(field))
+        if specific is not None:
+            return specific
     if field == "overall":
-        return _coerce_confidence(data.get("confidence"))
+        return _overall_confidence(data)
+    overall = _overall_confidence(data)
+    if overall is not None:
+        return overall
     return None
 
 
@@ -819,16 +855,19 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
 
         adapter = get_adapter(provider)
         # Thinking models (e.g. Qwen3) spend large budgets on reasoning_content
-        # before emitting the final JSON in content. Too-low max_tokens truncates
-        # mid-thought with empty content → zero suggestions.
-        max_tokens = max(provider.max_output_tokens or 0, 48_000)
+        # before emitting the final JSON in content. Cap output so truncation
+        # fails fast and retries instead of silently producing zero suggestions.
+        max_tokens = _METADATA_SUGGESTION_MAX_TOKENS
+        if provider.max_output_tokens is not None:
+            max_tokens = min(max_tokens, provider.max_output_tokens)
         started = time.perf_counter()
-        result = await adapter.chat(
-            [ChatMessage(role="user", content=prompt)],
-            model=indexing.model,
-            max_tokens=max_tokens,
-            temperature=0.2,
-        )
+        async with provider_chat_guard(provider.id):
+            result = await adapter.chat(
+                [ChatMessage(role="user", content=prompt)],
+                model=indexing.model,
+                max_tokens=max_tokens,
+                temperature=0.2,
+            )
         duration_ms = round((time.perf_counter() - started) * 1000)
         await adapter.aclose()
     except (PrivacyViolationError, ValidationError) as exc:
@@ -854,17 +893,10 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         await mark_preflight_ready(session, doc.id, exclude_job_id=job.id)
         return {"skipped": True, "reason": "ai_unavailable", "detail": str(exc)[:200]}
 
-    data = _parse_suggestion_json(result.content)
-    if not data:
-        logger.warning(
-            "metadata_suggestion JSON parse empty for doc=%s finish=%s content_len=%s",
-            doc.id,
-            result.finish_reason,
-            len(result.content or ""),
-        )
+    data = _require_suggestion_json(result.content, finish_reason=result.finish_reason)
     created = 0
 
-    # Clear prior pending suggestions for this document
+    # Replace prior pending suggestions only after we have valid JSON to apply.
     await session.execute(
         delete(AISuggestion).where(
             AISuggestion.document_id == doc.id,
@@ -878,6 +910,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         "document_type": _field_confidence(data, "document_type"),
         "correspondent": _field_confidence(data, "correspondent"),
     }
+    overall_confidence = _overall_confidence(data)
 
     folder_path = data.get("folder_path")
     if isinstance(folder_path, str):
@@ -1001,7 +1034,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
                 status=SuggestionStatus.PENDING,
                 provider=provider.name,
                 model=result.model,
-                confidence=tag_conf,
+                confidence=tag_conf if tag_conf is not None else overall_confidence,
             )
         )
         created += 1

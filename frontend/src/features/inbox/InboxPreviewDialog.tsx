@@ -3,6 +3,7 @@ import {
   useDocument,
   useDocumentContent,
   useDocumentSuggestions,
+  useJobs,
 } from "@/lib/api/hooks";
 import { DocumentViewer } from "@/components/viewer/DocumentViewer";
 import { Button } from "@/components/ui/Button";
@@ -32,6 +33,7 @@ export function InboxPreviewDialog({
   const open = Boolean(activeId);
   const index = activeId ? documentIds.indexOf(activeId) : -1;
   const { data: doc } = useDocument(activeId ?? undefined);
+  const { data: docJobs = [] } = useJobs(undefined, activeId ?? undefined);
   const { data: suggestions = [] } = useDocumentSuggestions(doc?.id);
   const { data: content, isLoading: contentLoading } = useDocumentContent(doc?.id);
 
@@ -109,6 +111,8 @@ export function InboxPreviewDialog({
                   <InboxStatusBadge
                     status={doc.inbox_status}
                     error={doc.processing_error}
+                    document={doc}
+                    jobs={docJobs}
                   />
                   {doc.processing_error && (
                     <p className="mt-2 text-xs text-danger">{doc.processing_error}</p>

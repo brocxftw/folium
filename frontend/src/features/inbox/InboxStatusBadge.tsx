@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { InboxStatus } from "@/lib/api/types";
+import type { Document, InboxStatus, Job } from "@/lib/api/types";
+import { InboxProcessingStatusBadge } from "./InboxProcessingStatusBadge";
 import {
   Tooltip,
   TooltipContent,
@@ -25,10 +26,22 @@ interface InboxStatusBadgeProps {
   status: InboxStatus | null | undefined;
   error?: string | null;
   className?: string;
+  document?: Document;
+  jobs?: Job[];
 }
 
-export function InboxStatusBadge({ status, error, className }: InboxStatusBadgeProps) {
+export function InboxStatusBadge({
+  status,
+  error,
+  className,
+  document,
+  jobs,
+}: InboxStatusBadgeProps) {
   if (!status) return <span className="text-xs text-text-muted">—</span>;
+
+  if (document) {
+    return <InboxProcessingStatusBadge document={document} jobs={jobs} className={className} />;
+  }
 
   const badge = (
     <span

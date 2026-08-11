@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Folder } from "lucide-react";
+import { Folder, RefreshCw } from "lucide-react";
 import type { Document } from "@/lib/api/types";
 import {
   useProcessInboxDocuments,
@@ -14,6 +14,10 @@ import { folderDisplayLabel } from "./formatMeta";
 
 interface InboxManualFilingPanelProps {
   document: Document;
+  /** When AI suggestions failed, show retry affordance above manual fields. */
+  aiRetryAvailable?: boolean;
+  onRetrySuggestions?: () => void;
+  retrySuggestionsBusy?: boolean;
 }
 
 function hasFilingDestination(doc: Document): boolean {
@@ -36,7 +40,12 @@ function formFromDoc(doc: Document) {
   };
 }
 
-export function InboxManualFilingPanel({ document: doc }: InboxManualFilingPanelProps) {
+export function InboxManualFilingPanel({
+  document: doc,
+  aiRetryAvailable = false,
+  onRetrySuggestions,
+  retrySuggestionsBusy = false,
+}: InboxManualFilingPanelProps) {
   const update = useUpdateDocumentMetadata();
   const processDocs = useProcessInboxDocuments();
   const [title, setTitle] = useState(() => formFromDoc(doc).title);
@@ -110,6 +119,29 @@ export function InboxManualFilingPanel({ document: doc }: InboxManualFilingPanel
           Manual mode
         </span>
       </div>
+
+      {aiRetryAvailable && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+          <p className="text-sm text-amber-950">
+            AI suggestions are unavailable. File manually below, or retry AI suggestions.
+          </p>
+          {onRetrySuggestions && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2 h-8 border-amber-300 bg-white text-amber-950 hover:bg-amber-100"
+              disabled={retrySuggestionsBusy}
+              onClick={onRetrySuggestions}
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${retrySuggestionsBusy ? "animate-spin" : ""}`}
+              />
+              Retry AI suggestions
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="mt-[18px] space-y-4">
         <div>

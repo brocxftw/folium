@@ -12,6 +12,7 @@ from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.ai.assignments import ResolvedAssignment, ensure_assignments, resolve_assignment
+from folium.ai.busy import is_provider_busy
 from folium.ai.registry import get_adapter
 from folium.bootstrap import ensure_ai_settings
 from folium.core.config import get_settings
@@ -196,6 +197,13 @@ async def _list_assigned_provider_ids(session: AsyncSession) -> list[uuid.UUID]:
 
 async def probe_provider(provider: AIProvider) -> None:
     """Run a cheap connection probe and persist last_probe_* on the provider."""
+    if is_provider_busy(provider.id):
+        logger.debug(
+            "Skipping health probe; provider has in-flight chat provider=%s",
+            provider.name,
+        )
+        return
+
     adapter = get_adapter(provider, timeout=HEALTH_PROBE_TIMEOUT_SECONDS)
     started = time.perf_counter()
     tested_at = datetime.now(UTC)

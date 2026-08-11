@@ -11,9 +11,11 @@ import {
 import {
   useAIHealth,
   useDocuments,
+  useJobs,
   usePendingSuggestions,
   useProcessInboxDocuments,
   useRemoveFromQueue,
+  useReprocessSuggestions,
   useRetryPreflight,
 } from "@/lib/api/hooks";
 import type { Document, InboxStatus, Suggestion } from "@/lib/api/types";
@@ -42,6 +44,7 @@ import { InboxReviewCard } from "./InboxReviewCard";
 import { InboxRejectedCard } from "./InboxRejectedCard";
 import { InboxToast } from "./InboxToast";
 import { acceptAllSuggestions } from "./acceptAllSuggestions";
+import { suggestionJobStatusForDoc } from "./suggestionJobStatus";
 import type { SessionRejection } from "./sessionRejections";
 
 type StatusTab = "all" | InboxStatus;
@@ -156,10 +159,12 @@ export function InboxWorkView({
     aiHealth?.auto_tagging && aiHealth.indexing.status === "available",
   );
   const { data: pendingSuggestions = [] } = usePendingSuggestions(aiSuggestionsAvailable);
+  const { data: inboxJobs = [] } = useJobs(undefined, undefined);
 
   const processDocs = useProcessInboxDocuments();
   const removeFromQueue = useRemoveFromQueue();
   const retryPreflight = useRetryPreflight();
+  const reprocessSuggestions = useReprocessSuggestions();
 
   const documents = docList?.items ?? [];
   const documentIds = documents.map((d) => d.id);
@@ -547,15 +552,29 @@ export function InboxWorkView({
                     onDismiss={onDismissRejection}
                   />
                 ))}
-              {documents.map((doc) => (
+              {documents.map((doc) => {
+                const docSuggestions = suggestionsByDoc[doc.id] ?? [];
+                return (
                 <InboxReviewCard
                   key={doc.id}
                   document={doc}
-                  suggestions={suggestionsByDoc[doc.id] ?? []}
+                  suggestions={docSuggestions}
                   selected={selectedIds.has(doc.id)}
                   expanded={allDocsSettled && (expandedIds?.has(doc.id) ?? false)}
                   reviewReady={allDocsSettled}
                   aiSuggestionsAvailable={aiSuggestionsAvailable}
+                  suggestionJobStatus={suggestionJobStatusForDoc(
+                    inboxJobs,
+                    doc.id,
+                    docSuggestions.length,
+                  )}
+                  onRetrySuggestions={
+                    aiSuggestionsAvailable
+                      ? () => void reprocessSuggestions.mutateAsync(doc.id)
+                      : undefined
+                  }
+                  retrySuggestionsBusy={reprocessSuggestions.isPending}
+                  jobs={inboxJobs}
                   onToggleExpand={() => toggleExpand(doc.id)}
                   onSelect={(checked) => {
                     setSelectedIds((prev) => {
@@ -577,7 +596,8 @@ export function InboxWorkView({
                       : undefined
                   }
                 />
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
