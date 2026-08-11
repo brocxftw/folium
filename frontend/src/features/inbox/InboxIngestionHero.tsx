@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { CloudUpload, Lock } from "lucide-react";
+import { CloudUpload, Lightbulb, Lock } from "lucide-react";
 import type { useDocumentUploader } from "@/lib/api/upload";
 import type { UploadEntry } from "@/lib/uploadTree";
 import { cn } from "@/lib/utils";
@@ -7,6 +7,13 @@ import { Button } from "@/components/ui/Button";
 import { UploadDropzone } from "@/components/documents/UploadDropzone";
 
 type DocumentUploader = ReturnType<typeof useDocumentUploader>;
+
+const TIPS = [
+  "Upload clear, legible documents for best results.",
+  "PDFs with selectable text are typically processed faster.",
+  "Large batches may remain queued while processing capacity is busy.",
+  "Processing progress can be monitored from this workspace.",
+];
 
 interface InboxIngestionHeroProps {
   uploader: DocumentUploader;
@@ -23,7 +30,7 @@ export function InboxIngestionHero({ uploader, onBrowse }: InboxIngestionHeroPro
   };
 
   return (
-    <div className="mt-5">
+    <div className="mt-5 space-y-4">
       <UploadDropzone
         onEntries={(entries) => void handleEntries(entries)}
         disabled={uploader.busy}
@@ -71,6 +78,21 @@ export function InboxIngestionHero({ uploader, onBrowse }: InboxIngestionHeroPro
           </p>
         </div>
       </UploadDropzone>
+
+      <div className="rounded-[10px] border border-[#DCE3E8] bg-white p-[18px]">
+        <div className="flex items-center gap-2">
+          <Lightbulb className="h-4 w-4 text-[#07998E]" strokeWidth={1.75} />
+          <h3 className="text-[13px] font-semibold text-[#14212B]">Ingestion tips</h3>
+        </div>
+        <ul className="mt-3 space-y-3">
+          {TIPS.map((tip) => (
+            <li key={tip} className="flex gap-2 text-xs leading-relaxed text-[#42515D]">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#13B8AA]" />
+              <span>{tip}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
