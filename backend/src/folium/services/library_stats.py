@@ -259,12 +259,28 @@ async def get_health(session: AsyncSession, owner_id: uuid.UUID) -> dict[str, in
             )
         )
     ).scalar_one()
+    empty_folders = (
+        await session.execute(
+            select(func.count(Folder.id)).where(
+                Folder.owner_id == owner_id,
+                Folder.kind == FolderKind.NORMAL,
+                ~select(Document.id)
+                .where(
+                    Document.folder_id == Folder.id,
+                    Document.owner_id == owner_id,
+                    Document.is_trashed.is_(False),
+                )
+                .exists(),
+            )
+        )
+    ).scalar_one()
     return {
         "needs_processing": int(needs_processing),
         "failed_documents": int(failed),
         "missing_text": int(missing_text),
         "unused_tags": int(unused_tags),
         "duplicate_content": int(activity["duplicates_rejected"]),
+        "empty_folders": int(empty_folders),
     }
 
 

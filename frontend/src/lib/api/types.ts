@@ -200,6 +200,7 @@ export interface LibraryHealth {
   missing_text: number;
   unused_tags: number;
   duplicate_content: number;
+  empty_folders: number;
 }
 
 export interface LibraryOverview {

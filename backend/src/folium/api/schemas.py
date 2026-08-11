@@ -876,6 +876,7 @@ class LibraryHealthOut(BaseModel):
     missing_text: int
     unused_tags: int
     duplicate_content: int
+    empty_folders: int
 
 
 class LibraryOverviewOut(BaseModel):
