@@ -36,6 +36,7 @@ import type {
   InboxActivityParams,
   InboxOverviewMetrics,
   Job,
+  LibraryOverview,
   LoginRequest,
   Message,
   NamedEntity,
@@ -53,6 +54,7 @@ import type {
   Suggestion,
   Tag,
   TagCreate,
+  TagMerge,
   TagUpdate,
   TestConnectionResult,
   User,
@@ -90,8 +92,9 @@ export const queryKeys = {
     ["ai", "suggestions", documentId ?? "all"] as const,
   storageHealth: ["storage", "health"] as const,
   health: ["health"] as const,
-  inboxOverview: (rangeDays: number) => ["inbox-overview", rangeDays] as const,
+  inboxOverview: ["inbox-overview"] as const,
   inboxActivity: (params: InboxActivityParams) => ["inbox-activity", params] as const,
+  libraryOverview: ["library-overview"] as const,
 };
 
 // ---- Auth ----
@@ -481,7 +484,10 @@ export function useCreateTag() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: TagCreate) => api.post<Tag>("/api/tags", data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.tags }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tags });
+      qc.invalidateQueries({ queryKey: queryKeys.libraryOverview });
+    },
   });
 }
 
@@ -490,7 +496,10 @@ export function useUpdateTag() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: TagUpdate }) =>
       api.patch<Tag>(`/api/tags/${id}`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.tags }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tags });
+      qc.invalidateQueries({ queryKey: queryKeys.libraryOverview });
+    },
   });
 }
 
@@ -498,7 +507,21 @@ export function useDeleteTag() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/api/tags/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.tags }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tags });
+      qc.invalidateQueries({ queryKey: queryKeys.libraryOverview });
+    },
+  });
+}
+
+export function useMergeTags() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: TagMerge) => api.post<Tag>("/api/tags/merge", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tags });
+      qc.invalidateQueries({ queryKey: queryKeys.libraryOverview });
+    },
   });
 }
 
@@ -569,13 +592,11 @@ export function useDocuments(
 }
 
 export function useInboxOverview(
-  rangeDays: 7 | 30,
   options?: Pick<UseQueryOptions<InboxOverviewMetrics, Error>, "refetchInterval" | "enabled">,
 ) {
   return useQuery({
-    queryKey: queryKeys.inboxOverview(rangeDays),
-    queryFn: () =>
-      api.get<InboxOverviewMetrics>("/api/inbox/overview", { range_days: rangeDays }),
+    queryKey: queryKeys.inboxOverview,
+    queryFn: () => api.get<InboxOverviewMetrics>("/api/inbox/overview"),
     ...options,
   });
 }
@@ -599,6 +620,24 @@ export function useInboxActivity(
       return api.get<InboxActivityList>("/api/inbox/activity", q);
     },
     ...options,
+  });
+}
+
+export function useLibraryOverview() {
+  return useQuery({
+    queryKey: queryKeys.libraryOverview,
+    queryFn: () => api.get<LibraryOverview>("/api/library/overview"),
+  });
+}
+
+export function useResetLibraryStatistics() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<LibraryOverview["activity"]>("/api/library/reset-statistics"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.libraryOverview });
+      qc.invalidateQueries({ queryKey: queryKeys.inboxOverview });
+    },
   });
 }
 

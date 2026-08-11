@@ -14,6 +14,7 @@ from folium.api import (
     health,
     inbox,
     jobs,
+    library,
     logs,
     search,
     system,
@@ -30,6 +31,7 @@ api_router.include_router(folders.router)
 api_router.include_router(tags.router)
 api_router.include_router(documents.router)
 api_router.include_router(inbox.router)
+api_router.include_router(library.router)
 api_router.include_router(trash.router)
 api_router.include_router(search.router)
 api_router.include_router(ask.router)

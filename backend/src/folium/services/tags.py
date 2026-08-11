@@ -96,6 +96,57 @@ async def delete_tag(session: AsyncSession, tag_id: uuid.UUID, *, owner_id: uuid
     await session.delete(tag)
 
 
+async def merge_tags(
+    session: AsyncSession,
+    *,
+    source_tag_id: uuid.UUID,
+    target_tag_id: uuid.UUID,
+    owner_id: uuid.UUID,
+) -> tuple[Tag, int]:
+    if source_tag_id == target_tag_id:
+        raise ValidationError("Cannot merge a tag into itself")
+    source = await session.get(Tag, source_tag_id)
+    target = await session.get(Tag, target_tag_id)
+    if source is None or source.owner_id != owner_id:
+        raise NotFoundError("Source tag not found")
+    if target is None or target.owner_id != owner_id:
+        raise NotFoundError("Target tag not found")
+
+    links = (
+        await session.execute(select(DocumentTag).where(DocumentTag.tag_id == source_tag_id))
+    ).scalars()
+    for link in links:
+        conflict = (
+            await session.execute(
+                select(DocumentTag).where(
+                    DocumentTag.document_id == link.document_id,
+                    DocumentTag.tag_id == target_tag_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if conflict is not None:
+            await session.delete(link)
+        else:
+            link.tag_id = target_tag_id
+
+    await session.delete(source)
+    await session.flush()
+
+    count = (
+        await session.execute(
+            select(func.count(Document.id))
+            .select_from(DocumentTag)
+            .join(Document, Document.id == DocumentTag.document_id)
+            .where(
+                DocumentTag.tag_id == target_tag_id,
+                Document.owner_id == owner_id,
+                Document.is_trashed.is_(False),
+            )
+        )
+    ).scalar_one()
+    return target, int(count)
+
+
 async def create_document_type(
     session: AsyncSession, name: str, owner_id: uuid.UUID
 ) -> DocumentType:

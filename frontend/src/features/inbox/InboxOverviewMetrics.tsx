@@ -5,20 +5,11 @@ import {
   Rocket,
   Sparkles,
 } from "lucide-react";
-import type { OverviewMetrics, DateRangeDays } from "./inboxPresentation";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/Select";
+import type { OverviewMetrics } from "./inboxPresentation";
 import { cn } from "@/lib/utils";
 
 interface InboxOverviewMetricsProps {
   metrics: OverviewMetrics;
-  rangeDays: DateRangeDays;
-  onRangeDaysChange: (days: DateRangeDays) => void;
 }
 
 const CARDS: {
@@ -71,27 +62,12 @@ const CARDS: {
   },
 ];
 
-export function InboxOverviewMetrics({
-  metrics,
-  rangeDays,
-  onRangeDaysChange,
-}: InboxOverviewMetricsProps) {
+export function InboxOverviewMetrics({ metrics }: InboxOverviewMetricsProps) {
   return (
     <section className="mt-5">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-base font-bold text-[#14212B]">Overview</h2>
-        <Select
-          value={String(rangeDays)}
-          onValueChange={(v) => onRangeDaysChange(Number(v) as DateRangeDays)}
-        >
-          <SelectTrigger className="h-[30px] w-[140px] border-[#DCE3E8] bg-white text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-          </SelectContent>
-        </Select>
+        <p className="text-[11px] text-[#64748B]">Historical counters since last reset</p>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">

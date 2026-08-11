@@ -737,6 +737,31 @@ class AppSetting(Base, TimestampMixin):
     value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
 
 
+class LibraryActivityCounters(Base, TimestampMixin):
+    """Increment-only owner activity counters since last reset."""
+
+    __tablename__ = "library_activity_counters"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    documents_ingested: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    bytes_ingested: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    pages_processed: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    successful_processing: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    ocr_pages: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    failed_documents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    duplicates_rejected: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    purged_documents: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    reset_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 class ApplicationLog(Base):
     __tablename__ = "application_logs"
     __table_args__ = (

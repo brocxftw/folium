@@ -13,6 +13,7 @@ from folium.api.schemas import (
     NamedEntityCreate,
     NamedEntityOut,
     TagCreate,
+    TagMerge,
     TagOut,
     TagUpdate,
 )
@@ -101,6 +102,28 @@ async def delete_tag(
 ) -> MessageOut:
     await tag_service.delete_tag(db, tag_id, owner_id=_user.id)
     return MessageOut(message="Tag deleted")
+
+
+@router.post("/api/tags/merge", response_model=TagOut)
+async def merge_tags(
+    body: TagMerge,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TagOut:
+    target, count = await tag_service.merge_tags(
+        db,
+        source_tag_id=body.source_tag_id,
+        target_tag_id=body.target_tag_id,
+        owner_id=_user.id,
+    )
+    return TagOut(
+        id=target.id,
+        name=target.name,
+        color=target.color,
+        slug=target.slug,
+        document_count=count,
+    )
 
 
 # ---- Document types ----

@@ -50,20 +50,28 @@ describe("Settings workspace navigation", () => {
     );
   }
 
-  it("shows exactly five top-level entries to administrators", () => {
+  it("shows exactly six top-level entries to administrators", () => {
     renderLayout();
     const navigation = screen.getByRole("navigation", { name: "Settings sections" });
-    expect(within(navigation).getAllByRole("link")).toHaveLength(5);
-    for (const label of ["Profile", "Artificial Intelligence", "System", "Logs", "About"]) {
+    expect(within(navigation).getAllByRole("link")).toHaveLength(6);
+    for (const label of [
+      "Profile",
+      "Artificial Intelligence",
+      "Library",
+      "System",
+      "Logs",
+      "About",
+    ]) {
       expect(within(navigation).getByRole("link", { name: label })).toBeInTheDocument();
     }
   });
 
-  it("shows only Profile and About to non-admin users", () => {
+  it("shows Profile, Library, and About to non-admin users", () => {
     mockIsAdmin = false;
     renderLayout();
     const navigation = screen.getByRole("navigation", { name: "Settings sections" });
-    expect(within(navigation).getAllByRole("link")).toHaveLength(2);
+    expect(within(navigation).getAllByRole("link")).toHaveLength(3);
+    expect(within(navigation).getByRole("link", { name: "Library" })).toBeInTheDocument();
     expect(within(navigation).queryByText("System")).not.toBeInTheDocument();
   });
 });
