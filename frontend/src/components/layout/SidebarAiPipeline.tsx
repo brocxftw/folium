@@ -1,13 +1,8 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lightbulb } from "lucide-react";
-import {
-  useAIAssignments,
-  useAICapabilities,
-  useJobs,
-  useSession,
-} from "@/lib/api/hooks";
-import type { AIAssignment, AIWorkloadRole } from "@/lib/api/types";
+import { useAIHealth, useJobs, useSession } from "@/lib/api/hooks";
+import type { AICapabilityHealth, AICapabilityStatus } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -22,10 +17,13 @@ const TIPS = [
   "Processing progress can be monitored from this workspace.",
 ];
 
-const PIPELINE_ROWS: { role: AIWorkloadRole; label: string }[] = [
-  { role: "indexing", label: "Indexing" },
-  { role: "embedding", label: "Embedding" },
-  { role: "chat", label: "Chat" },
+type PipelineKey = "ocr" | "indexing" | "embedding" | "chat";
+
+const PIPELINE_ROWS: { key: PipelineKey; label: string }[] = [
+  { key: "ocr", label: "OCR" },
+  { key: "indexing", label: "Indexing" },
+  { key: "embedding", label: "Embedding" },
+  { key: "chat", label: "Chat" },
 ];
 
 /** Background jobs that mean the AI / ingest pipeline is actively working. */
@@ -37,30 +35,40 @@ const AI_ACTIVE_JOB_TYPES = new Set([
   "summary",
 ]);
 
-function assignmentReady(a: AIAssignment | undefined): boolean {
-  return Boolean(a && a.status === "configured" && a.model);
+function capabilityReady(status: AICapabilityStatus | undefined): boolean {
+  return status === "available";
+}
+
+function capabilityLabel(cap: AICapabilityHealth | undefined): string {
+  if (!cap) return "Checking…";
+  if (cap.status === "not_configured") return "Not configured";
+  if (cap.status === "checking") return "Checking…";
+  if (cap.status === "unavailable") return cap.error?.trim() || "Unavailable";
+  return cap.model?.trim() || cap.provider || "Available";
 }
 
 function StatusDot({
   working,
   ready,
+  checking,
   label,
 }: {
   working: boolean;
   ready: boolean;
+  checking?: boolean;
   label: string;
 }) {
   return (
     <span
       className={cn(
         "h-1.5 w-1.5 shrink-0 rounded-full",
-        working
+        working || checking
           ? "animate-pulse bg-amber-400"
           : ready
             ? "bg-emerald-400"
             : "bg-sidebar-muted",
       )}
-      title={working ? "Working" : ready ? "Ready" : label}
+      title={working ? "Working" : checking ? "Checking" : ready ? "Ready" : label}
     />
   );
 }
@@ -104,24 +112,19 @@ export function SidebarAiPipeline() {
   const navigate = useNavigate();
   const { data: session } = useSession();
   const isAdmin = Boolean(session?.user.is_admin);
-  const { data: aiPolicy } = useAICapabilities();
-  const { data: assignments = [] } = useAIAssignments({ enabled: isAdmin });
+  const { data: aiHealth } = useAIHealth();
   const { data: runningJobs = [] } = useJobs("running");
   const { data: queuedJobs = [] } = useJobs("queued");
 
-  const byRole = useMemo(() => {
-    const map = new Map<AIWorkloadRole, AIAssignment>();
-    for (const row of assignments) map.set(row.role, row);
-    return map;
-  }, [assignments]);
-
-  const pipelineRows = PIPELINE_ROWS.map(({ role, label }) => {
-    const row = byRole.get(role);
+  const pipelineRows = PIPELINE_ROWS.map(({ key, label }) => {
+    const cap = aiHealth?.[key];
     return {
-      role,
+      key,
       label,
-      model: row?.model?.trim() || "Not configured",
-      ready: assignmentReady(row),
+      detail: capabilityLabel(cap),
+      ready: capabilityReady(cap?.status),
+      checking: cap?.status === "checking",
+      notConfigured: cap?.status === "not_configured",
     };
   });
 
@@ -134,18 +137,23 @@ export function SidebarAiPipeline() {
     const jobs = [...runningJobs, ...queuedJobs];
     const types = new Set(jobs.map((j) => j.job_type));
     return {
+      ocr: types.has("ocr"),
       indexing:
         types.has("metadata_suggestion") ||
         types.has("summary") ||
         types.has("indexing"),
       embedding: types.has("embedding"),
       chat: false,
-      ocr: types.has("ocr"),
     };
   }, [runningJobs, queuedJobs]);
 
-  const aiReady = Boolean(aiPolicy?.auto_tagging && aiPolicy.chat_available);
-  const allReady = isAdmin ? pipelineRows.every((r) => r.ready) : aiReady;
+  const suggestionsReady = Boolean(
+    aiHealth?.auto_tagging && aiHealth.indexing.status === "available",
+  );
+  const configuredRows = pipelineRows.filter((r) => !r.notConfigured);
+  const anyAvailable = configuredRows.some((r) => r.ready);
+  const allConfiguredReady =
+    configuredRows.length > 0 && configuredRows.every((r) => r.ready);
   const settingsPath = isAdmin
     ? "/settings/artificial-intelligence"
     : "/settings/about";
@@ -167,55 +175,51 @@ export function SidebarAiPipeline() {
                 </span>
                 <StatusPill
                   working={aiWorking}
-                  ready={allReady}
-                  partial={aiReady && !allReady}
+                  ready={allConfiguredReady}
+                  partial={anyAvailable && !allConfiguredReady}
                 />
                 <Lightbulb className="ml-auto h-3 w-3 shrink-0 text-sidebar-muted" strokeWidth={1.75} />
               </div>
             </div>
 
-            {isAdmin ? (
-              <ul className="mt-0.5 space-y-0.5 px-1 pb-1">
-                {pipelineRows.map((row) => {
-                  const working =
-                    row.role === "indexing"
-                      ? roleWorking.indexing || roleWorking.ocr
-                      : row.role === "embedding"
-                        ? roleWorking.embedding
-                        : roleWorking.chat;
-                  return (
-                    <li
-                      key={row.role}
-                      className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-snug"
+            <ul className="mt-0.5 space-y-0.5 px-1 pb-1">
+              {pipelineRows.map((row) => {
+                const working = roleWorking[row.key];
+                return (
+                  <li
+                    key={row.key}
+                    className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[11px] leading-snug"
+                  >
+                    <StatusDot
+                      working={working}
+                      ready={row.ready}
+                      checking={row.checking}
+                      label={row.detail}
+                    />
+                    <span className="w-[58px] shrink-0 font-medium text-sidebar-text">
+                      {row.label}
+                    </span>
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate",
+                        row.ready ? "text-sidebar-text/90" : "text-sidebar-muted",
+                      )}
+                      title={row.detail}
                     >
-                      <StatusDot
-                        working={working}
-                        ready={row.ready}
-                        label="Not configured"
-                      />
-                      <span className="w-[58px] shrink-0 font-medium text-sidebar-text">
-                        {row.label}
-                      </span>
-                      <span
-                        className={cn(
-                          "min-w-0 flex-1 truncate",
-                          row.ready ? "text-sidebar-text/90" : "text-sidebar-muted",
-                        )}
-                        title={row.model}
-                      >
-                        {row.model}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
+                      {row.detail}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {!isAdmin && (
               <p className="mt-0.5 px-2 pb-1 text-[11px] leading-snug text-sidebar-muted">
                 {aiWorking
                   ? "AI is processing documents…"
-                  : aiReady
+                  : suggestionsReady
                     ? "AI suggestions are available."
-                    : "AI suggestions unavailable."}
+                    : "AI suggestions unavailable — manual filing still works."}
               </p>
             )}
           </button>

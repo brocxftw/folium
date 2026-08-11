@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
 import { InboxStatusBadge } from "./InboxStatusBadge";
 import { InboxAiSuggestionPanel } from "./InboxAiSuggestionPanel";
+import { InboxManualFilingPanel } from "./InboxManualFilingPanel";
 import { documentSecondaryMeta } from "./formatMeta";
 
 function FileIcon({ doc }: { doc: Document }) {
@@ -44,6 +45,8 @@ interface InboxReviewCardProps {
   expanded: boolean;
   /** AI suggestion panel is available only after every inbox file has finished preparing. */
   reviewReady?: boolean;
+  /** When false, expanded review shows Manual filing instead of AI Suggestions. */
+  aiSuggestionsAvailable?: boolean;
   acceptSuggestionsBusy?: boolean;
   onToggleExpand: () => void;
   onSelect: (selected: boolean) => void;
@@ -59,6 +62,7 @@ export function InboxReviewCard({
   selected,
   expanded,
   reviewReady = true,
+  aiSuggestionsAvailable = false,
   acceptSuggestionsBusy = false,
   onToggleExpand,
   onSelect,
@@ -70,7 +74,7 @@ export function InboxReviewCard({
   const status = doc.inbox_status;
   const [hover, setHover] = useState(false);
   const pendingCount = suggestions.length;
-  const showSuggestions = reviewReady && expanded;
+  const showReviewPanel = reviewReady && expanded;
 
   return (
     <div
@@ -111,9 +115,12 @@ export function InboxReviewCard({
         </div>
       </div>
 
-      {showSuggestions && (
-        <InboxAiSuggestionPanel document={doc} suggestions={suggestions} />
-      )}
+      {showReviewPanel &&
+        (aiSuggestionsAvailable ? (
+          <InboxAiSuggestionPanel document={doc} suggestions={suggestions} />
+        ) : (
+          <InboxManualFilingPanel document={doc} />
+        ))}
 
       <div
         className={cn(
@@ -146,19 +153,22 @@ export function InboxReviewCard({
         </button>
 
         <div className="flex items-center gap-2.5">
-          {reviewReady && onAcceptAllSuggestions && pendingCount > 0 && (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 rounded-lg border-[#BFE9E2] px-3.5 font-semibold text-[#087F78]"
-              disabled={acceptSuggestionsBusy}
-              onClick={onAcceptAllSuggestions}
-            >
-              <CheckCheck className="h-4 w-4" strokeWidth={1.75} />
-              Accept AI suggestions
-              {pendingCount > 1 ? ` (${pendingCount})` : ""}
-            </Button>
-          )}
+          {reviewReady &&
+            aiSuggestionsAvailable &&
+            onAcceptAllSuggestions &&
+            pendingCount > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-lg border-[#BFE9E2] px-3.5 font-semibold text-[#087F78]"
+                disabled={acceptSuggestionsBusy}
+                onClick={onAcceptAllSuggestions}
+              >
+                <CheckCheck className="h-4 w-4" strokeWidth={1.75} />
+                Accept AI suggestions
+                {pendingCount > 1 ? ` (${pendingCount})` : ""}
+              </Button>
+            )}
           <Button
             type="button"
             variant="outline"

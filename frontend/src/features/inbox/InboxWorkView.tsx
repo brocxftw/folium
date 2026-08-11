@@ -9,7 +9,7 @@ import {
   Upload,
 } from "lucide-react";
 import {
-  useAICapabilities,
+  useAIHealth,
   useDocuments,
   usePendingSuggestions,
   useProcessInboxDocuments,
@@ -151,9 +151,9 @@ export function InboxWorkView({
     { inbox: true, page_size: 100 },
     { refetchInterval: pollWhilePreparing },
   );
-  const { data: aiPolicy } = useAICapabilities();
+  const { data: aiHealth } = useAIHealth();
   const aiSuggestionsAvailable = Boolean(
-    aiPolicy?.auto_tagging && aiPolicy.chat_available,
+    aiHealth?.auto_tagging && aiHealth.indexing.status === "available",
   );
   const { data: pendingSuggestions = [] } = usePendingSuggestions(aiSuggestionsAvailable);
 
@@ -400,7 +400,8 @@ export function InboxWorkView({
               </p>
               {!aiSuggestionsAvailable && (
                 <p className="mt-1 text-[11px] text-[#74828D]">
-                  AI filing suggestions unavailable — documents can still be filed manually.
+                  AI filing suggestions unavailable — use Manual filing on each
+                  document, or process from the toolbar when a destination is set.
                 </p>
               )}
             </div>
@@ -554,6 +555,7 @@ export function InboxWorkView({
                   selected={selectedIds.has(doc.id)}
                   expanded={allDocsSettled && (expandedIds?.has(doc.id) ?? false)}
                   reviewReady={allDocsSettled}
+                  aiSuggestionsAvailable={aiSuggestionsAvailable}
                   onToggleExpand={() => toggleExpand(doc.id)}
                   onSelect={(checked) => {
                     setSelectedIds((prev) => {
