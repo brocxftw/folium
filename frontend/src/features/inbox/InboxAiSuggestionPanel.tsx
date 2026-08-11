@@ -80,12 +80,12 @@ export function InboxAiSuggestionPanel({
       <div className="mt-[18px] grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_1px_minmax(0,1.1fr)]">
         <div>
           <p className="text-[13px] font-bold text-[#14212B]">Destination</p>
-          <div className="mt-3.5 min-h-[132px] rounded-[10px] border border-[#DCE3E8] bg-white p-3.5">
-            <div className="flex items-start gap-3">
+          <div className="mt-3.5 rounded-[10px] border border-[#DCE3E8] bg-white px-3.5 py-2.5">
+            <div className="flex items-center gap-3">
               <div className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[9px] bg-[#DDF7F3]">
                 <Folder className="h-4 w-4 text-[#087F78]" strokeWidth={1.75} />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-semibold text-[#24333D]">{displayPath}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   {(isNewFolder || suggestedCreate) && (
@@ -95,6 +95,7 @@ export function InboxAiSuggestionPanel({
                   )}
                 </div>
               </div>
+              <InboxFolderControl document={doc} triggerLabel="Change destination" />
             </div>
 
             {folderSuggestion && !hasDestination && (
@@ -102,11 +103,6 @@ export function InboxAiSuggestionPanel({
                 <SuggestionChip suggestion={folderSuggestion} />
               </div>
             )}
-
-            <div className="mt-3.5">
-              <p className="mb-1.5 text-[11px] font-semibold text-[#087F78]">Change destination</p>
-              <InboxFolderControl document={doc} />
-            </div>
           </div>
         </div>
 

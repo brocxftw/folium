@@ -1,4 +1,4 @@
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   FileText,
   Inbox,
@@ -17,15 +17,12 @@ import { api } from "@/lib/api/client";
 import {
   useSession,
   useLogout,
-  useFolders,
-  useTags,
   useInboxCount,
   useTrashCount,
   useHealth,
 } from "@/lib/api/hooks";
 import { usePersistedState } from "@/lib/usePersistedState";
-import { FolderTree } from "@/components/folders/FolderTree";
-import { SidebarTagList } from "@/components/tags/TagList";
+import { SidebarAiPipeline } from "@/components/layout/SidebarAiPipeline";
 import {
   TooltipProvider,
   Tooltip,
@@ -48,32 +45,18 @@ const NAV_ITEMS = [
 
 export function AppShell({ children }: AppShellProps) {
   const navigate = useNavigate();
-  const location = useLocation();
   const { data: session } = useSession();
   const logout = useLogout();
-  const { data: folders = [] } = useFolders();
-  const { data: tags = [] } = useTags();
   const { data: inboxCount = 0 } = useInboxCount();
   const { data: trashCount } = useTrashCount();
   const { data: health } = useHealth();
   const [sidebarOpen, setSidebarOpen] = usePersistedState("folium.sidebarOpen", true);
 
-  const onDocuments = location.pathname.startsWith("/documents");
-  const onSettings = location.pathname.startsWith("/settings");
-  const showLibraryExplorer = sidebarOpen && !onDocuments && !onSettings;
   const appVersion = health?.version;
 
   const handleLogout = async () => {
     await logout.mutateAsync();
     navigate("/login");
-  };
-
-  const handleFolderSelect = (folderId: string) => {
-    navigate(`/documents?folder=${encodeURIComponent(folderId)}`);
-  };
-
-  const handleTagSelect = (tagId: string) => {
-    navigate(`/documents?tag=${encodeURIComponent(tagId)}`);
   };
 
   return (
@@ -88,13 +71,35 @@ export function AppShell({ children }: AppShellProps) {
           <div
             className={cn(
               "flex items-center border-b border-sidebar-border",
-              sidebarOpen ? "gap-2 px-4 py-4" : "flex-col gap-2 px-2 py-3",
+              sidebarOpen ? "gap-2 px-4 py-3" : "flex-col gap-2 px-2 py-3",
             )}
           >
-            <div className={cn("flex items-center gap-2 min-w-0", !sidebarOpen && "justify-center")}>
+            <div
+              className={cn(
+                "flex min-w-0 items-center gap-2",
+                !sidebarOpen && "justify-center",
+              )}
+            >
               <Leaf className="h-5 w-5 shrink-0 text-accent" />
               {sidebarOpen && (
-                <span className="font-semibold text-[15px] tracking-tight truncate">Folium</span>
+                <div className="min-w-0">
+                  <span className="block font-semibold text-[15px] tracking-tight truncate">
+                    Folium
+                  </span>
+                  {appVersion && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p
+                          className="mt-0.5 truncate font-mono text-[10px] text-sidebar-muted"
+                          aria-label={`App version ${appVersion}`}
+                        >
+                          v{appVersion}
+                        </p>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">{appVersion}</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
               )}
             </div>
             <Tooltip>
@@ -104,7 +109,7 @@ export function AppShell({ children }: AppShellProps) {
                   onClick={() => setSidebarOpen((v) => !v)}
                   className={cn(
                     "rounded p-1.5 text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text",
-                    sidebarOpen ? "ml-auto" : "",
+                    sidebarOpen ? "ml-auto self-start" : "",
                   )}
                   aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
                 >
@@ -170,24 +175,9 @@ export function AppShell({ children }: AppShellProps) {
             })}
           </nav>
 
-          {showLibraryExplorer && (
-            <>
-              <div className="flex-1 overflow-auto scrollbar-thin border-t border-sidebar-border py-2">
-                <FolderTree folders={folders} onSelect={handleFolderSelect} />
-              </div>
+          <div className="flex-1" />
 
-              <div className="border-t border-sidebar-border py-2 max-h-[180px] overflow-auto scrollbar-thin">
-                <div className="px-3 py-1">
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-sidebar-muted">
-                    Tags
-                  </span>
-                </div>
-                <SidebarTagList tags={tags} onSelect={handleTagSelect} />
-              </div>
-            </>
-          )}
-
-          {!showLibraryExplorer && <div className="flex-1" />}
+          {sidebarOpen && <SidebarAiPipeline />}
 
           <div className={cn("border-t border-sidebar-border", sidebarOpen ? "p-3" : "p-2")}>
             <div className={cn("flex items-center", sidebarOpen ? "gap-2" : "flex-col gap-2")}>
@@ -240,22 +230,6 @@ export function AppShell({ children }: AppShellProps) {
                 <TooltipContent side="right">Log out</TooltipContent>
               </Tooltip>
             </div>
-            {appVersion && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p
-                    className={cn(
-                      "mt-2 truncate font-mono text-[10px] text-sidebar-muted",
-                      !sidebarOpen && "text-center",
-                    )}
-                    aria-label={`App version ${appVersion}`}
-                  >
-                    {sidebarOpen ? `v${appVersion}` : appVersion.slice(0, 7)}
-                  </p>
-                </TooltipTrigger>
-                <TooltipContent side="right">{appVersion}</TooltipContent>
-              </Tooltip>
-            )}
           </div>
         </aside>
 

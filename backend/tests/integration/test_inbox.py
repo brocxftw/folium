@@ -175,6 +175,70 @@ async def test_process_with_pending_folder_path(
 
 
 @pytest.mark.asyncio
+async def test_process_pending_path_revives_trashed_folders(
+    auth_client: AsyncClient,
+    db_session: AsyncSession,
+    sample_txt_path,
+) -> None:
+    """Filing into a soft-deleted path must revive folders, not 500 on unique name."""
+    parent = await auth_client.post("/api/folders", json={"name": "Books"})
+    assert parent.status_code == 201, parent.text
+    parent_id = parent.json()["id"]
+    child = await auth_client.post(
+        "/api/folders",
+        json={"name": "Self-Help", "parent_id": parent_id},
+    )
+    assert child.status_code == 201, child.text
+    child_id = child.json()["id"]
+
+    trashed = await auth_client.post(f"/api/folders/{parent_id}/trash")
+    assert trashed.status_code == 200, trashed.text
+
+    with sample_txt_path.open("rb") as fh:
+        response = await auth_client.post(
+            "/api/documents/upload",
+            files={"file": ("sample.txt", fh, "text/plain")},
+        )
+    doc_id = response.json()["id"]
+
+    extract_job = (
+        await db_session.execute(
+            select(Job).where(
+                Job.document_id == uuid.UUID(doc_id),
+                Job.job_type == JobType.TEXT_EXTRACTION,
+            )
+        )
+    ).scalar_one()
+    await process_text_extraction(db_session, extract_job)
+    await db_session.commit()
+
+    await auth_client.patch(
+        f"/api/documents/{doc_id}/metadata",
+        json={"pending_folder_path": "Books / Self-Help", "needs_review": False},
+    )
+
+    process = await auth_client.post(
+        "/api/documents/process",
+        json={"document_ids": [doc_id]},
+    )
+    assert process.status_code == 200, process.text
+    result = process.json()
+    assert len(result["processed"]) == 1, result
+    assert result["failed"] == []
+
+    detail = await auth_client.get(f"/api/documents/{doc_id}")
+    body = detail.json()
+    assert body["inbox"] is False
+    assert body["folder_id"] == child_id
+    assert "Books" in (body["folder_path"] or "")
+    assert "Self-Help" in (body["folder_path"] or "")
+
+    restored_parent = await auth_client.get(f"/api/folders/{parent_id}")
+    assert restored_parent.status_code == 200
+    assert restored_parent.json()["is_trashed"] is False
+
+
+@pytest.mark.asyncio
 async def test_remove_from_queue_deletes_document(
     auth_client: AsyncClient,
     sample_txt_path,

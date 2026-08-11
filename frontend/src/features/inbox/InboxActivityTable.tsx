@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import type { InboxActivityItem, InboxActivityStatus } from "@/lib/api/types";
 import { cn, formatBytes, formatDateTime } from "@/lib/utils";
-import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
 import { TagList } from "@/components/tags/TagList";
 import {
@@ -134,11 +133,9 @@ function PresentationBadge({
 
 interface InboxActivityTableProps {
   documents: InboxActivityItem[];
-  selectedIds: Set<string>;
   justProcessedIds: Set<string>;
-  onSelect: (ids: Set<string>) => void;
   onPreview: (id: string) => void;
-  onOpenWork: () => void;
+  onOpenDocument: (doc: InboxActivityItem) => void;
   onRetry: (id: string) => void;
   onRemove: (id: string) => void;
   isLoading?: boolean;
@@ -147,30 +144,14 @@ interface InboxActivityTableProps {
 
 export function InboxActivityTable({
   documents,
-  selectedIds,
   justProcessedIds,
-  onSelect,
   onPreview,
-  onOpenWork,
+  onOpenDocument,
   onRetry,
   onRemove,
   isLoading,
   empty,
 }: InboxActivityTableProps) {
-  const allSelected = documents.length > 0 && documents.every((d) => selectedIds.has(d.id));
-
-  const toggleAll = () => {
-    if (allSelected) onSelect(new Set());
-    else onSelect(new Set(documents.map((d) => d.id)));
-  };
-
-  const toggleOne = (id: string) => {
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onSelect(next);
-  };
-
   if (isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center py-16 text-sm text-text-muted">
@@ -188,13 +169,6 @@ export function InboxActivityTable({
       <table className="w-full min-w-[900px] border-collapse text-sm">
         <thead className="sticky top-0 z-10 bg-[#F8FAFB]">
           <tr className="h-10 border-b border-[#EDF1F3] text-left text-[11px] font-semibold text-[#5D6B76]">
-            <th className="w-[42px] px-3">
-              <Checkbox
-                checked={allSelected}
-                onCheckedChange={toggleAll}
-                aria-label="Select all"
-              />
-            </th>
             <th className="px-3 font-semibold">Document</th>
             <th className="px-3 font-semibold">Status</th>
             <th className="px-3 font-semibold">Type</th>
@@ -207,7 +181,6 @@ export function InboxActivityTable({
         </thead>
         <tbody>
           {documents.map((doc) => {
-            const selected = selectedIds.has(doc.id);
             const justNow = justProcessedIds.has(doc.id);
             const processedAt = processedAtValue(doc);
             return (
@@ -215,17 +188,9 @@ export function InboxActivityTable({
                 key={doc.id}
                 className={cn(
                   "h-[58px] border-b border-[#EDF1F3] transition-colors hover:bg-[#FAFCFD]",
-                  selected && "bg-[#F0FBF9]",
                   justNow && "border-l-2 border-l-[#22A06B] bg-row-selected",
                 )}
               >
-                <td className="px-3">
-                  <Checkbox
-                    checked={selected}
-                    onCheckedChange={() => toggleOne(doc.id)}
-                    aria-label={`Select ${doc.original_filename}`}
-                  />
-                </td>
                 <td className="px-3">
                   <button
                     type="button"
@@ -282,8 +247,12 @@ export function InboxActivityTable({
                       size="icon"
                       variant="ghost"
                       className="h-[30px] w-[30px] text-[#5D6B76]"
-                      aria-label="Open review workspace"
-                      onClick={onOpenWork}
+                      aria-label={
+                        doc.activity_status === "processed"
+                          ? "Open in Documents"
+                          : "Open in Review & File"
+                      }
+                      onClick={() => onOpenDocument(doc)}
                     >
                       <FolderInput className="h-4 w-4" strokeWidth={1.75} />
                     </Button>
@@ -302,8 +271,10 @@ export function InboxActivityTable({
                         <DropdownMenuItem onClick={() => onPreview(doc.id)}>
                           View details
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={onOpenWork}>
-                          Open review workspace
+                        <DropdownMenuItem onClick={() => onOpenDocument(doc)}>
+                          {doc.activity_status === "processed"
+                            ? "Open in Documents"
+                            : "Open in Review & File"}
                         </DropdownMenuItem>
                         {doc.activity_status === "failed" && (
                           <DropdownMenuItem onClick={() => onRetry(doc.id)}>

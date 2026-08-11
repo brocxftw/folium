@@ -213,27 +213,47 @@ async def create_folder(
 
 
 async def find_child_folder(
-    session: AsyncSession, parent_id: uuid.UUID, name: str
+    session: AsyncSession,
+    parent_id: uuid.UUID,
+    name: str,
+    *,
+    include_trashed: bool = False,
 ) -> Folder | None:
-    return (
-        await session.execute(
-            select(Folder).where(
-                Folder.parent_id == parent_id,
-                Folder.name == name,
-                Folder.is_trashed.is_(False),
-            )
-        )
-    ).scalar_one_or_none()
+    stmt = select(Folder).where(
+        Folder.parent_id == parent_id,
+        Folder.name == name,
+    )
+    if not include_trashed:
+        stmt = stmt.where(Folder.is_trashed.is_(False))
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def ensure_child_folder(session: AsyncSession, *, parent_id: uuid.UUID, name: str) -> Folder:
-    """Get or create a normal child folder under parent."""
+    """Get or create a normal child folder under parent.
+
+    Soft-deleted siblings with the same name are revived (folder row only) so
+    pending filing paths can reuse them without hitting the sibling-name unique
+    constraint.
+    """
     parent = await get_folder(session, parent_id)
     existing = await find_child_folder(session, parent_id, name)
     if existing is not None:
         if existing.kind == FolderKind.TRASH:
             raise ValidationError("Cannot place documents under Trash")
         return existing
+
+    # Unique constraint includes trashed rows — reuse instead of insert.
+    trashed = await find_child_folder(session, parent_id, name, include_trashed=True)
+    if trashed is not None and trashed.is_trashed:
+        if trashed.kind == FolderKind.TRASH:
+            raise ValidationError("Cannot place documents under Trash")
+        if trashed.kind != FolderKind.NORMAL:
+            raise ValidationError("Cannot reuse a system folder from Trash")
+        trashed.is_trashed = False
+        trashed.trashed_at = None
+        await session.flush()
+        return trashed
+
     try:
         return await create_folder(
             session,

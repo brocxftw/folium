@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Filter, RefreshCw, Search } from "lucide-react";
 import { useInboxActivity } from "@/lib/api/hooks";
-import type { InboxActivityStatus, InboxActivityTab } from "@/lib/api/types";
+import type { InboxActivityItem, InboxActivityStatus, InboxActivityTab } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -34,7 +34,7 @@ interface InboxActivityPanelProps {
   rangeDays: DateRangeDays;
   justProcessedIds: Set<string>;
   onPreview: (id: string) => void;
-  onOpenWork: () => void;
+  onOpenDocument: (doc: InboxActivityItem) => void;
   onRetry: (id: string) => void;
   onRemove: (id: string) => void;
   onUpload: () => void;
@@ -44,7 +44,7 @@ export function InboxActivityPanel({
   rangeDays,
   justProcessedIds,
   onPreview,
-  onOpenWork,
+  onOpenDocument,
   onRetry,
   onRemove,
   onUpload,
@@ -55,7 +55,6 @@ export function InboxActivityPanel({
   const [statusFilter, setStatusFilter] = useState<InboxActivityStatus | "all">("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -209,11 +208,9 @@ export function InboxActivityPanel({
 
       <InboxActivityTable
         documents={items}
-        selectedIds={selectedIds}
         justProcessedIds={justProcessedIds}
-        onSelect={setSelectedIds}
         onPreview={onPreview}
-        onOpenWork={onOpenWork}
+        onOpenDocument={onOpenDocument}
         onRetry={onRetry}
         onRemove={onRemove}
         isLoading={isLoading}

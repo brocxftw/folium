@@ -276,20 +276,24 @@ export function InboxWorkView({
 
   const handleProcess = async () => {
     if (processCount === 0) return;
-    const result = await processDocs.mutateAsync(processTargets.map((d) => d.id));
-    setSelectedIds(new Set());
-    const processedIds = result.processed.map((p) => p.id);
-    if (processedIds.length > 0) {
-      onClearRejections();
-      navigate("/inbox", { state: { justProcessedIds: processedIds } });
-      return;
+    try {
+      const result = await processDocs.mutateAsync(processTargets.map((d) => d.id));
+      setSelectedIds(new Set());
+      const processedIds = result.processed.map((p) => p.id);
+      if (processedIds.length > 0) {
+        onClearRejections();
+        navigate("/inbox", { state: { justProcessedIds: processedIds } });
+        return;
+      }
+      const parts = [
+        result.skipped.length ? `${result.skipped.length} skipped` : null,
+        result.failed.length ? `${result.failed.length} failed` : null,
+      ].filter(Boolean);
+      setResultMsg(parts.join(" · ") || "Nothing processed");
+      refetch();
+    } catch (err) {
+      setResultMsg(err instanceof Error ? err.message : "Process failed");
     }
-    const parts = [
-      result.skipped.length ? `${result.skipped.length} skipped` : null,
-      result.failed.length ? `${result.failed.length} failed` : null,
-    ].filter(Boolean);
-    setResultMsg(parts.join(" · ") || "Nothing processed");
-    refetch();
   };
 
   const handleAcceptAll = async () => {

@@ -1,4 +1,4 @@
-import { Check, X } from "lucide-react";
+import { Check, Sparkles, X } from "lucide-react";
 import type { Suggestion } from "@/lib/api/types";
 import {
   useAcceptSuggestion,
@@ -116,6 +116,11 @@ export function SuggestionChip({
         if (stopPropagation) e.stopPropagation();
       }}
     >
+      <Sparkles
+        className="mt-0.5 h-3 w-3 shrink-0 text-[#5D6B76]"
+        strokeWidth={1.75}
+        aria-hidden
+      />
       <p
         className={cn(
           "min-w-0 flex-1 leading-snug text-[#24333D]",
@@ -123,7 +128,6 @@ export function SuggestionChip({
         )}
         title={formatSuggestionLabel(suggestion)}
       >
-        <span className="mr-1 font-medium text-[#5D6B76]">AI</span>
         {formatSuggestionLabel(suggestion)}
       </p>
       <SuggestionActions
@@ -200,9 +204,16 @@ function LegacyTagBundle({ suggestion }: { suggestion: Suggestion }) {
           key={`${suggestion.id}-${name}`}
           className="rounded-md border border-dashed border-[#C9D2D8] bg-[#F1F4F6] px-1.5 py-1"
         >
-          <p className="leading-snug text-xs text-[#24333D]" title={name}>
-            <span className="mr-1 font-medium text-[#5D6B76]">AI</span>
-            {name}
+          <p
+            className="flex items-start gap-1 leading-snug text-xs text-[#24333D]"
+            title={name}
+          >
+            <Sparkles
+              className="mt-0.5 h-3 w-3 shrink-0 text-[#5D6B76]"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            <span>{name}</span>
           </p>
         </div>
       ))}

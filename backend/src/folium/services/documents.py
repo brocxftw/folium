@@ -712,38 +712,39 @@ async def process_inbox_documents(
                 continue
 
         try:
-            pending_path = get_pending_folder_path(doc)
-            if pending_path:
-                root = await folder_service.get_root(session, owner_id)
-                segments = _folder_segments(pending_path)
-                if not segments:
-                    failed.append({"id": str(doc.id), "reason": "invalid_folder_path"})
-                    continue
-                leaf = await folder_service.ensure_folder_path(
-                    session, parent_id=root.id, segments=segments
-                )
-                doc.folder_id = leaf.id
-                set_pending_folder_path(doc, None)
-            else:
-                # Must leave system Inbox folder
-                if doc.folder is not None and doc.folder.kind == FolderKind.INBOX:
-                    skipped.append({"id": str(doc.id), "reason": "needs_folder"})
-                    continue
+            async with session.begin_nested():
+                pending_path = get_pending_folder_path(doc)
+                if pending_path:
+                    root = await folder_service.get_root(session, owner_id)
+                    segments = _folder_segments(pending_path)
+                    if not segments:
+                        failed.append({"id": str(doc.id), "reason": "invalid_folder_path"})
+                        continue
+                    leaf = await folder_service.ensure_folder_path(
+                        session, parent_id=root.id, segments=segments
+                    )
+                    doc.folder_id = leaf.id
+                    set_pending_folder_path(doc, None)
+                else:
+                    # Must leave system Inbox folder
+                    if doc.folder is not None and doc.folder.kind == FolderKind.INBOX:
+                        skipped.append({"id": str(doc.id), "reason": "needs_folder"})
+                        continue
 
-            doc.inbox = False
-            doc.needs_review = False
-            doc.modified_date = datetime.now(UTC)
-            await session.flush()
+                doc.inbox = False
+                doc.needs_review = False
+                doc.modified_date = datetime.now(UTC)
+                await session.flush()
 
-            if not doc.document_indexed:
-                await enqueue_job(
-                    session,
-                    job_type=JobType.INDEXING,
-                    document_id=doc.id,
-                    priority=priority,
-                )
+                if not doc.document_indexed:
+                    await enqueue_job(
+                        session,
+                        job_type=JobType.INDEXING,
+                        document_id=doc.id,
+                        priority=priority,
+                    )
 
-            processed.append({"id": str(doc.id)})
+                processed.append({"id": str(doc.id)})
         except Exception as exc:  # noqa: BLE001 — partial batch
             failed.append({"id": str(doc.id), "reason": str(exc)[:500]})
 
