@@ -77,7 +77,15 @@ _MOCK_PAYLOAD = {
     "title": "LPPSA Refinance Summary",
     "document_type": None,
     "correspondent": None,
-    "tags": ["lppsa", "refinance", "housing-loan"],
+    "tags": [
+        {"name": "lppsa", "confidence": 0.92},
+        {"name": "refinance", "confidence": 0.88},
+        {"name": "housing-loan", "confidence": 0.81},
+    ],
+    "confidence": {
+        "folder": 0.94,
+        "title": 0.9,
+    },
     "needs_review": False,
 }
 
@@ -266,17 +274,21 @@ async def test_metadata_suggestion_creates_folder_and_tag_rows(
 
     by_field = {s["field"]: s for s in suggestions}
     assert "folder" in by_field, "folder suggestion missing - check parser / path regex"
-    assert "tags" in by_field, "tags suggestion missing"
     assert "title" in by_field
+    tag_rows = [s for s in suggestions if s["field"] == "tags"]
+    assert len(tag_rows) == 3, "expected one tags suggestion per tag name"
+    assert {s["value"].get("tag_names", [None])[0] for s in tag_rows} == {
+        "lppsa",
+        "refinance",
+        "housing-loan",
+    }
+    assert all(isinstance(s.get("confidence"), (int, float)) for s in tag_rows)
+    assert by_field["folder"].get("confidence") == 0.94
+    assert by_field["title"].get("confidence") == 0.9
 
     folder_val = by_field["folder"]["value"]
     assert folder_val.get("path") == "Finance / Insurance"
     assert folder_val.get("create") is True
-    assert by_field["tags"]["value"].get("tag_names") == [
-        "lppsa",
-        "refinance",
-        "housing-loan",
-    ]
 
     detail = await auth_client.get(f"/api/documents/{doc_id}")
     body = detail.json()
@@ -343,12 +355,13 @@ async def test_accept_folder_and_tags_then_process(
     assert folder_acc.status_code == 200, folder_acc.text
     _step(4, "Accepted folder suggestion", folder_acc.json()["value"])
 
-    # Accept tags
-    tags_acc = await auth_client.post(
-        f"/api/ai/suggestions/{by_field['tags']['id']}/accept"
-    )
-    assert tags_acc.status_code == 200, tags_acc.text
-    _step(5, "Accepted tags suggestion", tags_acc.json()["value"])
+    # Accept tags (one suggestion per tag)
+    tag_rows = [s for s in suggestions if s["field"] == "tags"]
+    assert len(tag_rows) == 3
+    for row in tag_rows:
+        tags_acc = await auth_client.post(f"/api/ai/suggestions/{row['id']}/accept")
+        assert tags_acc.status_code == 200, tags_acc.text
+    _step(5, "Accepted tag suggestions", [r["value"] for r in tag_rows])
 
     after_accept = await auth_client.get(f"/api/documents/{doc_id}")
     body = after_accept.json()
@@ -395,9 +408,10 @@ async def test_accept_folder_and_tags_then_process(
         )
     ).scalars().all()
     statuses = {r.field: r.status for r in rows}
+    tag_statuses = [r.status for r in rows if r.field == "tags"]
     _step(9, "Suggestion statuses", {k: v.value for k, v in statuses.items()})
     assert statuses.get("folder") == SuggestionStatus.ACCEPTED
-    assert statuses.get("tags") == SuggestionStatus.ACCEPTED
+    assert tag_statuses and all(s == SuggestionStatus.ACCEPTED for s in tag_statuses)
     print("\n  ✓ Folder + tag suggestions work end-to-end when accepted in UI/API.\n")
 
 
