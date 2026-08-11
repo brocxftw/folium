@@ -5,6 +5,11 @@ import type { UploadEntry } from "@/lib/uploadTree";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { UploadDropzone } from "@/components/documents/UploadDropzone";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip";
 
 type DocumentUploader = ReturnType<typeof useDocumentUploader>;
 
@@ -30,7 +35,7 @@ export function InboxIngestionHero({ uploader, onBrowse }: InboxIngestionHeroPro
   };
 
   return (
-    <div className="mt-5 space-y-4">
+    <div className="mt-5">
       <UploadDropzone
         onEntries={(entries) => void handleEntries(entries)}
         disabled={uploader.busy}
@@ -72,27 +77,35 @@ export function InboxIngestionHero({ uploader, onBrowse }: InboxIngestionHeroPro
           >
             Browse files
           </Button>
-          <p className="mt-5 flex items-center gap-1.5 text-[10px] text-[#74828D]">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <p
+                className="mt-5 inline-flex items-center gap-1.5 text-[10px] font-medium text-[#087F78] hover:text-[#07998E]"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <Lightbulb className="h-3 w-3" strokeWidth={1.75} />
+                Upload tips
+              </p>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[280px] space-y-1.5 p-3">
+              <p className="text-[11px] font-semibold text-white">Ingestion tips</p>
+              <ul className="space-y-1.5 text-left">
+                {TIPS.map((tip) => (
+                  <li key={tip} className="flex gap-1.5 text-[11px] leading-snug text-white/85">
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
+                    <span>{tip}</span>
+                  </li>
+                ))}
+              </ul>
+            </TooltipContent>
+          </Tooltip>
+          <p className="mt-2 flex items-center gap-1.5 text-[10px] text-[#74828D]">
             <Lock className="h-3 w-3" strokeWidth={1.75} />
             Your files are processed securely and never shared.
           </p>
         </div>
       </UploadDropzone>
-
-      <div className="rounded-[10px] border border-[#DCE3E8] bg-white p-[18px]">
-        <div className="flex items-center gap-2">
-          <Lightbulb className="h-4 w-4 text-[#07998E]" strokeWidth={1.75} />
-          <h3 className="text-[13px] font-semibold text-[#14212B]">Ingestion tips</h3>
-        </div>
-        <ul className="mt-3 space-y-3">
-          {TIPS.map((tip) => (
-            <li key={tip} className="flex gap-2 text-xs leading-relaxed text-[#42515D]">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#13B8AA]" />
-              <span>{tip}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
     </div>
   );
 }
