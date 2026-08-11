@@ -175,6 +175,66 @@ async def test_process_with_pending_folder_path(
 
 
 @pytest.mark.asyncio
+async def test_tree_upload_pending_path_processes_into_library(
+    auth_client: AsyncClient,
+    db_session: AsyncSession,
+    sample_txt_path,
+) -> None:
+    """Folder upload stores pending path; Process materializes folders + INDEXING."""
+    with sample_txt_path.open("rb") as fh:
+        response = await auth_client.post(
+            "/api/documents/upload",
+            data={"relative_path": "TreeImport/Nested/sample.txt", "on_duplicate": "skip"},
+            files={"file": ("sample.txt", fh, "text/plain")},
+        )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    doc_id = body["id"]
+    assert body["inbox"] is True
+    assert body["pending_folder_path"] == "TreeImport/Nested"
+
+    extract_job = (
+        await db_session.execute(
+            select(Job).where(
+                Job.document_id == uuid.UUID(doc_id),
+                Job.job_type == JobType.TEXT_EXTRACTION,
+            )
+        )
+    ).scalar_one()
+    await process_text_extraction(db_session, extract_job)
+    await db_session.commit()
+
+    await auth_client.patch(
+        f"/api/documents/{doc_id}/metadata",
+        json={"needs_review": False},
+    )
+
+    process = await auth_client.post(
+        "/api/documents/process",
+        json={"document_ids": [doc_id]},
+    )
+    assert process.status_code == 200, process.text
+    assert len(process.json()["processed"]) == 1
+
+    detail = await auth_client.get(f"/api/documents/{doc_id}")
+    final = detail.json()
+    assert final["inbox"] is False
+    assert final["pending_folder_path"] is None
+    assert "TreeImport" in (final["folder_path"] or "")
+    assert "Nested" in (final["folder_path"] or "")
+
+    jobs = (
+        await db_session.execute(
+            select(Job).where(
+                Job.document_id == uuid.UUID(doc_id),
+                Job.job_type == JobType.INDEXING,
+            )
+        )
+    ).scalars().all()
+    assert len(jobs) >= 1
+
+
+@pytest.mark.asyncio
 async def test_process_pending_path_revives_trashed_folders(
     auth_client: AsyncClient,
     db_session: AsyncSession,

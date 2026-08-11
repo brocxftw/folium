@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     job_concurrency: int = Field(default=2, alias="JOB_CONCURRENCY")
     consume_poll_interval_seconds: float = Field(default=5.0, alias="CONSUME_POLL_INTERVAL_SECONDS")
     job_poll_interval_seconds: float = Field(default=2.0, alias="JOB_POLL_INTERVAL_SECONDS")
+    # RUNNING jobs without a lock heartbeat older than this are re-queued.
+    job_stale_running_seconds: int = Field(default=600, alias="JOB_STALE_RUNNING_SECONDS")
+    job_lock_heartbeat_seconds: float = Field(default=60.0, alias="JOB_LOCK_HEARTBEAT_SECONDS")
     trash_retention_days: int = Field(default=30, alias="TRASH_RETENTION_DAYS")
     trash_purge_interval_seconds: float = Field(
         default=3600.0, alias="TRASH_PURGE_INTERVAL_SECONDS"

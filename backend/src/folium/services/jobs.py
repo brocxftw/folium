@@ -36,17 +36,29 @@ async def enqueue_job(
 
 
 async def claim_next(session: AsyncSession, worker_id: str) -> Job | None:
-    """Claim the highest-priority queued job using SKIP LOCKED."""
+    """Claim the highest-priority queued job using SKIP LOCKED.
+
+    Skips jobs whose document is trashed so deleted batches cannot starve the queue.
+    """
     now = datetime.now(UTC)
+    trashed_document = (
+        select(Document.id)
+        .where(
+            Document.id == Job.document_id,
+            Document.is_trashed.is_(True),
+        )
+        .exists()
+    )
     stmt = (
         select(Job)
         .where(
             Job.status == JobStatus.QUEUED,
             or_(Job.available_at.is_(None), Job.available_at <= now),
+            ~trashed_document,
         )
         .order_by(Job.priority.asc(), Job.created_at.asc())
         .limit(1)
-        .with_for_update(skip_locked=True)
+        .with_for_update(of=Job, skip_locked=True)
     )
     result = await session.execute(stmt)
     job = result.scalar_one_or_none()
@@ -175,12 +187,57 @@ async def list_jobs(
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def requeue_stale_running(session: AsyncSession, *, older_than_seconds: int = 3600) -> int:
+async def requeue_stale_running(session: AsyncSession, *, older_than_seconds: int = 600) -> int:
+    """Requeue RUNNING jobs whose lock heartbeat is older than ``older_than_seconds``."""
     cutoff = datetime.now(UTC).timestamp() - older_than_seconds
     cutoff_dt = datetime.fromtimestamp(cutoff, tz=UTC)
     result = await session.execute(
         update(Job)
         .where(Job.status == JobStatus.RUNNING, Job.locked_at < cutoff_dt)
-        .values(status=JobStatus.QUEUED, locked_by=None, locked_at=None, available_at=None)
+        .values(
+            status=JobStatus.QUEUED,
+            locked_by=None,
+            locked_at=None,
+            started_at=None,
+            available_at=None,
+        )
+    )
+    return result.rowcount or 0
+
+
+async def requeue_all_running(session: AsyncSession) -> int:
+    """Requeue every RUNNING job (worker startup after crash/redeploy)."""
+    result = await session.execute(
+        update(Job)
+        .where(Job.status == JobStatus.RUNNING)
+        .values(
+            status=JobStatus.QUEUED,
+            locked_by=None,
+            locked_at=None,
+            started_at=None,
+            available_at=None,
+        )
+    )
+    return result.rowcount or 0
+
+
+async def cancel_jobs_for_trashed_documents(session: AsyncSession) -> int:
+    """Cancel queued/running jobs for trashed documents (they must not occupy workers)."""
+    now = datetime.now(UTC)
+    trashed_ids = select(Document.id).where(Document.is_trashed.is_(True))
+    result = await session.execute(
+        update(Job)
+        .where(
+            Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
+            Job.document_id.in_(trashed_ids),
+        )
+        .values(
+            status=JobStatus.CANCELLED,
+            locked_by=None,
+            locked_at=None,
+            available_at=None,
+            completed_at=now,
+            error="Cancelled: document is trashed",
+        )
     )
     return result.rowcount or 0
