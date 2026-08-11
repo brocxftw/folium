@@ -176,10 +176,11 @@ async def test_reupload_after_trash_with_skip_reingests(
 
 
 @pytest.mark.asyncio
-async def test_upload_relative_path_creates_folder_tree(
+async def test_upload_relative_path_enters_inbox_with_pending_path(
     auth_client: AsyncClient,
     sample_txt_path,
 ) -> None:
+    """Folder/tree upload without folder_id stays in Inbox for review."""
     with sample_txt_path.open("rb") as fh:
         response = await auth_client.post(
             "/api/documents/upload",
@@ -189,6 +190,38 @@ async def test_upload_relative_path_creates_folder_tree(
     assert response.status_code == 201, response.text
     doc = response.json()
     assert doc["original_filename"] == "notes.txt"
+    assert doc["inbox"] is True
+    assert doc["pending_folder_path"] == "ImportRoot/Nested"
+
+    folders = await auth_client.get("/api/folders")
+    assert folders.status_code == 200
+    names = {f["name"] for f in folders.json()}
+    assert "ImportRoot" not in names
+    assert "Nested" not in names
+
+
+@pytest.mark.asyncio
+async def test_upload_relative_path_under_folder_creates_tree(
+    auth_client: AsyncClient,
+    sample_txt_path,
+) -> None:
+    """Tree upload into an explicit library folder materializes immediately."""
+    parent = await auth_client.post("/api/folders", json={"name": "LibraryParent"})
+    assert parent.status_code == 201, parent.text
+    parent_id = parent.json()["id"]
+
+    with sample_txt_path.open("rb") as fh:
+        response = await auth_client.post(
+            "/api/documents/upload",
+            data={
+                "relative_path": "ImportRoot/Nested/notes.txt",
+                "folder_id": parent_id,
+                "on_duplicate": "skip",
+            },
+            files={"file": ("notes.txt", fh, "text/plain")},
+        )
+    assert response.status_code == 201, response.text
+    doc = response.json()
     assert doc["inbox"] is False
     assert "ImportRoot" in (doc["folder_path"] or "")
     assert "Nested" in (doc["folder_path"] or "")

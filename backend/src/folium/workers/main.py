@@ -24,17 +24,48 @@ def worker_id() -> str:
 
 
 async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
+    settings = get_settings()
     async with session_scope() as session:
-        await job_service.requeue_stale_running(session)
+        await job_service.requeue_stale_running(
+            session, older_than_seconds=settings.job_stale_running_seconds
+        )
 
-    async with session_scope() as session:
-        job = await job_service.claim_next(session, wid)
+    # Acquire capacity BEFORE claiming so jobs are not marked running while waiting.
+    # Do not use wait_for(acquire, timeout=0): it can take a permit then cancel,
+    # permanently leaking concurrency slots.
+    if sem.locked():
+        return
+
+    await sem.acquire()
+    try:
+        async with session_scope() as session:
+            job = await job_service.claim_next(session, wid)
+    except Exception:
+        sem.release()
+        raise
 
     if job is None:
+        sem.release()
         return
 
     async def _run() -> None:
-        async with sem:
+        stop_heartbeat = asyncio.Event()
+
+        async def _lock_heartbeat() -> None:
+            interval = max(settings.job_lock_heartbeat_seconds, 5.0)
+            while not stop_heartbeat.is_set():
+                try:
+                    await asyncio.wait_for(stop_heartbeat.wait(), timeout=interval)
+                    return
+                except TimeoutError:
+                    try:
+                        async with session_scope() as session:
+                            await job_service.touch_job_lock(session, job.id)
+                    except Exception:
+                        logger.debug("Job lock heartbeat failed for %s", job.id, exc_info=True)
+
+        heartbeat_task = asyncio.create_task(_lock_heartbeat())
+        try:
             try:
                 async with session_scope() as session:
                     fresh = await job_service.get_job(session, job.id)
@@ -111,6 +142,14 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
                             failed.document_id,
                             exc,
                         )
+        finally:
+            stop_heartbeat.set()
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            sem.release()
 
     asyncio.create_task(_run())
 
@@ -139,10 +178,10 @@ async def _poll_consume(stability_wait: float) -> None:
 
 async def _poll_trash_purge(last_run: list[float]) -> None:
     """Periodically purge trash older than the retention window."""
-    import time
+    import time as time_mod
 
     settings = get_settings()
-    now = time.monotonic()
+    now = time_mod.monotonic()
     if last_run[0] and now - last_run[0] < settings.trash_purge_interval_seconds:
         return
     last_run[0] = now
@@ -172,13 +211,13 @@ async def _poll_ai_health(last_run: list[float], in_flight: list[asyncio.Task | 
     Must not be awaited inside the job-poll gather — a down provider used to
     stall OCR/extract claiming for minutes (adapter 120s × retries).
     """
-    import time
+    import time as time_mod
 
     task = in_flight[0]
     if task is not None and not task.done():
         return
 
-    now = time.monotonic()
+    now = time_mod.monotonic()
     if last_run[0] and now - last_run[0] < HEALTH_PROBE_INTERVAL_SECONDS:
         return
     last_run[0] = now
@@ -202,6 +241,18 @@ async def worker_loop() -> None:
     last_ai_health: list[float] = [0.0]
     ai_health_task: list[asyncio.Task | None] = [None]
     logger.info("Worker %s started (concurrency=%s)", wid, settings.job_concurrency)
+
+    # Abandoned RUNNING jobs from a previous container must not block the queue.
+    # Trashed-document jobs must not starve active Inbox/library work.
+    async with session_scope() as session:
+        recovered = await job_service.requeue_all_running(session)
+        cancelled_trashed = await job_service.cancel_jobs_for_trashed_documents(session)
+    if recovered:
+        logger.info("Requeued %s abandoned running job(s) on startup", recovered)
+    if cancelled_trashed:
+        logger.info(
+            "Cancelled %s job(s) for trashed documents on startup", cancelled_trashed
+        )
 
     while True:
         async with session_scope() as session:

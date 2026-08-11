@@ -218,9 +218,10 @@ async def ingest_bytes(
       (fresh document id and processing jobs)
 
     Physical storage remains content-addressed — one blob per checksum.
-    Logical Folium folders are metadata only; ``relative_path`` recreates a
-    folder tree under ``folder_id`` (or Documents root when a tree path is
-    provided without an explicit parent).
+    Logical Folium folders are metadata only. A ``relative_path`` with folder
+    segments and no ``folder_id`` enters Inbox with a pending folder path
+    (materialized on Process). With an explicit ``folder_id``, the tree is
+    created under that parent immediately (library import).
     """
     storage = storage or StorageService()
     rel = relative_path.strip() if relative_path else None
@@ -270,16 +271,18 @@ async def ingest_bytes(
 
     await assert_storage_quota(session, owner_id, len(data))
 
-    if segments:
-        # Tree imports nest under the given parent, or Documents root (not Inbox).
-        if folder_id is None:
-            parent = await folder_service.get_root(session, owner_id)
-            parent_id = parent.id
-        else:
-            await folder_service.get_folder(session, folder_id, owner_id=owner_id)
-            parent_id = folder_id
+    pending_folder_path: str | None = None
+    if segments and folder_id is None:
+        # Folder/tree upload with no library parent → Inbox + pending path.
+        inbox = await folder_service.get_inbox(session, owner_id)
+        folder_id = inbox.id
+        inbox_flag = True
+        pending_folder_path = "/".join(segments)
+    elif segments:
+        # Explicit library parent: materialize the tree under that folder now.
+        await folder_service.get_folder(session, folder_id, owner_id=owner_id)
         leaf = await folder_service.ensure_folder_path(
-            session, parent_id=parent_id, segments=segments
+            session, parent_id=folder_id, segments=segments
         )
         folder_id = leaf.id
         inbox_flag = leaf.kind == FolderKind.INBOX
@@ -310,6 +313,9 @@ async def ingest_bytes(
     )
     session.add(doc)
     await session.flush()
+    if pending_folder_path:
+        set_pending_folder_path(doc, pending_folder_path)
+        await session.flush()
 
     await enqueue_job(
         session,

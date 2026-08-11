@@ -174,8 +174,9 @@ async def upload_document(
     """Upload a single file.
 
     Optional ``relative_path`` (e.g. ``Finance/2024/invoice.pdf``) recreates
-    intermediate Folium folders under ``folder_id``, or under Documents root
-    when ``folder_id`` is omitted.
+    intermediate Folium folders under ``folder_id``. When ``folder_id`` is
+    omitted, the file enters Inbox with that path stored as a pending folder
+    target (materialized when the document is processed).
 
     Duplicate handling is content-based (SHA-256):
     - ``on_duplicate=error`` (default): HTTP 409

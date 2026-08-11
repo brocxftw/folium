@@ -103,6 +103,35 @@ async def _has_open_preflight_jobs(
     return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
 
 
+async def _has_open_indexing_job(session: AsyncSession, document_id: uuid.UUID) -> bool:
+    stmt = select(Job.id).where(
+        Job.document_id == document_id,
+        Job.job_type == JobType.INDEXING,
+        Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
+    )
+    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
+
+
+async def _enqueue_library_indexing(
+    session: AsyncSession,
+    doc: Document,
+    *,
+    priority: int,
+) -> bool:
+    """Enqueue INDEXING for non-inbox library docs that are not yet indexed."""
+    if doc.inbox or doc.document_indexed:
+        return False
+    if await _has_open_indexing_job(session, doc.id):
+        return False
+    await job_service.enqueue_job(
+        session,
+        job_type=JobType.INDEXING,
+        document_id=doc.id,
+        priority=priority,
+    )
+    return True
+
+
 async def mark_preflight_ready(
     session: AsyncSession,
     document_id: uuid.UUID,
@@ -119,6 +148,13 @@ async def mark_preflight_ready(
     doc.processing_status = ProcessingStatus.READY
     doc.processing_error = None
     await session.flush()
+    # Library (non-inbox) docs: start RAG indexing after preflight.
+    # Inbox docs wait for explicit Process.
+    await _enqueue_library_indexing(
+        session,
+        doc,
+        priority=100,
+    )
     if not was_ready:
         await library_stats.bump_counters(
             session,
@@ -405,14 +441,12 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
         exclude_job_id=job.id,
     )
 
-    # Library documents must be re-indexed for RAG after OCR.
-    if not doc.inbox:
-        await job_service.enqueue_job(
-            session,
-            job_type=JobType.INDEXING,
-            document_id=doc.id,
-            priority=(job.priority or 100) + 5,
-        )
+    # Library documents must be re-indexed for RAG after OCR (text changed).
+    await _enqueue_library_indexing(
+        session,
+        doc,
+        priority=(job.priority or 100) + 5,
+    )
 
     return {
         "ocr_completed": True,
