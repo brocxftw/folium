@@ -9,7 +9,6 @@ import {
 } from "@/lib/api/hooks";
 import type { useDocumentUploader } from "@/lib/api/upload";
 import { Button } from "@/components/ui/Button";
-import { UploadStatusBar } from "@/components/documents/UploadStatusBar";
 import {
   Dialog,
   DialogContent,
@@ -117,13 +116,6 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
             Upload documents
           </Button>
         </div>
-
-        <UploadStatusBar
-          busy={uploader.busy}
-          progress={uploader.progress}
-          summary={uploader.lastSummary}
-          onDismiss={uploader.clearSummary}
-        />
 
         <InboxIngestionHero uploader={uploader} onBrowse={() => goWork(true)} />
 

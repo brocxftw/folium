@@ -1,32 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowUpDown,
-  FolderInput,
+  CheckCheck,
   Search,
-  Tag,
-  Trash2,
   Upload,
 } from "lucide-react";
 import {
   useAICapabilities,
-  useBulkAction,
   useDocuments,
-  useFolders,
   usePendingSuggestions,
   useProcessInboxDocuments,
   useRemoveFromQueue,
   useRetryPreflight,
-  useTags,
 } from "@/lib/api/hooks";
 import type { Document, InboxStatus, Suggestion } from "@/lib/api/types";
 import type { useDocumentUploader } from "@/lib/api/upload";
 import type { UploadEntry } from "@/lib/uploadTree";
 import { cn } from "@/lib/utils";
 import { UploadDropzone } from "@/components/documents/UploadDropzone";
-import { UploadStatusBar } from "@/components/documents/UploadStatusBar";
-import { MoveToFolderDialog } from "@/components/documents/MoveToFolderDialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
@@ -43,23 +37,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/DropdownMenu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/Popover";
-import { InboxTable } from "./InboxTable";
 import { InboxPreviewDialog } from "./InboxPreviewDialog";
+import { InboxReviewCard } from "./InboxReviewCard";
+import { InboxRejectedCard } from "./InboxRejectedCard";
+import { InboxToast } from "./InboxToast";
+import { acceptAllSuggestions } from "./acceptAllSuggestions";
+import type { SessionRejection } from "./sessionRejections";
 
 type StatusTab = "all" | InboxStatus;
 type DocumentUploader = ReturnType<typeof useDocumentUploader>;
 
 const STATUS_TABS: { id: StatusTab; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "ready", label: "Ready" },
-  { id: "needs_review", label: "Needs review" },
-  { id: "failed", label: "Failed" },
   { id: "preparing", label: "Preparing" },
+  { id: "needs_review", label: "Needs review" },
+  { id: "ready", label: "Ready" },
+  { id: "failed", label: "Failed" },
 ];
 
 const SORT_OPTIONS = [
@@ -81,12 +74,39 @@ function isProcessable(doc: Document): boolean {
   return false;
 }
 
-interface InboxWorkViewProps {
-  uploader: DocumentUploader;
+/** True when preflight / AI suggestion work has finished for this document. */
+function isDocSettled(doc: Document): boolean {
+  if (doc.inbox_status === "preparing") return false;
+  if (
+    doc.processing_status === "pending" ||
+    doc.processing_status === "processing"
+  ) {
+    return false;
+  }
+  return true;
 }
 
-export function InboxWorkView({ uploader }: InboxWorkViewProps) {
+interface InboxWorkViewProps {
+  uploader: DocumentUploader;
+  sessionRejections: SessionRejection[];
+  onDismissRejection: (id: string) => void;
+  onClearRejections: () => void;
+  toastMessage: string | null;
+  onDismissToast: () => void;
+  onUploadFinished?: () => void;
+}
+
+export function InboxWorkView({
+  uploader,
+  sessionRejections,
+  onDismissRejection,
+  onClearRejections,
+  toastMessage,
+  onDismissToast,
+  onUploadFinished,
+}: InboxWorkViewProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -96,10 +116,10 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
   const [sort, setSort] = useState("added_date");
   const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [moveOpen, setMoveOpen] = useState(false);
-  const [tagOpen, setTagOpen] = useState(false);
   const [removeIds, setRemoveIds] = useState<string[] | null>(null);
   const [resultMsg, setResultMsg] = useState<string | null>(null);
+  const [acceptAllBusy, setAcceptAllBusy] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string> | null>(null);
 
   const listParams = {
     inbox: true as const,
@@ -131,15 +151,12 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
     { inbox: true, page_size: 100 },
     { refetchInterval: pollWhilePreparing },
   );
-  const { data: folders = [] } = useFolders();
-  const { data: tags = [] } = useTags();
   const { data: aiPolicy } = useAICapabilities();
   const aiSuggestionsAvailable = Boolean(
     aiPolicy?.auto_tagging && aiPolicy.chat_available,
   );
   const { data: pendingSuggestions = [] } = usePendingSuggestions(aiSuggestionsAvailable);
 
-  const bulkAction = useBulkAction();
   const processDocs = useProcessInboxDocuments();
   const removeFromQueue = useRemoveFromQueue();
   const retryPreflight = useRetryPreflight();
@@ -168,13 +185,51 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
       const s = d.inbox_status;
       if (s) c[s] += 1;
     }
+    c.failed += sessionRejections.length;
+    c.all += sessionRejections.length;
     return c;
-  }, [allInbox?.items]);
+  }, [allInbox?.items, sessionRejections.length]);
 
   const selectedDocs = documents.filter((d) => selectedIds.has(d.id));
   const processTargets =
     selectedIds.size > 0 ? selectedDocs.filter(isProcessable) : documents.filter(isProcessable);
   const processCount = processTargets.length;
+
+  const acceptScopeIds =
+    selectedIds.size > 0 ? Array.from(selectedIds) : documentIds;
+  const pendingInScope = pendingSuggestions.filter((s) =>
+    acceptScopeIds.includes(s.document_id),
+  );
+
+  const showRejectedInList = statusTab === "all" || statusTab === "failed";
+
+  const allDocsSettled =
+    documents.length > 0 && documents.every(isDocSettled);
+
+  // Always start collapsed; keep collapsed while any file is still processing.
+  useEffect(() => {
+    if (documents.length === 0) return;
+    if (expandedIds === null) {
+      setExpandedIds(new Set());
+    }
+  }, [documents.length, expandedIds]);
+
+  useEffect(() => {
+    if (!allDocsSettled) {
+      setExpandedIds(new Set());
+    }
+  }, [allDocsSettled]);
+
+  const toggleExpand = (id: string) => {
+    if (!allDocsSettled) return;
+    setExpandedIds((prev) => {
+      const base = prev ?? new Set<string>();
+      const next = new Set(base);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (searchParams.get("upload") !== "1") return;
@@ -187,14 +242,18 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
     return () => window.clearTimeout(timer);
   }, [searchParams, setSearchParams]);
 
-  const handleUploadFiles = async (files: FileList) => {
-    await uploader.uploadFileList(files);
+  const afterUpload = async (run: () => Promise<unknown>) => {
+    await run();
+    onUploadFinished?.();
     refetch();
   };
 
+  const handleUploadFiles = async (files: FileList) => {
+    await afterUpload(() => uploader.uploadFileList(files));
+  };
+
   const handleEntries = async (entries: UploadEntry[]) => {
-    await uploader.uploadEntries(entries);
-    refetch();
+    await afterUpload(() => uploader.uploadEntries(entries));
   };
 
   const confirmRemove = async () => {
@@ -221,6 +280,7 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
     setSelectedIds(new Set());
     const processedIds = result.processed.map((p) => p.id);
     if (processedIds.length > 0) {
+      onClearRejections();
       navigate("/inbox", { state: { justProcessedIds: processedIds } });
       return;
     }
@@ -232,28 +292,65 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
     refetch();
   };
 
-  const handleBulkFolder = async (folderId: string) => {
-    const ids = Array.from(selectedIds);
-    for (const id of ids) {
-      await bulkAction.mutateAsync({
-        document_ids: [id],
-        action: "move",
-        folder_id: folderId,
-      });
+  const handleAcceptAll = async () => {
+    if (pendingInScope.length === 0) return;
+    setAcceptAllBusy(true);
+    try {
+      const { accepted, failed } = await acceptAllSuggestions(
+        pendingSuggestions,
+        acceptScopeIds,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["ai", "suggestions"] });
+      await queryClient.invalidateQueries({ queryKey: ["documents"] });
+      await queryClient.invalidateQueries({ queryKey: ["folders"] });
+      await queryClient.invalidateQueries({ queryKey: ["tags"] });
+      const parts = [
+        accepted ? `Accepted ${accepted} suggestion${accepted === 1 ? "" : "s"}` : null,
+        failed ? `${failed} failed` : null,
+      ].filter(Boolean);
+      setResultMsg(parts.join(" · ") || "No suggestions accepted");
+      refetch();
+    } finally {
+      setAcceptAllBusy(false);
     }
-    setSelectedIds(new Set());
-    refetch();
   };
 
-  const handleBulkTag = async (tagId: string) => {
-    await bulkAction.mutateAsync({
-      document_ids: Array.from(selectedIds),
-      action: "tag",
-      tag_ids: [tagId],
-    });
-    setTagOpen(false);
-    refetch();
+  const handleAcceptAllForDoc = async (documentId: string) => {
+    const pending = pendingSuggestions.filter((s) => s.document_id === documentId);
+    if (pending.length === 0) return;
+    setAcceptAllBusy(true);
+    try {
+      const { accepted, failed } = await acceptAllSuggestions(pending, [documentId]);
+      await queryClient.invalidateQueries({ queryKey: ["ai", "suggestions"] });
+      await queryClient.invalidateQueries({ queryKey: ["documents"] });
+      await queryClient.invalidateQueries({ queryKey: ["folders"] });
+      await queryClient.invalidateQueries({ queryKey: ["tags"] });
+      const parts = [
+        accepted ? `Accepted ${accepted} suggestion${accepted === 1 ? "" : "s"}` : null,
+        failed ? `${failed} failed` : null,
+      ].filter(Boolean);
+      setResultMsg(parts.join(" · ") || "No suggestions accepted");
+      refetch();
+    } finally {
+      setAcceptAllBusy(false);
+    }
   };
+
+  const goBack = () => {
+    onClearRejections();
+    navigate("/inbox");
+  };
+
+  const emptyCopy =
+    statusTab === "failed"
+      ? {
+          title: "No failed documents",
+          body: "No documents in this view have failed.",
+        }
+      : {
+          title: "Nothing to review",
+          body: "Documents that require review and filing will appear here.",
+        };
 
   return (
     <UploadDropzone
@@ -279,147 +376,88 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
         onChange={(e) => e.target.files && void handleUploadFiles(e.target.files)}
       />
 
-      <div className="flex h-full flex-col bg-surface">
-        <div className="flex items-start justify-between gap-3 border-b border-surface-border px-4 py-3">
-          <div>
-            <div className="flex items-center gap-2">
+      <div className="flex h-full flex-col overflow-auto bg-[#F8FAFB]">
+        <div className="px-6 pb-7 pt-[18px]">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
               <Button
                 size="sm"
                 variant="ghost"
-                className="-ml-1 h-7 px-1.5"
-                onClick={() => navigate("/inbox")}
+                className="-ml-1 h-7 px-1.5 text-[#42515D]"
+                onClick={goBack}
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Back to Inbox
               </Button>
+              <h1 className="mt-1 text-lg font-bold text-[#14212B]">Review & file</h1>
+              <p className="mt-0.5 text-xs text-[#5D6B76]">
+                Documents awaiting review and filing
+                {isFetching ? " · refreshing…" : ""}
+              </p>
+              {!aiSuggestionsAvailable && (
+                <p className="mt-1 text-[11px] text-[#74828D]">
+                  AI filing suggestions unavailable — documents can still be filed manually.
+                </p>
+              )}
             </div>
-            <h1 className="mt-1 text-base font-semibold text-text-primary">Review & file</h1>
-            <p className="mt-0.5 text-xs text-text-secondary">
-              Documents awaiting review and filing
-            </p>
-            {!aiSuggestionsAvailable && (
-              <p className="mt-1 text-[11px] text-text-muted">
-                AI filing suggestions unavailable — documents can still be filed manually.
-              </p>
-            )}
-            {aiSuggestionsAvailable && (
-              <p className="mt-1 text-[11px] text-emerald-800">
-                AI suggestions available
-                {pendingSuggestions.length > 0
-                  ? ` · ${pendingSuggestions.length} pending`
-                  : ""}
-              </p>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9 rounded-lg"
+                  disabled={uploader.busy}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  {uploader.busy ? "Uploading…" : "Upload"}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                  Upload files…
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => folderInputRef.current?.click()}>
+                  Upload folder…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" disabled={uploader.busy}>
-                <Upload className="h-3.5 w-3.5" />
-                Upload
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
-                Upload files…
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => folderInputRef.current?.click()}>
-                Upload folder…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
 
-        <UploadStatusBar
-          busy={uploader.busy}
-          progress={uploader.progress}
-          summary={uploader.lastSummary}
-          onDismiss={uploader.clearSummary}
-        />
-
-        <div className="flex flex-wrap items-center gap-2 border-b border-surface-border px-3 py-2">
-          {selectedIds.size > 0 ? (
-            <>
-              <span className="text-xs font-medium text-text-primary">
-                {selectedIds.size} selected
-              </span>
-              <Button size="sm" variant="secondary" onClick={() => setMoveOpen(true)}>
-                <FolderInput className="h-3.5 w-3.5" />
-                Assign folder
-              </Button>
-              <Popover open={tagOpen} onOpenChange={setTagOpen}>
-                <PopoverTrigger asChild>
-                  <Button size="sm" variant="secondary">
-                    <Tag className="h-3.5 w-3.5" />
-                    Add tags
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-56 p-2">
-                  <div className="max-h-48 overflow-y-auto">
-                    {tags.map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        className="block w-full truncate rounded px-2 py-1.5 text-left text-xs hover:bg-surface-hover"
-                        onClick={() => void handleBulkTag(t.id)}
-                      >
-                        {t.name}
-                      </button>
-                    ))}
-                    {tags.length === 0 && (
-                      <p className="px-2 py-2 text-xs text-text-muted">No tags yet</p>
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => setRemoveIds(Array.from(selectedIds))}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Remove
-              </Button>
-              <div className="flex-1" />
-              <Button
-                size="sm"
-                disabled={processCount === 0 || processDocs.isPending}
-                onClick={() => void handleProcess()}
-              >
-                Process {processCount} selected
-              </Button>
-            </>
-          ) : (
-            <>
-              <div className="relative min-w-[180px] max-w-xs flex-1">
-                <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+          <div className="flex flex-wrap items-center justify-between gap-3.5">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+              <div className="relative w-[312px] max-w-full">
+                <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#74828D]" />
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search inbox…"
-                  className="h-7 pl-8"
+                  placeholder="Search inbox..."
+                  className="h-9 rounded-lg border-[#DCE3E8] bg-white pl-9 text-xs"
                 />
               </div>
-              <div className="flex flex-wrap items-center gap-1">
+              <div className="flex flex-wrap items-center gap-2">
                 {STATUS_TABS.map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => setStatusTab(tab.id)}
                     className={cn(
-                      "rounded-md px-2 py-1 text-xs",
+                      "h-[34px] rounded-lg border px-3 text-xs transition-colors",
                       statusTab === tab.id
-                        ? "bg-surface-muted font-medium text-text-primary"
-                        : "text-text-secondary hover:bg-surface-hover",
+                        ? "border-[#13B8AA] bg-[#F0FBF9] font-semibold text-[#087F78]"
+                        : "border-[#DCE3E8] bg-white text-[#42515D] hover:bg-[#F8FAFB]",
                     )}
                   >
                     {tab.label}
-                    <span className="ml-1 text-text-muted">{counts[tab.id]}</span>
+                    <span className="ml-1 opacity-70">{counts[tab.id]}</span>
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="ghost">
+                  <Button size="sm" variant="ghost" className="h-[34px] text-[#24333D]">
                     <ArrowUpDown className="h-3.5 w-3.5" />
                     Sort
                   </Button>
@@ -443,33 +481,48 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <div className="flex-1" />
+
               <Button
                 size="sm"
+                variant="outline"
+                className="h-[38px] rounded-lg"
+                disabled={
+                  !aiSuggestionsAvailable ||
+                  pendingInScope.length === 0 ||
+                  acceptAllBusy
+                }
+                onClick={() => void handleAcceptAll()}
+              >
+                <CheckCheck className="h-3.5 w-3.5" />
+                Accept all AI suggestions
+                {pendingInScope.length > 0 ? ` (${pendingInScope.length})` : ""}
+              </Button>
+
+              <Button
+                className="h-[38px] rounded-lg bg-[#07998E] px-4 font-semibold hover:bg-[#087F78]"
                 disabled={processCount === 0 || processDocs.isPending}
                 onClick={() => void handleProcess()}
               >
                 Process {processCount} document{processCount === 1 ? "" : "s"}
               </Button>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
 
-        <InboxTable
-          documents={documents}
-          selectedIds={selectedIds}
-          onSelect={setSelectedIds}
-          onPreview={setPreviewId}
-          onRemove={(id) => setRemoveIds([id])}
-          onRetry={(id) => void retryPreflight.mutateAsync(id).then(() => refetch())}
-          suggestionsByDoc={suggestionsByDoc}
-          isLoading={isLoading}
-          empty={
-            <div className="max-w-sm text-center">
-              <p className="text-sm font-medium text-text-primary">Inbox is clear</p>
-              <p className="mt-1 text-xs text-text-secondary">
-                Documents awaiting review and filing will appear here.
-              </p>
+          <p className="mb-2.5 mt-2.5 text-xs font-medium text-[#5D6B76]">
+            {documents.length} document{documents.length === 1 ? "" : "s"}
+            {showRejectedInList && sessionRejections.length > 0
+              ? ` · ${sessionRejections.length} rejected`
+              : ""}
+            {selectedIds.size > 0 ? ` · ${selectedIds.size} selected` : ""}
+          </p>
+
+          {isLoading ? (
+            <div className="py-16 text-center text-sm text-[#74828D]">Loading inbox…</div>
+          ) : documents.length === 0 &&
+            !(showRejectedInList && sessionRejections.length > 0) ? (
+            <div className="py-16 text-center">
+              <p className="text-sm font-medium text-[#14212B]">{emptyCopy.title}</p>
+              <p className="mt-1 text-xs text-[#42515D]">{emptyCopy.body}</p>
               <Button
                 size="sm"
                 className="mt-4"
@@ -479,14 +532,48 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
                 Upload documents
               </Button>
             </div>
-          }
-        />
-
-        <div className="flex items-center justify-between border-t border-surface-border px-4 py-2 text-xs text-text-muted">
-          <span>
-            {docList?.total ?? 0} document{(docList?.total ?? 0) === 1 ? "" : "s"}
-            {isFetching ? " · refreshing…" : ""}
-          </span>
+          ) : (
+            <div>
+              {showRejectedInList &&
+                sessionRejections.map((r) => (
+                  <InboxRejectedCard
+                    key={r.id}
+                    rejection={r}
+                    onDismiss={onDismissRejection}
+                  />
+                ))}
+              {documents.map((doc) => (
+                <InboxReviewCard
+                  key={doc.id}
+                  document={doc}
+                  suggestions={suggestionsByDoc[doc.id] ?? []}
+                  selected={selectedIds.has(doc.id)}
+                  expanded={allDocsSettled && (expandedIds?.has(doc.id) ?? false)}
+                  reviewReady={allDocsSettled}
+                  onToggleExpand={() => toggleExpand(doc.id)}
+                  onSelect={(checked) => {
+                    setSelectedIds((prev) => {
+                      const next = new Set(prev);
+                      if (checked) next.add(doc.id);
+                      else next.delete(doc.id);
+                      return next;
+                    });
+                  }}
+                  onPreview={() => setPreviewId(doc.id)}
+                  onRetry={() =>
+                    void retryPreflight.mutateAsync(doc.id).then(() => refetch())
+                  }
+                  onRemove={() => setRemoveIds([doc.id])}
+                  acceptSuggestionsBusy={acceptAllBusy}
+                  onAcceptAllSuggestions={
+                    aiSuggestionsAvailable
+                      ? () => void handleAcceptAllForDoc(doc.id)
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -494,15 +581,6 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
         documentIds={documentIds}
         activeId={previewId}
         onActiveIdChange={setPreviewId}
-      />
-
-      <MoveToFolderDialog
-        open={moveOpen}
-        onOpenChange={setMoveOpen}
-        folders={folders}
-        selectedCount={selectedIds.size}
-        onConfirm={handleBulkFolder}
-        isPending={bulkAction.isPending}
       />
 
       <Dialog open={Boolean(removeIds)} onOpenChange={(o) => !o && setRemoveIds(null)}>
@@ -530,20 +608,13 @@ export function InboxWorkView({ uploader }: InboxWorkViewProps) {
         </DialogContent>
       </Dialog>
 
-      {resultMsg && (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border border-surface-border bg-surface px-4 py-2 text-sm shadow-lg">
-          <div className="flex items-center gap-3">
-            <span>{resultMsg}</span>
-            <button
-              type="button"
-              className="text-xs text-text-muted hover:text-text-primary"
-              onClick={() => setResultMsg(null)}
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
+      <InboxToast
+        message={resultMsg ?? toastMessage}
+        onDismiss={() => {
+          setResultMsg(null);
+          onDismissToast();
+        }}
+      />
     </UploadDropzone>
   );
 }

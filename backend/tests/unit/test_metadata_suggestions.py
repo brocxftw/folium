@@ -8,9 +8,12 @@ import pytest
 
 from folium.workers.processor import (
     _FOLDER_PATH_RE,
+    _coerce_confidence,
+    _field_confidence,
     _is_system_folder_path,
     _normalize_folder_path,
     _parse_suggestion_json,
+    _parse_tag_entries,
 )
 
 
@@ -130,3 +133,57 @@ def test_filing_folder_paths_allowed(path: str) -> None:
 def test_normalize_folder_path_collapses_slashes() -> None:
     assert _normalize_folder_path("Identity/Aishah") == "Identity / Aishah"
     assert _normalize_folder_path("  Finance /  Taxes  ") == "Finance / Taxes"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, None),
+        (True, None),
+        ("", None),
+        ("nope", None),
+        (-0.1, None),
+        (1.1, None),
+        (0, 0.0),
+        (1, 1.0),
+        (0.85, 0.85),
+        ("0.42", 0.42),
+        (85, 0.85),
+        ("90", 0.9),
+        (95, 0.95),
+    ],
+)
+def test_coerce_confidence(raw: object, expected: float | None) -> None:
+    assert _coerce_confidence(raw) == expected
+
+
+def test_field_confidence_reads_nested_object() -> None:
+    data = {"confidence": {"folder": 0.91, "title": "80", "tags": 0.5}}
+    assert _field_confidence(data, "folder") == 0.91
+    assert _field_confidence(data, "title") == 0.8
+    assert _field_confidence(data, "correspondent") is None
+
+
+def test_parse_tag_entries_strings_and_objects() -> None:
+    entries = _parse_tag_entries(
+        [
+            "lppsa",
+            {"name": "Refinance", "confidence": 0.88},
+            {"name": "lppsa", "confidence": 0.1},  # duplicate case
+            {"name": "  ", "confidence": 0.9},
+            {"confidence": 0.7},
+            {"name": "housing-loan", "confidence": 95},
+        ]
+    )
+    assert entries == [
+        ("lppsa", None),
+        ("Refinance", 0.88),
+        ("housing-loan", 0.95),
+    ]
+
+
+def test_parse_tag_entries_caps_at_twelve() -> None:
+    entries = _parse_tag_entries([f"t{i}" for i in range(20)])
+    assert len(entries) == 12
+    assert entries[0] == ("t0", None)
+    assert entries[-1] == ("t11", None)

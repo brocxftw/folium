@@ -570,6 +570,66 @@ def _parse_suggestion_json(content: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _coerce_confidence(value: object) -> float | None:
+    """Normalize a model confidence to [0, 1], or None if missing/invalid."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        score = float(value)
+    elif isinstance(value, str):
+        try:
+            score = float(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    if score != score:  # NaN
+        return None
+    # Whole-number percents (e.g. 85, "90") → 0–1.
+    if score > 1.0 and score <= 100.0 and score == int(score):
+        score = score / 100.0
+    if score < 0.0 or score > 1.0:
+        return None
+    return round(score, 4)
+
+
+def _field_confidence(data: dict, field: str) -> float | None:
+    block = data.get("confidence")
+    if isinstance(block, dict):
+        return _coerce_confidence(block.get(field))
+    if field == "overall":
+        return _coerce_confidence(data.get("confidence"))
+    return None
+
+
+def _parse_tag_entries(tags: object) -> list[tuple[str, float | None]]:
+    """Parse tags as strings or {name, confidence} objects; dedupe by case."""
+    if not isinstance(tags, list):
+        return []
+    seen: set[str] = set()
+    out: list[tuple[str, float | None]] = []
+    for entry in tags:
+        name: str | None = None
+        conf: float | None = None
+        if isinstance(entry, str):
+            name = entry.strip()
+        elif isinstance(entry, dict):
+            raw_name = entry.get("name")
+            if isinstance(raw_name, str):
+                name = raw_name.strip()
+            conf = _coerce_confidence(entry.get("confidence"))
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((name, conf))
+        if len(out) >= 12:
+            break
+    return out
+
+
 async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
     """Generate filing suggestions for Inbox review (never auto-applied)."""
     if job.document_id is None:
@@ -669,8 +729,15 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         "title (string or null), "
         "document_type (string name or null), "
         "correspondent (string name or null), "
-        "tags (array of short tag strings), "
+        "tags (array of objects {name: string, confidence: number 0-1}; "
+        "legacy string tags are also accepted), "
+        "confidence (object with optional folder, title, document_type, "
+        "correspondent scores as numbers 0-1), "
         "needs_review (boolean — true if unsure).\n\n"
+        "Confidence rules:\n"
+        "- Scores must be between 0 and 1 (higher = more sure).\n"
+        "- Put per-tag confidence on each tags entry.\n"
+        "- Put other field scores under confidence.\n\n"
         "Folder rules:\n"
         "- Prefer a specific filing destination from the document subject "
         "(person, org, topic, year), e.g. 'Identity / Aishah Binti Abdul Azim' "
@@ -720,6 +787,13 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         )
     )
 
+    field_scores = {
+        "folder": _field_confidence(data, "folder"),
+        "title": _field_confidence(data, "title"),
+        "document_type": _field_confidence(data, "document_type"),
+        "correspondent": _field_confidence(data, "correspondent"),
+    }
+
     folder_path = data.get("folder_path")
     if isinstance(folder_path, str):
         folder_path = _normalize_folder_path(folder_path)
@@ -762,6 +836,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
                     status=SuggestionStatus.PENDING,
                     provider=provider.name,
                     model=result.model,
+                    confidence=field_scores["folder"],
                 )
             )
             created += 1
@@ -781,6 +856,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
                 status=SuggestionStatus.PENDING,
                 provider=provider.name,
                 model=result.model,
+                confidence=field_scores["title"],
             )
         )
         created += 1
@@ -803,6 +879,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
                     status=SuggestionStatus.PENDING,
                     provider=provider.name,
                     model=result.model,
+                    confidence=field_scores["document_type"],
                 )
             )
             created += 1
@@ -825,27 +902,24 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
                     status=SuggestionStatus.PENDING,
                     provider=provider.name,
                     model=result.model,
+                    confidence=field_scores["correspondent"],
                 )
             )
             created += 1
 
-    suggested_tags = data.get("tags")
-    if isinstance(suggested_tags, list):
-        names = [str(n).strip() for n in suggested_tags if isinstance(n, str) and str(n).strip()][
-            :12
-        ]
-        if names:
-            session.add(
-                AISuggestion(
-                    document_id=doc.id,
-                    field="tags",
-                    value={"tag_names": names},
-                    status=SuggestionStatus.PENDING,
-                    provider=provider.name,
-                    model=result.model,
-                )
+    for tag_name, tag_conf in _parse_tag_entries(data.get("tags")):
+        session.add(
+            AISuggestion(
+                document_id=doc.id,
+                field="tags",
+                value={"tag_names": [tag_name]},
+                status=SuggestionStatus.PENDING,
+                provider=provider.name,
+                model=result.model,
+                confidence=tag_conf,
             )
-            created += 1
+        )
+        created += 1
 
     needs_review = bool(data.get("needs_review"))
     if not folder_path:
