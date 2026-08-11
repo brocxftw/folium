@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Send, Sparkles } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
-import { useAICapabilities, useAsk, useFolders } from "@/lib/api/hooks";
+import { useAICapabilities, useAIHealth, useAsk, useFolders } from "@/lib/api/hooks";
 import type {
   AskRequest,
   AskResponse,
@@ -123,6 +123,8 @@ export function AIChatDrawer({
 
   const ask = useAsk();
   const { data: policy } = useAICapabilities();
+  const { data: aiHealth } = useAIHealth();
+  const chatAvailable = aiHealth?.chat.status === "available";
   const { data: folders = [] } = useFolders();
 
   useEffect(() => {
@@ -347,10 +349,15 @@ export function AIChatDrawer({
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <Sparkles className="mb-3 h-8 w-8 text-text-muted/40" />
                 <p className="text-sm text-text-secondary">
-                  Ask a question about this scope
+                  {chatAvailable
+                    ? "Ask a question about this scope"
+                    : "Chat AI is currently unavailable"}
                 </p>
                 <p className="mt-1 max-w-xs text-xs text-text-muted">
-                  Answers cite passages you can open in the document viewer.
+                  {chatAvailable
+                    ? "Answers cite passages you can open in the document viewer."
+                    : aiHealth?.chat.error ||
+                      "Configure a chat model in Settings, or try again when the provider is online."}
                 </p>
               </div>
             )}
@@ -366,9 +373,13 @@ export function AIChatDrawer({
             <Textarea
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              placeholder="What would you like to know?"
+              placeholder={
+                chatAvailable
+                  ? "What would you like to know?"
+                  : "Chat unavailable"
+              }
               className="min-h-[72px] resize-none"
-              disabled={ask.isPending}
+              disabled={ask.isPending || !chatAvailable}
             />
             {error && <p className="text-xs text-danger">{error}</p>}
             {pendingRemote && policy?.warn_before_remote_chat && (
@@ -385,7 +396,7 @@ export function AIChatDrawer({
             <Button
               type="submit"
               className="w-full gap-1"
-              disabled={!question.trim() || ask.isPending}
+              disabled={!chatAvailable || !question.trim() || ask.isPending}
             >
               <Send className="h-3.5 w-3.5" />
               {ask.isPending ? "Thinking…" : "Ask"}

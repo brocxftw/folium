@@ -10,7 +10,12 @@ from folium.core.security import decrypt_secret
 from folium.models import AIProvider, ProviderKind
 
 
-def get_adapter(provider: AIProvider, api_key: str | None = None) -> AIProviderAdapter:
+def get_adapter(
+    provider: AIProvider,
+    api_key: str | None = None,
+    *,
+    timeout: float = 120.0,
+) -> AIProviderAdapter:
     """Return the adapter implementation for a configured provider."""
     resolved_key = api_key
     if resolved_key is None and provider.encrypted_api_key:
@@ -23,10 +28,10 @@ def get_adapter(provider: AIProvider, api_key: str | None = None) -> AIProviderA
             | ProviderKind.OPENROUTER
             | ProviderKind.OLLAMA
         ):
-            return OpenAICompatibleAdapter(provider, resolved_key)
+            return OpenAICompatibleAdapter(provider, resolved_key, timeout=timeout)
         case ProviderKind.ANTHROPIC:
-            return AnthropicAdapter(provider, resolved_key)
+            return AnthropicAdapter(provider, resolved_key, timeout=timeout)
         case ProviderKind.GEMINI:
-            return GeminiAdapter(provider, resolved_key)
+            return GeminiAdapter(provider, resolved_key, timeout=timeout)
         case _:
             raise ValueError(f"Unsupported provider kind: {provider.kind}")

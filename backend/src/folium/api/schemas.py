@@ -632,6 +632,24 @@ class AICapabilitiesOut(BaseModel):
     privacy_mode: str
 
 
+class AICapabilityHealthOut(BaseModel):
+    status: Literal["available", "unavailable", "checking", "not_configured"]
+    provider: str | None = None
+    model: str | None = None
+    latency_ms: int | None = None
+    last_checked: datetime | None = None
+    error: str | None = None
+
+
+class AIHealthOut(BaseModel):
+    ocr: AICapabilityHealthOut
+    indexing: AICapabilityHealthOut
+    embedding: AICapabilityHealthOut
+    chat: AICapabilityHealthOut
+    auto_tagging: bool
+    auto_enrichment: bool
+
+
 class AIPolicyUpdate(BaseModel):
     privacy_mode: Literal["local_only", "private_hybrid", "standard"] | None = None
     profile: Literal["lightweight", "balanced", "quality", "custom"] | None = None

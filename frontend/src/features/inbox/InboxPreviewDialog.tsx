@@ -1,5 +1,10 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useDocument } from "@/lib/api/hooks";
+import {
+  useDocument,
+  useDocumentContent,
+  useDocumentSuggestions,
+  useJobs,
+} from "@/lib/api/hooks";
 import { DocumentViewer } from "@/components/viewer/DocumentViewer";
 import { Button } from "@/components/ui/Button";
 import {
@@ -10,9 +15,8 @@ import {
 } from "@/components/ui/Dialog";
 import { InboxFolderControl } from "./InboxFolderControl";
 import { InboxTagsControl } from "./InboxTagsControl";
-import { InboxTypeControl } from "./InboxTypeControl";
 import { InboxStatusBadge } from "./InboxStatusBadge";
-import { InboxSuggestions } from "./InboxSuggestions";
+import { SuggestionChip, TagSuggestionTiles } from "./InboxSuggestions";
 import { documentSecondaryMeta } from "./formatMeta";
 
 interface InboxPreviewDialogProps {
@@ -29,6 +33,19 @@ export function InboxPreviewDialog({
   const open = Boolean(activeId);
   const index = activeId ? documentIds.indexOf(activeId) : -1;
   const { data: doc } = useDocument(activeId ?? undefined);
+  const { data: docJobs = [] } = useJobs(undefined, activeId ?? undefined);
+  const { data: suggestions = [] } = useDocumentSuggestions(doc?.id);
+  const { data: content, isLoading: contentLoading } = useDocumentContent(doc?.id);
+
+  const titleSuggestion = suggestions.find((s) => s.field === "title");
+  const folderSuggestion = suggestions.find((s) => s.field === "folder");
+  const tagSuggestions = suggestions.filter((s) => s.field === "tags");
+
+  const ocrText =
+    content?.pages
+      ?.map((p) => p.text.trim())
+      .filter(Boolean)
+      .join("\n\n") ?? "";
 
   const go = (delta: number) => {
     if (index < 0) return;
@@ -94,29 +111,65 @@ export function InboxPreviewDialog({
                   <InboxStatusBadge
                     status={doc.inbox_status}
                     error={doc.processing_error}
+                    document={doc}
+                    jobs={docJobs}
                   />
                   {doc.processing_error && (
                     <p className="mt-2 text-xs text-danger">{doc.processing_error}</p>
                   )}
                 </div>
-                <InboxSuggestions documentId={doc.id} />
+
+                <div>
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+                    Filename
+                  </p>
+                  <p className="text-sm text-text-primary break-words">
+                    {doc.title || doc.original_filename || "—"}
+                  </p>
+                  {titleSuggestion && (
+                    <div className="mt-2">
+                      <SuggestionChip suggestion={titleSuggestion} />
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">
                     Folder
                   </p>
                   <InboxFolderControl document={doc} />
+                  {folderSuggestion && (
+                    <div className="mt-2">
+                      <SuggestionChip suggestion={folderSuggestion} />
+                    </div>
+                  )}
                 </div>
+
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">
                     Tags
                   </p>
                   <InboxTagsControl document={doc} />
+                  {tagSuggestions.length > 0 && (
+                    <div className="mt-2">
+                      <TagSuggestionTiles suggestions={tagSuggestions} />
+                    </div>
+                  )}
                 </div>
+
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">
-                    Type
+                    OCR output
                   </p>
-                  <InboxTypeControl document={doc} />
+                  {contentLoading ? (
+                    <p className="text-xs text-text-muted">Loading…</p>
+                  ) : ocrText ? (
+                    <div className="max-h-48 overflow-y-auto rounded-md border border-surface-border bg-surface-muted px-2.5 py-2 text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
+                      {ocrText}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-text-muted">No OCR text yet</p>
+                  )}
                 </div>
               </>
             ) : (

@@ -159,7 +159,11 @@ export function InboxTable({
                   </div>
                 </td>
                 <td className="px-2 py-2 align-middle">
-                  <InboxStatusBadge status={status} error={doc.processing_error} />
+                  <InboxStatusBadge
+                    status={status}
+                    error={doc.processing_error}
+                    document={doc}
+                  />
                 </td>
                 <td className="px-2 py-2 align-middle" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-0.5">

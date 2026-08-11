@@ -101,6 +101,8 @@ async def process_document_embeddings(
     provider = embedding.provider
     if not provider.enabled:
         return EmbeddingRunResult(skipped=True, reason="provider_unavailable").as_dict()
+    if provider.last_probe_status != "available":
+        return EmbeddingRunResult(skipped=True, reason="provider_unavailable").as_dict()
 
     PrivacyGate(ai_settings, provider).assert_can_embed()
     await assert_ai_quota(session, doc.owner_id)

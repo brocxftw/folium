@@ -7,6 +7,7 @@ import os
 import socket
 from datetime import UTC, datetime
 
+from folium.ai.health import HEALTH_PROBE_INTERVAL_SECONDS, probe_assigned_providers
 from folium.core.config import get_settings
 from folium.core.logging import get_logger, setup_logging
 from folium.db.session import session_scope
@@ -48,7 +49,9 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
                     from folium.models import JobStatus
                     from folium.workers.processor import (
                         PREFLIGHT_JOB_TYPES,
+                        SOFT_FAIL_PREFLIGHT_JOB_TYPES,
                         mark_preflight_failed,
+                        mark_preflight_ready,
                     )
 
                     delay: float | None = None
@@ -66,7 +69,17 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
                         and failed.document_id is not None
                         and failed.job_type in PREFLIGHT_JOB_TYPES
                     ):
-                        await mark_preflight_failed(session, failed.document_id, str(exc))
+                        if failed.job_type in SOFT_FAIL_PREFLIGHT_JOB_TYPES:
+                            # AI enrichment is optional — degrade to manual review.
+                            logger.warning(
+                                "AI preflight soft-failed for doc=%s (%s): %s",
+                                failed.document_id,
+                                failed.job_type.value,
+                                exc,
+                            )
+                            await mark_preflight_ready(session, failed.document_id)
+                        else:
+                            await mark_preflight_failed(session, failed.document_id, str(exc))
 
                     if (
                         failed.status == JobStatus.FAILED
@@ -87,6 +100,17 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
 
                                 doc.processing_status = ProcessingStatus.PARTIAL
                                 doc.has_embeddings = True
+
+                    # SUMMARY is post-Process; terminal AI failure must not alter filing.
+                    if (
+                        failed.status == JobStatus.FAILED
+                        and failed.job_type.value == "summary"
+                    ):
+                        logger.warning(
+                            "SUMMARY soft-failed for doc=%s: %s",
+                            failed.document_id,
+                            exc,
+                        )
 
     asyncio.create_task(_run())
 
@@ -142,11 +166,41 @@ async def _poll_trash_purge(last_run: list[float]) -> None:
         logger.exception("Trash purge failed: %s", exc)
 
 
+async def _poll_ai_health(last_run: list[float], in_flight: list[asyncio.Task | None]) -> None:
+    """Schedule a non-blocking health probe every HEALTH_PROBE_INTERVAL_SECONDS.
+
+    Must not be awaited inside the job-poll gather — a down provider used to
+    stall OCR/extract claiming for minutes (adapter 120s × retries).
+    """
+    import time
+
+    task = in_flight[0]
+    if task is not None and not task.done():
+        return
+
+    now = time.monotonic()
+    if last_run[0] and now - last_run[0] < HEALTH_PROBE_INTERVAL_SECONDS:
+        return
+    last_run[0] = now
+
+    async def _run() -> None:
+        try:
+            count = await probe_assigned_providers()
+            if count:
+                logger.debug("AI health probe completed for %s provider(s)", count)
+        except Exception as exc:
+            logger.exception("AI health probe failed: %s", exc)
+
+    in_flight[0] = asyncio.create_task(_run())
+
+
 async def worker_loop() -> None:
     settings = get_settings()
     wid = worker_id()
     sem = asyncio.Semaphore(settings.job_concurrency)
     last_purge: list[float] = [0.0]
+    last_ai_health: list[float] = [0.0]
+    ai_health_task: list[asyncio.Task | None] = [None]
     logger.info("Worker %s started (concurrency=%s)", wid, settings.job_concurrency)
 
     while True:
@@ -157,6 +211,8 @@ async def worker_loop() -> None:
                 session.add(AppSetting(key="worker_heartbeat", value=value))
             else:
                 heartbeat.value = value
+        # Health probe is fire-and-forget so unreachable AI cannot block jobs.
+        await _poll_ai_health(last_ai_health, ai_health_task)
         tasks = [
             _poll_jobs(wid, sem),
             _poll_consume(settings.consume_poll_interval_seconds),

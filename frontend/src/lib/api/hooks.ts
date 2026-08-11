@@ -14,6 +14,7 @@ import type {
   AIUsageSummary,
   AIAssignment,
   AICapabilities,
+  AIHealth,
   AIWorkloadRole,
   About,
   ApplicationLogList,
@@ -84,6 +85,7 @@ export const queryKeys = {
   aiUsage: ["ai", "usage"] as const,
   aiAssignments: ["ai", "assignments"] as const,
   aiCapabilities: ["ai", "capabilities"] as const,
+  aiHealth: ["ai", "health"] as const,
   aiSuggestions: (documentId?: string) =>
     ["ai", "suggestions", documentId ?? "all"] as const,
   storageHealth: ["storage", "health"] as const,
@@ -964,6 +966,15 @@ export function useAICapabilities() {
   return useQuery({
     queryKey: queryKeys.aiCapabilities,
     queryFn: () => api.get<AICapabilities>("/api/ai/capabilities"),
+  });
+}
+
+export function useAIHealth() {
+  return useQuery({
+    queryKey: queryKeys.aiHealth,
+    queryFn: () => api.get<AIHealth>("/api/ai/health"),
+    refetchInterval: 3_000,
+    staleTime: 3_000,
   });
 }
 

@@ -20,6 +20,8 @@ from folium.api.schemas import (
     AIAssignmentOut,
     AIAssignmentUpdate,
     AICapabilitiesOut,
+    AICapabilityHealthOut,
+    AIHealthOut,
     AIPolicyOut,
     AIPolicyUpdate,
     AIProviderCreate,
@@ -507,6 +509,36 @@ async def get_capabilities(
         ),
         chat_is_local=chat.provider.is_local if chat.provider else None,
         privacy_mode=settings_row.privacy_mode.value,
+    )
+
+
+def _capability_health_out(cap) -> AICapabilityHealthOut:
+    return AICapabilityHealthOut(
+        status=cap.status,
+        provider=cap.provider,
+        model=cap.model,
+        latency_ms=cap.latency_ms,
+        last_checked=cap.last_checked,
+        error=cap.error,
+    )
+
+
+@router.get("/health", response_model=AIHealthOut)
+async def get_ai_health(
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AIHealthOut:
+    """Cached per-capability AI/OCR health (probes run in the worker every 10s)."""
+    from folium.ai.health import build_ai_health_report
+
+    report = await build_ai_health_report(db)
+    return AIHealthOut(
+        ocr=_capability_health_out(report.ocr),
+        indexing=_capability_health_out(report.indexing),
+        embedding=_capability_health_out(report.embedding),
+        chat=_capability_health_out(report.chat),
+        auto_tagging=report.auto_tagging,
+        auto_enrichment=report.auto_enrichment,
     )
 
 

@@ -643,6 +643,30 @@ export interface AICapabilities {
   privacy_mode: string;
 }
 
+export type AICapabilityStatus =
+  | "available"
+  | "unavailable"
+  | "checking"
+  | "not_configured";
+
+export interface AICapabilityHealth {
+  status: AICapabilityStatus;
+  provider: string | null;
+  model: string | null;
+  latency_ms: number | null;
+  last_checked: string | null;
+  error: string | null;
+}
+
+export interface AIHealth {
+  ocr: AICapabilityHealth;
+  indexing: AICapabilityHealth;
+  embedding: AICapabilityHealth;
+  chat: AICapabilityHealth;
+  auto_tagging: boolean;
+  auto_enrichment: boolean;
+}
+
 export interface AIUsageSummary {
   range: "today" | "7d" | "30d" | "month";
   interval: "hour" | "day";

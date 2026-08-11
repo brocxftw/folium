@@ -12,9 +12,13 @@ from folium.workers.processor import (
     _field_confidence,
     _is_system_folder_path,
     _normalize_folder_path,
+    _overall_confidence,
     _parse_suggestion_json,
     _parse_tag_entries,
+    _require_suggestion_json,
 )
+from folium.ai.base import AIProviderError
+from folium.ai.retry import is_transient_ai_error
 
 
 @pytest.mark.parametrize(
@@ -61,6 +65,22 @@ def test_parse_suggestion_json_empty_on_garbage() -> None:
     assert _parse_suggestion_json("no json here") == {}
     assert _parse_suggestion_json("[]") == {}
     assert _parse_suggestion_json("") == {}
+
+
+def test_require_suggestion_json_raises_on_garbage() -> None:
+    with pytest.raises(AIProviderError, match="Try again"):
+        _require_suggestion_json("not json", finish_reason="length")
+
+
+def test_require_suggestion_json_returns_parsed_dict() -> None:
+    data = _require_suggestion_json('{"folder_path":"Finance","tags":[]}', finish_reason="stop")
+    assert data["folder_path"] == "Finance"
+
+
+def test_require_suggestion_json_error_is_transient() -> None:
+    with pytest.raises(AIProviderError) as exc_info:
+        _require_suggestion_json("x" * 100, finish_reason="length")
+    assert is_transient_ai_error(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -161,7 +181,17 @@ def test_field_confidence_reads_nested_object() -> None:
     data = {"confidence": {"folder": 0.91, "title": "80", "tags": 0.5}}
     assert _field_confidence(data, "folder") == 0.91
     assert _field_confidence(data, "title") == 0.8
-    assert _field_confidence(data, "correspondent") is None
+    assert _field_confidence(data, "correspondent") == round((0.91 + 0.8 + 0.5) / 3, 4)
+
+
+def test_field_confidence_falls_back_to_overall_average() -> None:
+    data = {"confidence": {"accuracy": 0.8, "relevance": 0.6}}
+    assert _field_confidence(data, "folder") == 0.7
+    assert _overall_confidence(data) == 0.7
+
+
+def test_overall_confidence_from_scalar() -> None:
+    assert _overall_confidence({"confidence": 0.85}) == 0.85
 
 
 def test_parse_tag_entries_strings_and_objects() -> None:

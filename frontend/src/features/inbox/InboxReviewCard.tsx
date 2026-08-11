@@ -10,12 +10,15 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
-import type { Document, Suggestion } from "@/lib/api/types";
+import type { Document, Job, Suggestion } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
 import { InboxStatusBadge } from "./InboxStatusBadge";
 import { InboxAiSuggestionPanel } from "./InboxAiSuggestionPanel";
+import { InboxManualFilingPanel } from "./InboxManualFilingPanel";
+import type { SuggestionJobStatus } from "./suggestionJobStatus";
+import { showSuggestionFailure } from "./suggestionJobStatus";
 import { documentSecondaryMeta } from "./formatMeta";
 
 function FileIcon({ doc }: { doc: Document }) {
@@ -30,13 +33,6 @@ function FileIcon({ doc }: { doc: Document }) {
   return <File className={className} strokeWidth={1.75} />;
 }
 
-const STATUS_BADGE_CLASS: Record<string, string> = {
-  needs_review: "border-[#EFC66A] bg-[#FFF4D8] text-[#B26A00]",
-  ready: "border-[#B9E3CC] bg-[#E8F7EF] text-[#198754]",
-  preparing: "border-[#C9DDF7] bg-[#EAF3FE] text-[#2D6DB5]",
-  failed: "border-[#F3C2C5] bg-[#FDEBEC] text-[#C6474A]",
-};
-
 interface InboxReviewCardProps {
   document: Document;
   suggestions: Suggestion[];
@@ -44,6 +40,12 @@ interface InboxReviewCardProps {
   expanded: boolean;
   /** AI suggestion panel is available only after every inbox file has finished preparing. */
   reviewReady?: boolean;
+  /** When false, expanded review shows Manual filing instead of AI Suggestions. */
+  aiSuggestionsAvailable?: boolean;
+  suggestionJobStatus?: SuggestionJobStatus;
+  onRetrySuggestions?: () => void;
+  retrySuggestionsBusy?: boolean;
+  jobs?: Job[];
   acceptSuggestionsBusy?: boolean;
   onToggleExpand: () => void;
   onSelect: (selected: boolean) => void;
@@ -59,6 +61,11 @@ export function InboxReviewCard({
   selected,
   expanded,
   reviewReady = true,
+  aiSuggestionsAvailable = false,
+  suggestionJobStatus = "none",
+  onRetrySuggestions,
+  retrySuggestionsBusy = false,
+  jobs,
   acceptSuggestionsBusy = false,
   onToggleExpand,
   onSelect,
@@ -70,7 +77,9 @@ export function InboxReviewCard({
   const status = doc.inbox_status;
   const [hover, setHover] = useState(false);
   const pendingCount = suggestions.length;
-  const showSuggestions = reviewReady && expanded;
+  const showReviewPanel = reviewReady && expanded;
+  const aiSuggestionFailed =
+    aiSuggestionsAvailable && showSuggestionFailure(suggestionJobStatus);
 
   return (
     <div
@@ -99,10 +108,8 @@ export function InboxReviewCard({
             <InboxStatusBadge
               status={status}
               error={doc.processing_error}
-              className={cn(
-                "h-[26px] rounded-md px-2.5 text-[11px] font-semibold",
-                status ? STATUS_BADGE_CLASS[status] : undefined,
-              )}
+              document={doc}
+              jobs={jobs}
             />
           </div>
           <p className="mt-1 text-xs uppercase tracking-wide text-[#74828D]">
@@ -111,9 +118,23 @@ export function InboxReviewCard({
         </div>
       </div>
 
-      {showSuggestions && (
-        <InboxAiSuggestionPanel document={doc} suggestions={suggestions} />
-      )}
+      {showReviewPanel &&
+        (aiSuggestionFailed ? (
+          <InboxManualFilingPanel
+            document={doc}
+            aiRetryAvailable
+            onRetrySuggestions={onRetrySuggestions}
+            retrySuggestionsBusy={retrySuggestionsBusy}
+          />
+        ) : aiSuggestionsAvailable ? (
+          <InboxAiSuggestionPanel
+            document={doc}
+            suggestions={suggestions}
+            suggestionJobStatus={suggestionJobStatus}
+          />
+        ) : (
+          <InboxManualFilingPanel document={doc} />
+        ))}
 
       <div
         className={cn(
@@ -146,19 +167,22 @@ export function InboxReviewCard({
         </button>
 
         <div className="flex items-center gap-2.5">
-          {reviewReady && onAcceptAllSuggestions && pendingCount > 0 && (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 rounded-lg border-[#BFE9E2] px-3.5 font-semibold text-[#087F78]"
-              disabled={acceptSuggestionsBusy}
-              onClick={onAcceptAllSuggestions}
-            >
-              <CheckCheck className="h-4 w-4" strokeWidth={1.75} />
-              Accept AI suggestions
-              {pendingCount > 1 ? ` (${pendingCount})` : ""}
-            </Button>
-          )}
+          {reviewReady &&
+            aiSuggestionsAvailable &&
+            onAcceptAllSuggestions &&
+            pendingCount > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-lg border-[#BFE9E2] px-3.5 font-semibold text-[#087F78]"
+                disabled={acceptSuggestionsBusy}
+                onClick={onAcceptAllSuggestions}
+              >
+                <CheckCheck className="h-4 w-4" strokeWidth={1.75} />
+                Accept AI suggestions
+                {pendingCount > 1 ? ` (${pendingCount})` : ""}
+              </Button>
+            )}
           <Button
             type="button"
             variant="outline"
