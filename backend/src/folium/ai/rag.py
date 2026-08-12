@@ -22,6 +22,10 @@ from folium.services import folders as folder_service
 from folium.services.quotas import assert_ai_quota
 
 INSUFFICIENT_EVIDENCE_ANSWER = "Insufficient evidence was found in the selected documents."
+OUTPUT_TRUNCATED_MESSAGE = (
+    "The model ran out of output tokens before producing a cited answer. "
+    "Raise the AI profile output limit or ask a narrower question."
+)
 
 CITATION_PATTERN = re.compile(
     r"\[chunk:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\]"
@@ -586,6 +590,9 @@ async def ask(
 
     citations = parse_citations(answer, chunk_map)
     if not citations:
+        # Truncated completions often lack [chunk:…] markers; do not mislabel as IE.
+        if (chat_result.finish_reason or "").lower() == "length":
+            raise ValidationError(OUTPUT_TRUNCATED_MESSAGE)
         return AskResult(
             answer=INSUFFICIENT_EVIDENCE_ANSWER,
             citations=[],

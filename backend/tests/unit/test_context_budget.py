@@ -43,6 +43,6 @@ def test_effective_context_window_caps_to_provider() -> None:
 
 
 def test_profile_output_presets_favour_evidence() -> None:
-    assert PROFILE_PRESETS["lightweight"]["max_output_tokens"] == 512
-    assert PROFILE_PRESETS["balanced"]["max_output_tokens"] == 1_024
+    assert PROFILE_PRESETS["lightweight"]["max_output_tokens"] == 1_024
+    assert PROFILE_PRESETS["balanced"]["max_output_tokens"] == 1_536
     assert PROFILE_PRESETS["quality"]["max_output_tokens"] == 2_048

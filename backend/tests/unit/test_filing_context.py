@@ -50,7 +50,10 @@ def test_long_document_covers_beginning_and_ending() -> None:
     assert "UNIQUE_PAGE_01_MARKER" in sample.document_text
     assert "UNIQUE_PAGE_20_MARKER" in sample.document_text
     # Middle content that prefix truncation would miss should appear when sampled.
-    assert "UNIQUE_PAGE_10_MARKER" in sample.document_text or "UNIQUE_PAGE_14_MARKER" in sample.document_text
+    assert (
+        "UNIQUE_PAGE_10_MARKER" in sample.document_text
+        or "UNIQUE_PAGE_14_MARKER" in sample.document_text
+    )
     assert estimate_tokens(sample.document_text) <= FILING_TEXT_TOKEN_BUDGET + 50
 
 
@@ -118,14 +121,41 @@ def test_rank_folder_candidates_falls_back_to_short_paths() -> None:
     assert ranked == sorted(paths, key=len)[:20]
 
 
+def test_resume_filename_boosts_job_hunt_folder() -> None:
+    paths = ["Finance / Salary / 2025", "Job Hunt", "ID / Documents"]
+    tokens = tokenize_for_candidates(
+        "Resume Kapt Abdul Azim - Senior Data Analyst.pdf",
+        "Senior Data Analyst with experience in Azure SQL reporting",
+    )
+    ranked = rank_folder_candidates(
+        paths,
+        query_tokens=tokens,
+        document_counts={"Finance / Salary / 2025": 1, "Job Hunt": 1},
+        filename="Resume Kapt Abdul Azim - Senior Data Analyst.pdf",
+    )
+    assert ranked[0] == "Job Hunt"
+
+
 def test_rank_tag_candidates_prefers_overlap_then_usage() -> None:
     tags = [("finance", 1), ("family", 20), ("invoice", 3), ("travel", 8)]
     tokens = tokenize_for_candidates("acme invoice january")
     ranked = rank_tag_candidates(tags, query_tokens=tokens)
     assert ranked[0] == "invoice"
+    assert "family" not in ranked  # no lexical overlap → excluded
 
 
-def test_rank_tag_candidates_usage_fallback() -> None:
+def test_rank_tag_candidates_empty_when_no_overlap() -> None:
     tags = [("alpha", 1), ("beta", 9), ("gamma", 3)]
     ranked = rank_tag_candidates(tags, query_tokens=["nomatchtoken"])
-    assert ranked[0] == "beta"
+    assert ranked == []
+
+
+def test_filing_prompt_examples_are_neutral() -> None:
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[2] / "src/folium/workers/processor.py"
+    text = source.read_text(encoding="utf-8")
+    assert "Finance / Salary / 2025" not in text
+    assert "Topic / PersonOrOrg" in text
+    assert "Category / Year" in text
+

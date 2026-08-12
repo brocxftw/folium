@@ -23,14 +23,14 @@ PROFILE_PRESETS: dict[str, ProfilePreset] = {
     AIProfileName.LIGHTWEIGHT.value: {
         "retrieved_chunks": 3,
         "max_context_tokens": 8_000,
-        "max_output_tokens": 512,
+        "max_output_tokens": 1_024,
         "conversation_history_tokens": 2_000,
         "parallel_llm_calls": 1,
     },
     AIProfileName.BALANCED.value: {
         "retrieved_chunks": 8,
         "max_context_tokens": 16_000,
-        "max_output_tokens": 1_024,
+        "max_output_tokens": 1_536,
         "conversation_history_tokens": 4_000,
         "parallel_llm_calls": 2,
     },

@@ -227,7 +227,11 @@ def _provider_reachable_for_jobs(provider) -> bool:
     Configured-but-offline providers must not start long AI jobs that hold DB
     transactions open (which blocks trash/metadata updates).
     """
-    return bool(provider is not None and provider.enabled and provider.last_probe_status == "available")
+    return bool(
+        provider is not None
+        and provider.enabled
+        and provider.last_probe_status == "available"
+    )
 
 
 def _pages_from_extracted_text(text: str) -> list[ExtractedPage]:
@@ -1021,6 +1025,7 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         all_folder_paths,
         query_tokens=query_tokens,
         document_counts=folder_counts,
+        filename=doc.original_filename,
     )
 
     tag_usage_rows = (
@@ -1056,15 +1061,21 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         "- Put other field scores under confidence.\n\n"
         "Folder rules:\n"
         "- Prefer a specific filing destination from the document subject "
-        "(person, org, topic, year), e.g. 'Identity / Aishah Binti Abdul Azim' "
-        "for a birth certificate or 'Finance / Salary / 2025' for a payslip.\n"
+        "(person, org, topic, year), e.g. 'Topic / PersonOrOrg' "
+        "for an identity document or 'Category / Year' for a dated record.\n"
         "- Prefer an Existing folder candidate when it clearly fits; otherwise invent a "
         "new path and set create_folder true.\n"
+        "- Do not copy example paths literally; choose from candidates or invent "
+        "from the document.\n"
         "- Never suggest Inbox, Trash, or Documents (alone or as Documents / Inbox).\n"
         "- Do not prefix paths with Documents; Existing folders are relative to the library root.\n"
         "- Paths must use ' / ' between segments (not underscores).\n\n"
         "Tag rules:\n"
-        "- Prefer Existing tag candidates when suitable; you may also propose new tags.\n\n"
+        "- Prefer Existing tag candidates only when they clearly fit this document.\n"
+        "- If the candidate list is empty or weak, invent new topical tags from the document.\n"
+        "- Never reuse unrelated catalogue tags (skills, schools, ID types) just because "
+        "they appear in candidates.\n"
+        "- Suggest at most 5 high-confidence tags.\n\n"
         f"Existing folder candidates:\n{json.dumps(folder_paths)}\n"
         f"Existing document types:\n{json.dumps(type_names)}\n"
         f"Existing correspondents:\n{json.dumps(correspondent_names)}\n"

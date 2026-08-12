@@ -5,6 +5,7 @@ import {
   type UseQueryOptions,
 } from "@tanstack/react-query";
 import { api, clearSession, handleSessionResponse } from "./client";
+import { documentNeedsProcessingPoll } from "@/features/documents/retrievalReadiness";
 import type {
   AIProvider,
   AIProviderCreate,
@@ -659,6 +660,11 @@ export function useDocument(id: string | undefined) {
     queryKey: queryKeys.document(id ?? ""),
     queryFn: () => api.get<Document>(`/api/documents/${id}`),
     enabled: !!id,
+    refetchInterval: (query) => {
+      const doc = query.state.data;
+      if (!doc) return false;
+      return documentNeedsProcessingPoll(doc) ? 3_000 : false;
+    },
   });
 }
 

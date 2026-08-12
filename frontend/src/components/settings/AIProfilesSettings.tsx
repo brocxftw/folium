@@ -39,7 +39,7 @@ export function AIProfilesSettings() {
   const [limits, setLimits] = useState({
     retrieved_chunks: 3,
     max_context_tokens: 8000,
-    max_output_tokens: 512,
+    max_output_tokens: 1024,
     conversation_history_tokens: 2000,
     parallel_llm_calls: 1,
   });

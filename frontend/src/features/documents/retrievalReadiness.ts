@@ -144,3 +144,13 @@ export function isUnprocessedDocument(doc: Document): boolean {
 export function canAskDocument(doc: Document): boolean {
   return doc.document_indexed || doc.has_embeddings;
 }
+
+/** True when the UI should poll for indexing/embedding progress updates. */
+export function documentNeedsProcessingPoll(doc: Document): boolean {
+  const readiness = getRetrievalReadiness(doc);
+  return readiness === "indexing" || readiness === "embedding";
+}
+
+export function documentsNeedProcessingPoll(docs: Document[]): boolean {
+  return docs.some(documentNeedsProcessingPoll);
+}

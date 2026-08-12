@@ -39,6 +39,7 @@ import {
   libraryStateToSearchSnapshot,
   useDocumentsLibraryState,
 } from "./useDocumentsLibraryState";
+import { documentsNeedProcessingPoll } from "./retrievalReadiness";
 
 function emptyMessageForView(
   view: string,
@@ -80,6 +81,10 @@ export function DocumentsPage() {
 
   const { data: docList, isLoading, refetch, isFetching } = useDocuments(listParams, {
     enabled: !isEvidenceSearch,
+    refetchInterval: (query) => {
+      const items = query.state.data?.items ?? [];
+      return documentsNeedProcessingPoll(items) ? 3_000 : false;
+    },
   });
 
   const {

@@ -665,7 +665,7 @@ class AISettings(Base, TimestampMixin):
     # Custom profile overrides
     retrieved_chunks: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     max_context_tokens: Mapped[int] = mapped_column(Integer, default=8000, nullable=False)
-    max_output_tokens: Mapped[int] = mapped_column(Integer, default=512, nullable=False)
+    max_output_tokens: Mapped[int] = mapped_column(Integer, default=1024, nullable=False)
     conversation_history_tokens: Mapped[int] = mapped_column(Integer, default=2000, nullable=False)
     parallel_llm_calls: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     # Cosine similarity floor for semantic Ask hits; NULL disables filtering.
