@@ -5,7 +5,7 @@ import type { Citation, Folder } from "@/lib/api/types";
 import { DocumentViewer } from "@/components/viewer/DocumentViewer";
 import { DocumentInspector } from "@/components/inspector/DocumentInspector";
 import { Breadcrumbs } from "@/components/documents/Breadcrumbs";
-import { AIChatPanel, type AIDrawerScope } from "@/components/ask/AIChatPanel";
+import { DocumentAskPanel } from "@/components/ask/DocumentAskPanel";
 import { Button } from "@/components/ui/Button";
 import {
   Dialog,
@@ -28,6 +28,11 @@ interface DocumentViewerModalProps {
   onTrashed?: (documentId: string) => void;
 }
 
+interface ActiveHighlight {
+  page: number;
+  quote: string;
+}
+
 export function DocumentViewerModal({
   activeId,
   page,
@@ -42,24 +47,19 @@ export function DocumentViewerModal({
   const trashDocument = useTrashDocument();
   const [confirmTrash, setConfirmTrash] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
+  const [highlight, setHighlight] = useState<ActiveHighlight | null>(null);
 
   useEffect(() => {
-    if (!open) setAskOpen(false);
+    if (!open) {
+      setAskOpen(false);
+      setHighlight(null);
+    }
   }, [open]);
 
   useEffect(() => {
     setAskOpen(false);
+    setHighlight(null);
   }, [activeId]);
-
-  const askScope: AIDrawerScope | undefined = useMemo(() => {
-    if (!doc) return undefined;
-    return {
-      kind: "document",
-      documentId: doc.id,
-      previewDocuments: [doc],
-      label: doc.title || doc.original_filename || "Current document",
-    };
-  }, [doc]);
 
   const handleTrash = async () => {
     if (!doc) return;
@@ -72,13 +72,25 @@ export function DocumentViewerModal({
   const handleCitation = (citation: Citation) => {
     if (citation.document_id === activeId && citation.page_number != null) {
       onPageChange?.(citation.page_number);
+      if (citation.quote) {
+        setHighlight({ page: citation.page_number, quote: citation.quote });
+      } else {
+        setHighlight(null);
+      }
       return;
     }
     if (citation.document_id !== activeId) {
       onActiveIdChange(citation.document_id);
       if (citation.page_number != null) onPageChange?.(citation.page_number);
+      setHighlight(null);
     }
   };
+
+  const viewerHighlightQuote = useMemo(() => {
+    if (!highlight || page == null) return undefined;
+    if (highlight.page !== page) return undefined;
+    return highlight.quote;
+  }, [highlight, page]);
 
   return (
     <>
@@ -153,29 +165,28 @@ export function DocumentViewerModal({
                 document={doc}
                 page={page}
                 onPageChange={onPageChange}
+                highlightQuote={viewerHighlightQuote}
                 className="h-full"
               />
             </div>
-            <aside className="hidden w-[320px] shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex">
-              <DocumentInspector document={doc} />
-            </aside>
+            {/* Inspector when Ask closed; Ask replaces this rail when open (V1 mock). */}
             <aside
               className={cn(
                 "hidden shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex",
-                askOpen ? "w-[360px]" : "w-0 border-l-0",
+                askOpen ? "w-[440px]" : "w-[320px]",
               )}
-              aria-hidden={!askOpen}
             >
-              {askOpen && askScope && (
-                <AIChatPanel
+              {askOpen && doc ? (
+                <DocumentAskPanel
+                  documentId={doc.id}
+                  documentTitle={doc.title || doc.original_filename}
                   active={askOpen}
-                  initialScope={askScope}
-                  onCitationClick={handleCitation}
-                  showScopeSelector={false}
-                  title="Ask about this document"
-                  description="Answers are scoped to the open document."
+                  onClose={() => setAskOpen(false)}
+                  onCitationActivate={handleCitation}
                   className="h-full"
                 />
+              ) : (
+                <DocumentInspector document={doc} />
               )}
             </aside>
           </div>

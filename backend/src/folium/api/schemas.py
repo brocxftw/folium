@@ -483,6 +483,7 @@ class CitationOut(BaseModel):
     chunk_id: UUID
     title: str
     quote: str | None = None
+    display_number: int | None = None
 
 
 class AskResponse(BaseModel):
@@ -494,6 +495,35 @@ class AskResponse(BaseModel):
     privacy_mode: str
     is_local: bool
     insufficient_evidence: bool = False
+    # Continuous-chat extras (document Ask persistence).
+    conversation_id: UUID | None = None
+    user_message_id: UUID | None = None
+    assistant_message_id: UUID | None = None
+    persist_failed: bool = False
+
+
+class AskCitationSnapshotOut(BaseModel):
+    display_number: int
+    chunk_id: UUID
+    document_id: UUID
+    page_number: int | None = None
+    title: str | None = None
+    quote: str | None = None
+
+
+class AskMessageOut(BaseModel):
+    id: UUID
+    role: Literal["user", "assistant"]
+    content: str
+    citations: list[AskCitationSnapshotOut] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AskConversationOut(BaseModel):
+    id: UUID | None = None
+    document_id: UUID
+    messages: list[AskMessageOut] = Field(default_factory=list)
+    updated_at: datetime | None = None
 
 
 # ---- Jobs ----

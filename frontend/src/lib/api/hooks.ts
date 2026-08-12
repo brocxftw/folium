@@ -21,6 +21,7 @@ import type {
   ApplicationLogList,
   AskRequest,
   AskResponse,
+  AskConversation,
   BulkActionRequest,
   Document,
   DocumentList,
@@ -77,6 +78,8 @@ export const queryKeys = {
   documents: (params: DocumentListParams) => ["documents", params] as const,
   document: (id: string) => ["documents", id] as const,
   documentContent: (id: string) => ["documents", id, "content"] as const,
+  askConversation: (documentId: string) =>
+    ["documents", documentId, "ask-conversation"] as const,
   folderDocuments: (folderId: string, params: DocumentListParams) =>
     ["folders", folderId, "documents", params] as const,
   search: (req: SearchRequest) => ["search", req] as const,
@@ -869,10 +872,57 @@ export function useSearchMutation() {
 
 // ---- Ask ----
 
+export function useAskConversation(documentId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.askConversation(documentId ?? ""),
+    queryFn: () =>
+      api.get<AskConversation>(`/api/documents/${documentId}/ask/conversation`),
+    enabled: Boolean(documentId),
+  });
+}
+
 export function useAskDocument() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ documentId, ...body }: AskRequest & { documentId: string }) =>
       api.post<AskResponse>(`/api/documents/${documentId}/ask`, body),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({
+        queryKey: queryKeys.askConversation(vars.documentId),
+      });
+    },
+  });
+}
+
+export function useNewAskConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (documentId: string) =>
+      api.post<AskConversation>(
+        `/api/documents/${documentId}/ask/conversation/new`,
+        {},
+      ),
+    onSuccess: (data, documentId) => {
+      qc.setQueryData(queryKeys.askConversation(documentId), data);
+    },
+  });
+}
+
+export function useClearAskConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (documentId: string) =>
+      api.delete<{ message: string }>(
+        `/api/documents/${documentId}/ask/conversation`,
+      ),
+    onSuccess: (_data, documentId) => {
+      qc.setQueryData(queryKeys.askConversation(documentId), {
+        id: null,
+        document_id: documentId,
+        messages: [],
+        updated_at: null,
+      } satisfies AskConversation);
+    },
   });
 }
 

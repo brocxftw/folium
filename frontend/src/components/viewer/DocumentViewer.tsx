@@ -17,13 +17,27 @@ interface DocumentViewerProps {
   document: Document | undefined;
   page?: number;
   onPageChange?: (page: number) => void;
+  /** Best-effort temporary quote highlight on the current PDF page. */
+  highlightQuote?: string;
   className?: string;
+}
+
+interface HighlightRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+function normalizeQuote(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 export function DocumentViewer({
   document,
   page: externalPage,
   onPageChange,
+  highlightQuote,
   className,
 }: DocumentViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -37,6 +51,8 @@ export function DocumentViewer({
   const [error, setError] = useState<string | null>(null);
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
+  const [highlightRects, setHighlightRects] = useState<HighlightRect[]>([]);
+  const [canvasCssSize, setCanvasCssSize] = useState({ width: 0, height: 0 });
 
   const currentPage = externalPage ?? page;
   const docId = document?.id;
@@ -151,6 +167,10 @@ export function DocumentViewer({
         canvas.height = Math.floor(viewport.height * outputScale);
         canvas.style.width = `${Math.floor(viewport.width)}px`;
         canvas.style.height = `${Math.floor(viewport.height)}px`;
+        setCanvasCssSize({
+          width: Math.floor(viewport.width),
+          height: Math.floor(viewport.height),
+        });
 
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
@@ -166,6 +186,70 @@ export function DocumentViewer({
         });
         renderTaskRef.current = task;
         await task.promise;
+        if (cancelled) return;
+
+        const quote = highlightQuote?.trim();
+        if (!quote) {
+          setHighlightRects([]);
+          return;
+        }
+
+        try {
+          const textContent = await pdfPage.getTextContent();
+          const needle = normalizeQuote(quote);
+          if (needle.length < 8) {
+            setHighlightRects([]);
+            return;
+          }
+
+          type Item = {
+            str: string;
+            transform: number[];
+            width: number;
+            height: number;
+          };
+          const items = (textContent.items as Item[]).filter((item) => item.str?.trim());
+          const joined = items.map((item) => item.str).join(" ");
+          const haystack = normalizeQuote(joined);
+          const start = haystack.indexOf(needle);
+          if (start < 0) {
+            setHighlightRects([]);
+            return;
+          }
+
+          // Map character offset in joined (with spaces) back to item indexes roughly.
+          let cursor = 0;
+          const matched: Item[] = [];
+          const end = start + needle.length;
+          for (const item of items) {
+            const piece = normalizeQuote(item.str);
+            if (!piece) continue;
+            const next = cursor + piece.length + 1; // account for join space
+            if (next > start && cursor < end) {
+              matched.push(item);
+            }
+            cursor = next;
+          }
+
+          const rects: HighlightRect[] = matched.slice(0, 24).map((item) => {
+            const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+            const x = tx[4];
+            const y = tx[5];
+            const fontHeight = Math.hypot(tx[2], tx[3]) || item.height || 10;
+            const w =
+              (item.width || 0) * (viewport.scale || scale) ||
+              Math.max(8, item.str.length * 5 * (viewport.scale || scale));
+            return {
+              left: x,
+              top: y - fontHeight,
+              width: Math.max(w, 8),
+              height: fontHeight * 1.15,
+            };
+          });
+          setHighlightRects(rects);
+        } catch {
+          setHighlightRects([]);
+        }
       } catch (err) {
         if (cancelled) return;
         if (err instanceof Error && err.name === "RenderingCancelledException") return;
@@ -178,7 +262,7 @@ export function DocumentViewer({
       cancelled = true;
       renderTaskRef.current?.cancel();
     };
-  }, [pdf, mime, currentPage, zoom]);
+  }, [pdf, mime, currentPage, zoom, highlightQuote]);
 
   const goToPage = (p: number) => {
     const next = Math.max(1, Math.min(totalPages, p));
@@ -319,7 +403,29 @@ export function DocumentViewer({
 
         {showCanvas && (
           <div className="flex min-h-full justify-center p-4">
-            <canvas ref={canvasRef} className="max-w-full shadow-sm border border-surface-border bg-white" />
+            <div
+              className="relative shadow-sm border border-surface-border bg-white"
+              style={
+                canvasCssSize.width
+                  ? { width: canvasCssSize.width, height: canvasCssSize.height }
+                  : undefined
+              }
+            >
+              <canvas ref={canvasRef} className="max-w-full block" />
+              {highlightRects.map((rect, i) => (
+                <div
+                  key={`hl-${i}-${rect.left}-${rect.top}`}
+                  aria-hidden
+                  className="pointer-events-none absolute rounded-[3px] bg-amber-300/45"
+                  style={{
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                    height: rect.height,
+                  }}
+                />
+              ))}
+            </div>
           </div>
         )}
 
