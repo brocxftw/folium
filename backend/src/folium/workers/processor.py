@@ -1067,6 +1067,8 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         "new path and set create_folder true.\n"
         "- Do not copy example paths literally; choose from candidates or invent "
         "from the document.\n"
+        "- Resumes and CVs: prefer Job Hunt / career paths (or invent 'Job Hunt'); "
+        "never file them under Finance, Salary, payroll, or payslip folders.\n"
         "- Never suggest Inbox, Trash, or Documents (alone or as Documents / Inbox).\n"
         "- Do not prefix paths with Documents; Existing folders are relative to the library root.\n"
         "- Paths must use ' / ' between segments (not underscores).\n\n"

@@ -23,8 +23,14 @@ from folium.services.quotas import assert_ai_quota
 
 INSUFFICIENT_EVIDENCE_ANSWER = "Insufficient evidence was found in the selected documents."
 OUTPUT_TRUNCATED_MESSAGE = (
-    "The model ran out of output tokens before producing a cited answer. "
-    "Raise the AI profile output limit or ask a narrower question."
+    "The model ran out of output tokens before finishing a complete cited answer. "
+    "Raise the AI profile output limit, switch to a higher profile, or ask a narrower question."
+)
+
+# Trailing incomplete citation marker, e.g. "[chunk:ad8609a3-a7f7-46c9-90c1-f26"
+_INCOMPLETE_CITATION_RE = re.compile(
+    r"\[chunk:(?:[0-9a-fA-F-]{0,35})?$",
+    re.IGNORECASE,
 )
 
 CITATION_PATTERN = re.compile(
@@ -361,6 +367,8 @@ def _ask_system_prompt() -> str:
         "the evidence passages below. Do not rely on outside knowledge.\n"
         "When you make a factual claim supported by a passage, cite it inline using "
         "the exact format [chunk:<chunk_id>].\n"
+        "Be concise: prefer short paragraphs or brief bullet lists over long essays. "
+        "Do not repeat the same citation on every sentence when one citation covers a point.\n"
         "If the passages do not contain enough information to answer confidently, reply "
         "with exactly: INSUFFICIENT_EVIDENCE\n"
         "Never invent citations or chunk IDs."
@@ -458,6 +466,19 @@ def passages_from_chunks(chunks: list[RetrievedChunk]) -> list[Citation]:
 def _answer_indicates_insufficient_evidence(answer: str) -> bool:
     normalized = answer.strip().upper()
     return normalized == "INSUFFICIENT_EVIDENCE" or normalized.startswith("INSUFFICIENT_EVIDENCE")
+
+
+def _answer_looks_truncated(answer: str, finish_reason: str | None) -> bool:
+    """True when the provider stopped for length or the text ends mid-citation."""
+    if (finish_reason or "").lower() == "length":
+        return True
+    stripped = answer.rstrip()
+    if _INCOMPLETE_CITATION_RE.search(stripped):
+        return True
+    # Cut mid-markdown list / sentence is harder to detect; length finish_reason is primary.
+    if stripped.endswith("[chunk:") or stripped.endswith("[chunk"):
+        return True
+    return False
 
 
 async def ask(
@@ -588,11 +609,11 @@ async def ask(
             insufficient_evidence=True,
         )
 
+    if _answer_looks_truncated(answer, chat_result.finish_reason):
+        raise ValidationError(OUTPUT_TRUNCATED_MESSAGE)
+
     citations = parse_citations(answer, chunk_map)
     if not citations:
-        # Truncated completions often lack [chunk:…] markers; do not mislabel as IE.
-        if (chat_result.finish_reason or "").lower() == "length":
-            raise ValidationError(OUTPUT_TRUNCATED_MESSAGE)
         return AskResult(
             answer=INSUFFICIENT_EVIDENCE_ANSWER,
             citations=[],

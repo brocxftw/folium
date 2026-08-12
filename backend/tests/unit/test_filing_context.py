@@ -134,6 +134,20 @@ def test_resume_filename_boosts_job_hunt_folder() -> None:
         filename="Resume Kapt Abdul Azim - Senior Data Analyst.pdf",
     )
     assert ranked[0] == "Job Hunt"
+    assert all("Salary" not in path for path in ranked)
+
+
+def test_resume_filename_excludes_salary_even_without_job_folder() -> None:
+    paths = ["Finance / Salary / 2026", "Finance / Insurance", "ID / Documents"]
+    tokens = tokenize_for_candidates("Resume Jane Doe.pdf", "Software engineer")
+    ranked = rank_folder_candidates(
+        paths,
+        query_tokens=tokens,
+        document_counts={"Finance / Salary / 2026": 10},
+        filename="Resume Jane Doe.pdf",
+    )
+    assert "Finance / Salary / 2026" not in ranked
+    assert ranked  # still returns other folders
 
 
 def test_rank_tag_candidates_prefers_overlap_then_usage() -> None:
@@ -158,4 +172,5 @@ def test_filing_prompt_examples_are_neutral() -> None:
     assert "Finance / Salary / 2025" not in text
     assert "Topic / PersonOrOrg" in text
     assert "Category / Year" in text
+    assert "never file them under Finance, Salary" in text
 

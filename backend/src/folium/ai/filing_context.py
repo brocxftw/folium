@@ -196,6 +196,15 @@ def tokenize_for_candidates(*parts: str) -> list[str]:
     return [tok for tok, _ in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
 
 
+_RESUME_FILENAME_HINTS = ("resume", "cv", "curriculum")
+_JOB_FOLDER_TOKENS = frozenset(
+    {"job", "jobs", "career", "careers", "resume", "resumes", "hunt", "cv"}
+)
+_SALARY_FOLDER_TOKENS = frozenset(
+    {"salary", "salaries", "payslip", "payslips", "payroll", "wage", "wages"}
+)
+
+
 def rank_folder_candidates(
     folder_paths: list[str],
     *,
@@ -206,32 +215,38 @@ def rank_folder_candidates(
 ) -> list[str]:
     """Rank folder paths by lexical overlap with query tokens + doc-count boost.
 
-    When ``filename`` looks like a resume/CV, paths containing job/career/resume/hunt
-    receive an extra deterministic boost so small models are less likely to ignore them.
+    Resume/CV filenames:
+    - boost Job Hunt / career-like paths
+    - exclude Finance/Salary/payroll-like paths from the candidate list entirely
+      (small models otherwise latch onto those existing folders).
     """
     if not folder_paths:
         return []
     if limit <= 0:
         return []
 
+    resume_like = _filename_looks_like_resume(filename)
+    paths = list(folder_paths)
+    if resume_like:
+        filtered = [p for p in paths if not _path_looks_like_salary_folder(p)]
+        # Keep at least something to choose from if filtering removed everything.
+        paths = filtered or paths
+
     counts = document_counts or {}
     query_set = set(query_tokens[:80])
-    resume_like = _filename_looks_like_resume(filename)
     scored: list[tuple[float, int, str]] = []
-    for path in folder_paths:
+    for path in paths:
         path_tokens = set(tokenize_for_candidates(path.replace("/", " ")))
         overlap = len(query_set & path_tokens)
         boost = float(counts.get(path, 0))
-        # Prefer overlap; light usage boost; shorter paths as weak tie-break.
         score = (overlap * 100.0) + (boost * 0.1) - (len(path) * 0.001)
         if resume_like and _path_looks_like_job_folder(path):
             score += 50.0
         scored.append((score, -len(path), path))
 
     scored.sort(key=lambda row: (row[0], row[1], row[2]), reverse=True)
-    # If nothing overlapped (and no resume boost), fall back to length-sorted sample.
     if scored and scored[0][0] <= 0:
-        return sorted(folder_paths, key=len)[:limit]
+        return sorted(paths, key=len)[:limit]
     return [path for _, _, path in scored[:limit]]
 
 
@@ -270,12 +285,21 @@ def _filename_looks_like_resume(filename: str | None) -> bool:
     if not filename:
         return False
     lowered = filename.lower()
-    return any(token in lowered for token in ("resume", "cv", "curriculum"))
+    return any(token in lowered for token in _RESUME_FILENAME_HINTS)
 
 
 def _path_looks_like_job_folder(path: str) -> bool:
     tokens = set(tokenize_for_candidates(path.replace("/", " ")))
-    return bool(tokens & {"job", "jobs", "career", "careers", "resume", "resumes", "hunt", "cv"})
+    return bool(tokens & _JOB_FOLDER_TOKENS)
+
+
+def _path_looks_like_salary_folder(path: str) -> bool:
+    tokens = set(tokenize_for_candidates(path.replace("/", " ")))
+    if tokens & _SALARY_FOLDER_TOKENS:
+        return True
+    # "Finance / Salary / …" and bare "Salary" segments.
+    lowered = path.lower()
+    return "salary" in lowered or "payslip" in lowered or "payroll" in lowered
 
 
 def format_filing_document_block(sample: FilingSample) -> str:
