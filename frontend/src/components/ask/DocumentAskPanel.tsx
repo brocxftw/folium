@@ -29,7 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/Dialog";
-import { AnswerBody, SourcesDrawer } from "./CitationControls";
+import { AnswerBody, SourcesDrawer } from "./MarkdownResponse";
 import { cn } from "@/lib/utils";
 const SUGGESTED_PROMPTS = [
   "Summarise the main argument",

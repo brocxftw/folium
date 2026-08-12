@@ -52,8 +52,17 @@ def test_rewrite_strips_unknown_chunk_markers() -> None:
     ]
     answer = f"Good [chunk:{known}] bad [chunk:{unknown}]."
     rewritten, snaps = rewrite_answer_with_display_citations(answer, citations)
-    assert rewritten == "Good [1] bad ."
+    assert rewritten == "Good [1] bad."
     assert len(snaps) == 1
+
+
+def test_rewrite_collapses_consecutive_duplicate_numbers() -> None:
+    from folium.services.ask_conversations import normalize_display_citation_text
+
+    assert normalize_display_citation_text("Focus on identity [5] [5]. More.") == (
+        "Focus on identity [5]. More."
+    )
+    assert normalize_display_citation_text("loop [1] . Next") == "loop [1]. Next"
 
 
 def test_select_history_prefers_newest_under_budget() -> None:

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeDisplayCitationTextForTest } from "./citationNormalize";
 
 function extractCitationNumbers(content: string): number[] {
   const re = /\[(\d+)\]/g;
@@ -21,5 +22,11 @@ describe("Ask continuous citation display", () => {
     const raw =
       "Awareness [chunk:ad8609a3-a7f7-46c9-90c1-f2693ba4c0db] matters.";
     expect(extractCitationNumbers(raw)).toEqual([]);
+  });
+
+  it("collapses consecutive duplicate citation numbers", () => {
+    expect(normalizeDisplayCitationTextForTest("Focus [5] [5]. More.")).toBe(
+      "Focus [5]. More.",
+    );
   });
 });

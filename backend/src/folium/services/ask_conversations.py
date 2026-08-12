@@ -57,7 +57,25 @@ def rewrite_answer_with_display_citations(
         return f"[{number}]"
 
     rewritten = CITATION_PATTERN.sub(_replace, answer)
-    return rewritten, snapshots
+    return normalize_display_citation_text(rewritten), snapshots
+
+
+def normalize_display_citation_text(text: str) -> str:
+    """Tidy display citation markers after chunk→number rewrite.
+
+    - Collapse consecutive identical ``[n][n]`` (model often re-cites same chunk).
+    - Keep punctuation attached to the citation badge.
+    - Clean leftover spaces from stripped unknown markers.
+    """
+    cleaned = text
+    previous = None
+    while previous != cleaned:
+        previous = cleaned
+        cleaned = re.sub(r"\[(\d+)\](?:\s*)\[\1\]", r"[\1]", cleaned)
+    cleaned = re.sub(r"\[(\d+)\]\s+([.,;:!?])", r"[\1]\2", cleaned)
+    cleaned = re.sub(r"[^\S\n]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned)
+    return cleaned
 
 
 def select_history_for_model(
