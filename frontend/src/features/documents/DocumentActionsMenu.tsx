@@ -132,10 +132,11 @@ export function DocumentActionsMenu({
           <button
             type="button"
             className={cn(
-              "h-6 w-6 items-center justify-center rounded text-text-muted hover:bg-surface-hover hover:text-text-primary",
-              alwaysVisible
-                ? "flex"
-                : "hidden group-hover:flex data-[state=open]:flex",
+              "flex h-6 w-6 items-center justify-center rounded text-text-muted/70 transition-colors",
+              "hover:bg-surface-hover hover:text-text-primary",
+              "focus-visible:bg-surface-hover focus-visible:text-text-primary focus-visible:outline-none",
+              "data-[state=open]:bg-surface-hover data-[state=open]:text-text-primary",
+              !alwaysVisible && "hidden group-hover:flex data-[state=open]:flex",
               triggerClassName,
             )}
             onClick={(e) => e.stopPropagation()}
