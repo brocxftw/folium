@@ -1,18 +1,26 @@
 import { useMemo } from "react";
 import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
-import type { Document } from "@/lib/api/types";
+import type { Document, Folder, Tag as TagType } from "@/lib/api/types";
 import { DocumentRow } from "./DocumentRow";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
 import { useDocumentSelectionModel } from "@/features/documents/useDocumentSelectionModel";
 import { selectAllIds } from "@/features/documents/documentSelection";
+import {
+  documentListCell,
+  documentListRowClass,
+} from "@/features/documents/documentListColumns";
+import { cn } from "@/lib/utils";
 
 interface DocumentTableProps {
   documents: Document[];
   selectedIds: Set<string>;
   activeId?: string;
+  folders?: Folder[];
+  tags?: TagType[];
   onSelect: (ids: Set<string>) => void;
   onActiveChange: (id: string) => void;
+  onActionComplete?: () => void;
   isLoading?: boolean;
   emptyMessage?: string;
   page?: number;
@@ -25,8 +33,11 @@ export function DocumentTable({
   documents,
   selectedIds,
   activeId,
+  folders,
+  tags,
   onSelect,
   onActiveChange,
+  onActionComplete,
   isLoading,
   emptyMessage = "No documents in this folder",
   page = 1,
@@ -89,31 +100,48 @@ export function DocumentTable({
       onKeyDown={handleKeyDown}
     >
       <div className="flex-1 overflow-auto scrollbar-thin">
-        <table className="w-full border-collapse text-[13px]">
-          <thead className="sticky top-0 z-10 border-b border-surface-border bg-surface-muted">
-            <tr className="text-left text-xs font-medium uppercase tracking-wide text-text-muted">
-              <th className="w-8 px-2 py-2">
-                <Checkbox
-                  checked={allSelected}
-                  ref={(el) => {
-                    if (el) {
-                      (el as unknown as HTMLInputElement).indeterminate =
-                        someSelected && !allSelected;
-                    }
-                  }}
-                  onCheckedChange={(c) => toggleAll(!!c)}
-                  aria-label="Select all on this page"
-                />
-              </th>
-              <th className="px-2 py-2">Name</th>
-              <th className="hidden px-2 py-2 lg:table-cell">Folder</th>
-              <th className="hidden px-2 py-2 md:table-cell">Tags</th>
-              <th className="hidden px-2 py-2 xl:table-cell">Pages / size</th>
-              <th className="hidden px-2 py-2 sm:table-cell">Status</th>
-              <th className="w-24 px-2 py-2 text-right">Date</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div className="min-w-[52rem] text-[13px]">
+          <div
+            role="row"
+            className={cn(
+              documentListRowClass,
+              "sticky top-0 z-10 border-b border-surface-border bg-surface-muted py-2 text-left text-xs font-medium uppercase tracking-wide text-text-muted",
+            )}
+          >
+            <div role="columnheader" className={documentListCell.checkbox}>
+              <Checkbox
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) {
+                    (el as unknown as HTMLInputElement).indeterminate =
+                      someSelected && !allSelected;
+                  }
+                }}
+                onCheckedChange={(c) => toggleAll(!!c)}
+                aria-label="Select all on this page"
+              />
+            </div>
+            <div role="columnheader" className={documentListCell.name}>
+              Name
+            </div>
+            <div role="columnheader" className={documentListCell.tags}>
+              Tags
+            </div>
+            <div role="columnheader" className={documentListCell.pages}>
+              Pages / size
+            </div>
+            <div role="columnheader" className={documentListCell.status}>
+              Status
+            </div>
+            <div role="columnheader" className={documentListCell.date}>
+              Date
+            </div>
+            <div role="columnheader" className={documentListCell.actions}>
+              Actions
+            </div>
+          </div>
+
+          <div role="rowgroup">
             {documents.map((doc, index) => (
               <DocumentRow
                 key={doc.id}
@@ -122,6 +150,8 @@ export function DocumentTable({
                 active={activeId === doc.id}
                 focused={focusedIndex === index}
                 selectedIds={selectedIds}
+                folders={folders}
+                tags={tags}
                 onCheckbox={(_id, checked) => handleCheckbox(index, checked)}
                 onRowPointer={(_id, mods) => {
                   const action = handleItemPointer(index, mods);
@@ -129,10 +159,11 @@ export function DocumentTable({
                 }}
                 onOpen={onActiveChange}
                 onFocusRow={() => setFocusedIndex(index)}
+                onActionComplete={onActionComplete}
               />
             ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
 
       {onPageChange && totalPages > 1 && (

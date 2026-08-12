@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { ChevronLeft, ChevronRight, Sparkles, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Sparkles, Trash2 } from "lucide-react";
 import { useDocument, useTrashDocument } from "@/lib/api/hooks";
-import type { Document, Folder } from "@/lib/api/types";
+import type { Citation, Folder } from "@/lib/api/types";
 import { DocumentViewer } from "@/components/viewer/DocumentViewer";
 import { DocumentInspector } from "@/components/inspector/DocumentInspector";
 import { Breadcrumbs } from "@/components/documents/Breadcrumbs";
+import { AIChatPanel, type AIDrawerScope } from "@/components/ask/AIChatPanel";
 import { Button } from "@/components/ui/Button";
 import {
   Dialog,
@@ -15,41 +16,50 @@ import {
 } from "@/components/ui/Dialog";
 import { RetrievalReadinessBadge } from "./RetrievalReadinessBadge";
 import { canAskDocument } from "./retrievalReadiness";
+import { cn } from "@/lib/utils";
 
 interface DocumentViewerModalProps {
-  documentIds: string[];
   activeId: string | null;
   page?: number;
   folders: Folder[];
   onActiveIdChange: (id: string | null) => void;
   onPageChange?: (page: number) => void;
-  onAsk?: (document: Document) => void;
   onNavigateToFolder?: (folderId: string | undefined) => void;
   onTrashed?: (documentId: string) => void;
 }
 
 export function DocumentViewerModal({
-  documentIds,
   activeId,
   page,
   folders,
   onActiveIdChange,
   onPageChange,
-  onAsk,
   onNavigateToFolder,
   onTrashed,
 }: DocumentViewerModalProps) {
   const open = Boolean(activeId);
-  const index = activeId ? documentIds.indexOf(activeId) : -1;
   const { data: doc } = useDocument(activeId ?? undefined);
   const trashDocument = useTrashDocument();
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
 
-  const go = (delta: number) => {
-    if (index < 0) return;
-    const next = documentIds[index + delta];
-    if (next) onActiveIdChange(next);
-  };
+  useEffect(() => {
+    if (!open) setAskOpen(false);
+  }, [open]);
+
+  useEffect(() => {
+    setAskOpen(false);
+  }, [activeId]);
+
+  const askScope: AIDrawerScope | undefined = useMemo(() => {
+    if (!doc) return undefined;
+    return {
+      kind: "document",
+      documentId: doc.id,
+      previewDocuments: [doc],
+      label: doc.title || doc.original_filename || "Current document",
+    };
+  }, [doc]);
 
   const handleTrash = async () => {
     if (!doc) return;
@@ -57,6 +67,17 @@ export function DocumentViewerModal({
     setConfirmTrash(false);
     onTrashed?.(doc.id);
     onActiveIdChange(null);
+  };
+
+  const handleCitation = (citation: Citation) => {
+    if (citation.document_id === activeId && citation.page_number != null) {
+      onPageChange?.(citation.page_number);
+      return;
+    }
+    if (citation.document_id !== activeId) {
+      onActiveIdChange(citation.document_id);
+      if (citation.page_number != null) onPageChange?.(citation.page_number);
+    }
   };
 
   return (
@@ -68,7 +89,7 @@ export function DocumentViewerModal({
         }}
       >
         <DialogContent className="flex h-[95vh] w-[95vw] max-w-none flex-col gap-0 overflow-hidden p-0">
-          <DialogHeader className="flex flex-row items-start justify-between gap-3 border-b border-surface-border px-4 py-3 pr-12 space-y-0">
+          <DialogHeader className="mb-0 flex flex-row items-start justify-between gap-3 space-y-0 border-b border-surface-border px-4 py-3 pr-12">
             <div className="min-w-0">
               <DialogTitle className="truncate text-base">
                 {doc?.title || doc?.original_filename || "Document"}
@@ -110,41 +131,19 @@ export function DocumentViewerModal({
                   Trash
                 </Button>
               )}
-              {doc && onAsk && (
+              {doc && (
                 <Button
                   size="sm"
-                  variant="secondary"
+                  variant={askOpen ? "default" : "secondary"}
                   className="mr-1"
                   disabled={!canAskDocument(doc)}
-                  onClick={() => onAsk(doc)}
+                  aria-pressed={askOpen}
+                  onClick={() => setAskOpen((v) => !v)}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   Ask
                 </Button>
               )}
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-                disabled={index <= 0}
-                onClick={() => go(-1)}
-                aria-label="Previous document"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="min-w-[3rem] text-center text-xs text-text-muted">
-                {index >= 0 ? `${index + 1} / ${documentIds.length}` : "—"}
-              </span>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-                disabled={index < 0 || index >= documentIds.length - 1}
-                onClick={() => go(1)}
-                aria-label="Next document"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
             </div>
           </DialogHeader>
 
@@ -159,6 +158,25 @@ export function DocumentViewerModal({
             </div>
             <aside className="hidden w-[320px] shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex">
               <DocumentInspector document={doc} />
+            </aside>
+            <aside
+              className={cn(
+                "hidden shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex",
+                askOpen ? "w-[360px]" : "w-0 border-l-0",
+              )}
+              aria-hidden={!askOpen}
+            >
+              {askOpen && askScope && (
+                <AIChatPanel
+                  active={askOpen}
+                  initialScope={askScope}
+                  onCitationClick={handleCitation}
+                  showScopeSelector={false}
+                  title="Ask about this document"
+                  description="Answers are scoped to the open document."
+                  className="h-full"
+                />
+              )}
             </aside>
           </div>
         </DialogContent>

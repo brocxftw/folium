@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   useBulkAction,
   useDocuments,
@@ -50,6 +51,7 @@ function emptyMessageForView(
 }
 
 export function DocumentsPage() {
+  const navigate = useNavigate();
   const {
     state,
     patch,
@@ -105,7 +107,6 @@ export function DocumentsPage() {
   const browseDocuments = docList?.items ?? [];
   const searchDocuments = searchResponse?.items.map((h) => h.document) ?? [];
   const documents = isEvidenceSearch ? searchDocuments : browseDocuments;
-  const documentIds = useMemo(() => documents.map((d) => d.id), [documents]);
 
   const folderName = useMemo(() => {
     if (!state.folderId) return undefined;
@@ -151,18 +152,19 @@ export function DocumentsPage() {
 
   const handleUploadFiles = useCallback(
     async (files: FileList) => {
-      await uploader.uploadFileList(files, { folderId: state.folderId });
-      void refetch();
+      // Always land in Inbox for processing; ignore current library folder.
+      await uploader.uploadFileList(files);
+      navigate("/inbox?view=work");
     },
-    [uploader, state.folderId, refetch],
+    [uploader, navigate],
   );
 
   const handleEntries = useCallback(
     async (entries: UploadEntry[]) => {
-      await uploader.uploadEntries(entries, { folderId: state.folderId });
-      void refetch();
+      await uploader.uploadEntries(entries);
+      navigate("/inbox?view=work");
     },
-    [uploader, state.folderId, refetch],
+    [uploader, navigate],
   );
 
   const handleBulkAction = async (action: BulkAction, options?: BulkActionOptions) => {
@@ -473,8 +475,11 @@ export function DocumentsPage() {
                   documents={browseDocuments}
                   selectedIds={selectedIds}
                   activeId={state.docId}
+                  folders={folders}
+                  tags={tags}
                   onSelect={setSelectedIds}
                   onActiveChange={(id) => openDocument(id)}
+                  onActionComplete={() => void refetch()}
                   isLoading={isLoading}
                   emptyMessage={emptyMessageForView(state.view, !!state.folderId)}
                   page={state.page}
@@ -487,8 +492,11 @@ export function DocumentsPage() {
                   documents={browseDocuments}
                   selectedIds={selectedIds}
                   activeId={state.docId}
+                  folders={folders}
+                  tags={tags}
                   onSelect={setSelectedIds}
                   onActiveChange={(id) => openDocument(id)}
+                  onActionComplete={() => void refetch()}
                   isLoading={isLoading}
                   emptyMessage={emptyMessageForView(state.view, !!state.folderId)}
                   page={state.page}
@@ -503,7 +511,6 @@ export function DocumentsPage() {
       </div>
 
       <DocumentViewerModal
-        documentIds={documentIds}
         activeId={state.docId ?? null}
         page={state.viewerPage}
         folders={folders}
@@ -520,14 +527,6 @@ export function DocumentsPage() {
           closeDocument();
           void refetch();
         }}
-        onAsk={(doc) =>
-          openAsk({
-            kind: "document",
-            documentId: doc.id,
-            previewDocuments: [doc],
-            label: doc.title,
-          })
-        }
       />
 
       <AIChatDrawer

@@ -2,8 +2,9 @@ import { FileText } from "lucide-react";
 import type { DragEvent } from "react";
 import { api } from "@/lib/api/client";
 import { cn, formatDate } from "@/lib/utils";
-import type { Document } from "@/lib/api/types";
+import type { Document, Folder, Tag as TagType } from "@/lib/api/types";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { DocumentActionsMenu } from "./DocumentActionsMenu";
 import { RetrievalReadinessBadge } from "./RetrievalReadinessBadge";
 import { setDocumentDragData, clearDocumentDragData } from "./documentDrag";
 
@@ -13,12 +14,15 @@ interface DocumentCardProps {
   active: boolean;
   focused: boolean;
   selectedIds: Set<string>;
+  folders?: Folder[];
+  tags?: TagType[];
   onOpen: (id: string) => void;
   onPointerSelect: (
     event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
   ) => void;
   onCheckbox: (checked: boolean) => void;
   onFocus: () => void;
+  onActionComplete?: () => void;
 }
 
 export function DocumentCard({
@@ -27,10 +31,13 @@ export function DocumentCard({
   active,
   focused,
   selectedIds,
+  folders,
+  tags,
   onOpen,
   onPointerSelect,
   onCheckbox,
   onFocus,
+  onActionComplete,
 }: DocumentCardProps) {
   const handleDragStart = (event: DragEvent) => {
     const ids = selectedIds.has(document.id)
@@ -50,13 +57,17 @@ export function DocumentCard({
       onFocus={onFocus}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest("[data-card-checkbox]")) return;
+        if ((event.target as HTMLElement).closest("[data-document-actions]")) return;
         onPointerSelect({
           shiftKey: event.shiftKey,
           metaKey: event.metaKey,
           ctrlKey: event.ctrlKey,
         });
       }}
-      onDoubleClick={() => onOpen(document.id)}
+      onDoubleClick={(event) => {
+        if ((event.target as HTMLElement).closest("[data-document-actions]")) return;
+        onOpen(document.id);
+      }}
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-md border bg-surface text-left outline-none transition-colors",
         active
@@ -76,6 +87,15 @@ export function DocumentCard({
           checked={selected}
           onCheckedChange={(c) => onCheckbox(!!c)}
           aria-label={`Select ${document.title}`}
+        />
+      </div>
+      <div className="absolute right-2 top-2 z-10">
+        <DocumentActionsMenu
+          document={document}
+          folders={folders}
+          tags={tags}
+          triggerClassName="bg-surface/80 backdrop-blur-sm"
+          onActionComplete={onActionComplete}
         />
       </div>
       <div className="flex aspect-[4/3] items-center justify-center bg-surface-muted">

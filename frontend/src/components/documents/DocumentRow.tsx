@@ -6,9 +6,14 @@ import {
 } from "lucide-react";
 import type { DragEvent } from "react";
 import { cn, formatBytes, formatDate } from "@/lib/utils";
-import type { Document } from "@/lib/api/types";
+import type { Document, Folder, Tag as TagType } from "@/lib/api/types";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { TagList } from "@/components/tags/TagList";
+import { DocumentActionsMenu } from "@/features/documents/DocumentActionsMenu";
+import {
+  documentListCell,
+  documentListRowClass,
+} from "@/features/documents/documentListColumns";
 import { RetrievalReadinessBadge } from "@/features/documents/RetrievalReadinessBadge";
 import { setDocumentDragData, clearDocumentDragData } from "@/features/documents/documentDrag";
 
@@ -18,6 +23,8 @@ interface DocumentRowProps {
   active: boolean;
   focused?: boolean;
   selectedIds: Set<string>;
+  folders?: Folder[];
+  tags?: TagType[];
   onCheckbox: (id: string, checked: boolean) => void;
   onRowPointer: (
     id: string,
@@ -25,6 +32,7 @@ interface DocumentRowProps {
   ) => void;
   onOpen: (id: string) => void;
   onFocusRow: (id: string) => void;
+  onActionComplete?: () => void;
 }
 
 function FileIcon({ mimeType }: { mimeType: string }) {
@@ -41,10 +49,13 @@ export function DocumentRow({
   active,
   focused,
   selectedIds,
+  folders,
+  tags,
   onCheckbox,
   onRowPointer,
   onOpen,
   onFocusRow,
+  onActionComplete,
 }: DocumentRowProps) {
   const handleDragStart = (event: DragEvent) => {
     const ids = selectedIds.has(document.id)
@@ -54,7 +65,7 @@ export function DocumentRow({
   };
 
   return (
-    <tr
+    <div
       role="row"
       aria-selected={selected}
       tabIndex={-1}
@@ -64,23 +75,29 @@ export function DocumentRow({
       onFocus={() => onFocusRow(document.id)}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest("[data-row-checkbox]")) return;
+        if ((event.target as HTMLElement).closest("[data-document-actions]")) return;
         onRowPointer(document.id, {
           shiftKey: event.shiftKey,
           metaKey: event.metaKey,
           ctrlKey: event.ctrlKey,
         });
       }}
-      onDoubleClick={() => onOpen(document.id)}
+      onDoubleClick={(event) => {
+        if ((event.target as HTMLElement).closest("[data-document-actions]")) return;
+        onOpen(document.id);
+      }}
       className={cn(
-        "cursor-pointer border-b border-surface-border outline-none transition-colors",
+        documentListRowClass,
+        "cursor-pointer border-b border-surface-border py-2 outline-none transition-colors",
         active && "bg-row-selected border-l-2 border-l-accent",
         !active && selected && "bg-row-selected/60",
         !active && !selected && "hover:bg-surface-hover",
         focused && "ring-1 ring-inset ring-focus",
       )}
     >
-      <td
-        className="w-8 px-2 py-2"
+      <div
+        role="gridcell"
+        className={documentListCell.checkbox}
         data-row-checkbox
         onClick={(e) => e.stopPropagation()}
       >
@@ -89,32 +106,50 @@ export function DocumentRow({
           onCheckedChange={(checked) => onCheckbox(document.id, !!checked)}
           aria-label={`Select ${document.title}`}
         />
-      </td>
-      <td className="max-w-[280px] px-2 py-2">
+      </div>
+
+      <div role="gridcell" className={documentListCell.name}>
         <div className="flex min-w-0 items-center gap-2">
           <FileIcon mimeType={document.mime_type} />
-          <span className="truncate font-medium text-text-primary">{document.title}</span>
+          <span className="min-w-0 flex-1 truncate font-medium text-text-primary">
+            {document.title}
+          </span>
         </div>
-      </td>
-      <td className="hidden max-w-[120px] px-2 py-2 lg:table-cell">
-        <span className="truncate text-xs text-text-secondary">
-          {document.folder_path?.split(" / ").pop() ?? "—"}
-        </span>
-      </td>
-      <td className="hidden max-w-[160px] px-2 py-2 md:table-cell">
-        <TagList tags={document.tags} max={2} />
-      </td>
-      <td className="hidden whitespace-nowrap px-2 py-2 text-xs text-text-secondary xl:table-cell">
+      </div>
+
+      <div role="gridcell" className={documentListCell.tags}>
+        <div className="min-w-0 overflow-hidden">
+          <TagList tags={document.tags} max={2} />
+        </div>
+      </div>
+
+      <div role="gridcell" className={documentListCell.pages}>
         {document.page_count != null ? `${document.page_count}p` : "—"}
         <span className="mx-1 text-text-muted">·</span>
         {formatBytes(document.file_size)}
-      </td>
-      <td className="hidden px-2 py-2 sm:table-cell">
+      </div>
+
+      <div role="gridcell" className={documentListCell.status}>
         <RetrievalReadinessBadge document={document} />
-      </td>
-      <td className="w-24 whitespace-nowrap px-2 py-2 text-right text-xs text-text-secondary">
+      </div>
+
+      <div role="gridcell" className={documentListCell.date}>
         {formatDate(document.added_date)}
-      </td>
-    </tr>
+      </div>
+
+      <div
+        role="gridcell"
+        className={documentListCell.actions}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DocumentActionsMenu
+          document={document}
+          folders={folders}
+          tags={tags}
+          alwaysVisible
+          onActionComplete={onActionComplete}
+        />
+      </div>
+    </div>
   );
 }
