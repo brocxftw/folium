@@ -675,6 +675,7 @@ class AIPolicyUpdate(BaseModel):
     max_output_tokens: int | None = None
     conversation_history_tokens: int | None = None
     parallel_llm_calls: int | None = None
+    semantic_min_score: float | None = None
 
 
 class AIPolicyOut(ORMModel):
@@ -695,6 +696,7 @@ class AIPolicyOut(ORMModel):
     max_output_tokens: int
     conversation_history_tokens: int
     parallel_llm_calls: int
+    semantic_min_score: float | None = None
     active_embedding_provider: str | None
     active_embedding_model: str | None
     active_embedding_dimension: int | None

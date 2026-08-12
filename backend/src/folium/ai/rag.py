@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from folium.ai.base import AIProviderAdapter, ChatMessage
 from folium.ai.embeddings import pad_embedding
 from folium.ai.privacy import PrivacyGate
-from folium.ai.profiles import compute_budget, resolve_profile
+from folium.ai.profiles import compute_budget, effective_context_window, resolve_profile
 from folium.ai.usage import record_usage
 from folium.core.exceptions import InsufficientEvidenceError, ValidationError
 from folium.models import AIProvider, AISettings, Document, DocumentChunk, Folder
@@ -184,7 +184,8 @@ async def _semantic_retrieve(
     rows = (await session.execute(stmt)).all()
     retrieved: list[RetrievedChunk] = []
     for chunk, title, distance in rows:
-        score = 1.0 / (1.0 + float(distance))
+        # Cosine similarity in [approx -1, 1]; matches search.semantic scoring.
+        score = 1.0 - float(distance)
         retrieved.append(
             RetrievedChunk(
                 chunk=chunk,
@@ -277,11 +278,17 @@ def _fit_chunks_to_budget(
             break
 
         chunk_tokens = item.chunk.token_count or estimate_tokens(item.chunk.text)
-        if selected and used_tokens + chunk_tokens > token_budget:
+        # Account for passage labels / UUID / title framing in the user message.
+        overhead = estimate_tokens(
+            f"Passage {len(selected) + 1}:\nchunk_id: {item.chunk.id}\n"
+            f"document: {item.document_title}\nlocation: page 999\ntext:\n"
+        )
+        cost = chunk_tokens + overhead
+        if used_tokens + cost > token_budget:
             continue
 
         selected.append(item)
-        used_tokens += chunk_tokens
+        used_tokens += cost
 
     return selected
 
@@ -298,6 +305,7 @@ async def hybrid_retrieve(
     embedding_model: str | None,
     embedding_provider: str | None,
     embedding_dimension: int | None,
+    semantic_min_score: float | None = None,
 ) -> list[RetrievedChunk]:
     """Retrieve top chunks using keyword search and optional semantic search."""
     if not document_ids:
@@ -330,6 +338,9 @@ async def hybrid_retrieve(
         except Exception:
             semantic_hits = []
 
+    if semantic_min_score is not None:
+        semantic_hits = [item for item in semantic_hits if item.score >= semantic_min_score]
+
     if semantic_hits and keyword_hits:
         ranked = _reciprocal_rank_fusion(semantic_hits, keyword_hits)
     elif semantic_hits:
@@ -338,6 +349,27 @@ async def hybrid_retrieve(
         ranked = keyword_hits
 
     return _fit_chunks_to_budget(ranked, max_chunks=max_chunks, token_budget=token_budget)
+
+
+def _ask_system_prompt() -> str:
+    return (
+        "You are a document assistant for Folium. Answer the user's question using ONLY "
+        "the evidence passages below. Do not rely on outside knowledge.\n"
+        "When you make a factual claim supported by a passage, cite it inline using "
+        "the exact format [chunk:<chunk_id>].\n"
+        "If the passages do not contain enough information to answer confidently, reply "
+        "with exactly: INSUFFICIENT_EVIDENCE\n"
+        "Never invent citations or chunk IDs."
+    )
+
+
+def _ask_user_framing(question: str) -> str:
+    """User message without evidence body — used for budgeting."""
+    return (
+        "Evidence passages:\n\n\n\n"
+        f"Question: {question.strip()}\n\n"
+        "Provide a concise answer with inline [chunk:<chunk_id>] citations."
+    )
 
 
 def build_rag_prompt(question: str, chunks: list[RetrievedChunk]) -> tuple[str, list[ChatMessage]]:
@@ -360,15 +392,7 @@ def build_rag_prompt(question: str, chunks: list[RetrievedChunk]) -> tuple[str, 
         )
 
     evidence_block = "\n\n".join(evidence_lines)
-    system_prompt = (
-        "You are a document assistant for Folium. Answer the user's question using ONLY "
-        "the evidence passages below. Do not rely on outside knowledge.\n"
-        "When you make a factual claim supported by a passage, cite it inline using "
-        "the exact format [chunk:<chunk_id>].\n"
-        "If the passages do not contain enough information to answer confidently, reply "
-        "with exactly: INSUFFICIENT_EVIDENCE\n"
-        "Never invent citations or chunk IDs."
-    )
+    system_prompt = _ask_system_prompt()
     user_prompt = (
         f"Evidence passages:\n\n{evidence_block}\n\n"
         f"Question: {question.strip()}\n\n"
@@ -467,19 +491,24 @@ async def ask(
         )
 
     await assert_ai_quota(session, owner_id)
-    system_overhead = estimate_tokens(
-        "You are a document assistant. Cite evidence with [chunk:<chunk_id>]."
-    )
+    system_tokens = estimate_tokens(_ask_system_prompt())
+    framing_tokens = estimate_tokens(_ask_user_framing(cleaned_question))
     conversation_tokens = 0
     if conversation:
         conversation_tokens = sum(estimate_tokens(message.content) for message in conversation)
 
-    budget = compute_budget(
+    max_context = effective_context_window(
         profile.max_context_tokens,
-        system_overhead,
+        chat_provider.context_window,
+    )
+    budget = compute_budget(
+        max_context,
+        system_tokens + framing_tokens,
         min(conversation_tokens, profile.conversation_history_tokens),
         profile.max_output_tokens,
     )
+
+    semantic_min_score = settings.semantic_min_score
 
     retrieved = await hybrid_retrieve(
         session,
@@ -492,6 +521,7 @@ async def ask(
         embedding_model=embedding_model or settings.active_embedding_model,
         embedding_provider=embedding_provider or settings.active_embedding_provider,
         embedding_dimension=settings.active_embedding_dimension,
+        semantic_min_score=semantic_min_score,
     )
 
     if not retrieved:
