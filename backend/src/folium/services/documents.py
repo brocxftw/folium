@@ -550,6 +550,8 @@ async def retry_preflight(
     doc.processing_error = None
     doc.text_extracted = False
     doc.ocr_completed = False
+    doc.ocr_pages_done = None
+    doc.ocr_pages_total = None
     doc.modified_date = datetime.now(UTC)
     await session.flush()
 
@@ -590,6 +592,8 @@ async def retry_ocr(
 
     await invalidate_retrieval_artifacts(session, doc)
     doc.ocr_completed = False
+    doc.ocr_pages_done = None
+    doc.ocr_pages_total = None
     doc.processing_status = ProcessingStatus.PROCESSING
     doc.processing_error = None
     await session.flush()
@@ -1098,11 +1102,15 @@ async def list_documents(
         "modified_date": Document.modified_date,
         "created_date": Document.created_date,
     }
-    sort_col = sort_map.get(sort, Document.added_date)
-    if order.lower() == "asc":
-        stmt = stmt.order_by(sort_col.asc())
-    else:
-        stmt = stmt.order_by(sort_col.desc())
+    sort_key = sort if sort in sort_map else "added_date"
+    sort_col = sort_map[sort_key]
+    ascending = order.lower() == "asc"
+    order_clauses = [sort_col.asc() if ascending else sort_col.desc()]
+    if sort_key == "added_date":
+        order_clauses.append(
+            Document.created_at.asc() if ascending else Document.created_at.desc()
+        )
+    stmt = stmt.order_by(*order_clauses)
 
     # inbox_status is derived — filter in Python after fetch when requested.
     # For status tabs, fetch a larger page then filter (Inbox queues stay small).
@@ -1156,6 +1164,8 @@ def document_to_dict(doc: Document) -> dict:
         "indexed_at": doc.indexed_at,
         "processing_status": doc.processing_status.value,
         "ocr_completed": doc.ocr_completed,
+        "ocr_pages_done": doc.ocr_pages_done,
+        "ocr_pages_total": doc.ocr_pages_total,
         "text_extracted": doc.text_extracted,
         "document_indexed": doc.document_indexed,
         "has_embeddings": doc.has_embeddings,

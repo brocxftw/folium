@@ -60,6 +60,31 @@ def test_pdf_force_ocr_uses_paddle(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert result.pages[0].text == "Paddle text"
 
 
+def test_pdf_ocr_reports_page_progress(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pdf = tmp_path / "scan2.pdf"
+    doc = pymupdf.open()
+    doc.new_page()
+    doc.new_page()
+    doc.save(pdf)
+    doc.close()
+
+    monkeypatch.setattr(extractor, "paddle_ocr_available", lambda: True)
+    monkeypatch.setattr(extractor, "ocr_image", lambda *_a, **_k: "line")
+
+    seen: list[tuple[int, int]] = []
+    result = extract_document(
+        pdf,
+        "application/pdf",
+        settings=_settings(),
+        force_ocr=True,
+        on_ocr_progress=lambda done, total: seen.append((done, total)),
+    )
+    assert result.page_count == 2
+    assert seen[0] == (0, 2)
+    assert seen[-1] == (2, 2)
+    assert (1, 2) in seen
+
+
 def test_pdf_native_only_skips_paddle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pdf = tmp_path / "native.pdf"
     _make_text_pdf(pdf, "This is enough native PDF text for the page threshold check.")
@@ -92,9 +117,16 @@ def test_image_uses_paddleocr_method(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(extractor, "paddle_ocr_available", lambda: True)
     monkeypatch.setattr(extractor, "ocr_image", lambda path, *, language=None: "Hello from paddle")
 
-    result = extract_document(image, "image/png", settings=_settings())
+    seen: list[tuple[int, int]] = []
+    result = extract_document(
+        image,
+        "image/png",
+        settings=_settings(),
+        on_ocr_progress=lambda done, total: seen.append((done, total)),
+    )
     assert result.method == "paddleocr"
     assert result.pages[0].text == "Hello from paddle"
+    assert seen == [(0, 1), (1, 1)]
 
 
 def test_image_fallback_without_paddle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

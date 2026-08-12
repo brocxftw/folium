@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Document, Job } from "@/lib/api/types";
-import { indexingPhaseState, ocrPhaseState, resolveProcessingLabel } from "./inboxPreparingPhases";
+import {
+  inboxBatchProgress,
+  inboxRowProgress,
+  indexingPhaseState,
+  ocrPhaseState,
+  resolveProcessingLabel,
+} from "./inboxPreparingPhases";
 
 function doc(overrides: Partial<Document> = {}): Document {
   return {
@@ -73,7 +79,13 @@ describe("indexingPhaseState", () => {
 });
 
 describe("resolveProcessingLabel", () => {
-  it("progresses OCR → Indexing → needs review", () => {
+  it("progresses Queued → OCR → Indexing → needs review", () => {
+    expect(
+      resolveProcessingLabel(
+        doc(),
+        [job({ job_type: "text_extraction", status: "queued" })],
+      ),
+    ).toBe("queued");
     expect(
       resolveProcessingLabel(
         doc(),
@@ -89,5 +101,66 @@ describe("resolveProcessingLabel", () => {
     expect(resolveProcessingLabel(doc({ inbox_status: "needs_review" }))).toBe(
       "needs_review",
     );
+  });
+});
+
+describe("inboxRowProgress", () => {
+  it("hides the bar when the document is no longer preparing", () => {
+    expect(inboxRowProgress(doc({ inbox_status: "ready" }))).toBeNull();
+  });
+
+  it("hides the bar for queued rows", () => {
+    expect(
+      inboxRowProgress(
+        doc(),
+        [job({ job_type: "text_extraction", status: "queued" })],
+      ),
+    ).toBeNull();
+  });
+
+  it("shows page progress during OCR", () => {
+    expect(
+      inboxRowProgress(
+        doc({ ocr_pages_done: 3, ocr_pages_total: 6 }),
+        [job({ job_type: "ocr", status: "running" })],
+      ),
+    ).toEqual({
+      label: "OCR · Processing page 3 of 6",
+      percent: 50,
+    });
+  });
+
+  it("treats page 0 as the first page label", () => {
+    expect(
+      inboxRowProgress(
+        doc({ ocr_pages_done: 0, ocr_pages_total: 6 }),
+        [job({ job_type: "ocr", status: "running" })],
+      ),
+    ).toEqual({
+      label: "OCR · Processing page 1 of 6",
+      percent: 0,
+    });
+  });
+});
+
+describe("inboxBatchProgress", () => {
+  it("counts completed vs queued vs one active OCR job", () => {
+    const docs = [
+      doc({ id: "a", inbox_status: "ready" }),
+      doc({ id: "b", inbox_status: "preparing" }),
+      doc({ id: "c", inbox_status: "preparing" }),
+    ];
+    const jobs = [
+      job({ document_id: "b", job_type: "ocr", status: "running" }),
+      job({ id: "job-2", document_id: "c", job_type: "text_extraction", status: "queued" }),
+    ];
+    expect(inboxBatchProgress(docs, jobs)).toEqual({
+      total: 3,
+      completed: 1,
+      active: 1,
+      queued: 1,
+      percent: 33,
+      visible: true,
+    });
   });
 });

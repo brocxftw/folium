@@ -6,11 +6,24 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import and_, exists, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.core.exceptions import NotFoundError
-from folium.models import Document, Job, JobStatus, JobType
+from folium.models import Document, Job, JobStatus, JobType, ProcessingStatus
+
+PREPARING_STATUSES = frozenset(
+    {ProcessingStatus.PENDING, ProcessingStatus.PROCESSING}
+)
+
+INBOX_PREFLIGHT_JOB_TYPES = frozenset(
+    {
+        JobType.TEXT_EXTRACTION,
+        JobType.OCR,
+        JobType.THUMBNAIL,
+        JobType.METADATA_SUGGESTION,
+    }
+)
 
 
 async def enqueue_job(
@@ -35,10 +48,53 @@ async def enqueue_job(
     return job
 
 
+async def _active_inbox_preflight_document_id(
+    session: AsyncSession,
+) -> uuid.UUID | None:
+    """Oldest inbox document that currently owns the preflight pipeline.
+
+    A running preflight job pins that document. Otherwise the oldest inbox
+    document with a queued preflight job is selected.
+    """
+    inbox_preflight = (
+        select(Document.id)
+        .join(Job, Job.document_id == Document.id)
+        .where(
+            Document.inbox.is_(True),
+            Document.is_trashed.is_(False),
+            Document.processing_status.in_(PREPARING_STATUSES),
+            Job.job_type.in_(INBOX_PREFLIGHT_JOB_TYPES),
+        )
+    )
+    running = (
+        await session.execute(
+            inbox_preflight.where(Job.status == JobStatus.RUNNING)
+            .order_by(Document.added_date.asc(), Document.created_at.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if running is not None:
+        return running
+    now = datetime.now(UTC)
+    return (
+        await session.execute(
+            inbox_preflight.where(
+                Job.status == JobStatus.QUEUED,
+                or_(Job.available_at.is_(None), Job.available_at <= now),
+            )
+            .order_by(Document.added_date.asc(), Document.created_at.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def claim_next(session: AsyncSession, worker_id: str) -> Job | None:
     """Claim the highest-priority queued job using SKIP LOCKED.
 
     Skips jobs whose document is trashed so deleted batches cannot starve the queue.
+    Inbox preflight jobs (extract/OCR/thumbnail/suggestions) are claimed for
+    only one still-preparing document at a time, oldest first. Ready inbox
+    docs (e.g. manual suggestion retries) keep normal claim order.
     """
     now = datetime.now(UTC)
     trashed_document = (
@@ -49,12 +105,28 @@ async def claim_next(session: AsyncSession, worker_id: str) -> Job | None:
         )
         .exists()
     )
+    inbox_preflight_job = and_(
+        Job.job_type.in_(INBOX_PREFLIGHT_JOB_TYPES),
+        exists().where(
+            Document.id == Job.document_id,
+            Document.inbox.is_(True),
+            Document.is_trashed.is_(False),
+            Document.processing_status.in_(PREPARING_STATUSES),
+        ),
+    )
+    allowed_inbox_id = await _active_inbox_preflight_document_id(session)
+    inbox_gate = (
+        or_(not_(inbox_preflight_job), Job.document_id == allowed_inbox_id)
+        if allowed_inbox_id is not None
+        else not_(inbox_preflight_job)
+    )
     stmt = (
         select(Job)
         .where(
             Job.status == JobStatus.QUEUED,
             or_(Job.available_at.is_(None), Job.available_at <= now),
             ~trashed_document,
+            inbox_gate,
         )
         .order_by(Job.priority.asc(), Job.created_at.asc())
         .limit(1)

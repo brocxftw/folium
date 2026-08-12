@@ -48,6 +48,12 @@ export function InboxAiSuggestionPanel({
 
   const confidence = confidencePercent(suggestions);
   const isGenerating = suggestionJobStatus === "running";
+  const noSuggestions =
+    !isGenerating &&
+    suggestions.length === 0 &&
+    suggestionJobStatus === "empty" &&
+    !hasDestination &&
+    (doc.tags?.length ?? 0) === 0;
 
   return (
     <div className="mt-5 rounded-[10px] border border-[#BFE9E2] bg-gradient-to-br from-[#F7FCFB] to-[#F0FBF9] p-[18px] md:ml-[66px]">
@@ -83,6 +89,10 @@ export function InboxAiSuggestionPanel({
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#087F78]" />
           Generating AI suggestions…
         </div>
+      ) : noSuggestions ? (
+        <p className="mt-4 text-sm text-[#5D6B76]">
+          No AI suggestions were generated. Use Retry Suggestions or file manually.
+        </p>
       ) : (
         <>
           {titleSuggestion && (

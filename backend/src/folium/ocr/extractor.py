@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,7 @@ def extract_document(
     language: str | None = None,
     allow_ocr: bool = True,
     force_ocr: bool = False,
+    on_ocr_progress: Callable[[int, int], None] | None = None,
 ) -> ExtractedDocument:
     """Extract text from a supported document on disk.
 
@@ -70,9 +72,15 @@ def extract_document(
             language=lang,
             allow_ocr=allow_ocr,
             force_ocr=force_ocr,
+            on_ocr_progress=on_ocr_progress,
         )
     if mime in {"image/png", "image/jpeg"}:
-        return _extract_image(path, settings=settings, language=lang)
+        return _extract_image(
+            path,
+            settings=settings,
+            language=lang,
+            on_ocr_progress=on_ocr_progress,
+        )
     if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         return _extract_docx(path)
     if mime in {"text/plain", "text/markdown"}:
@@ -131,6 +139,7 @@ def _extract_pdf(
     language: str,
     allow_ocr: bool = True,
     force_ocr: bool = False,
+    on_ocr_progress: Callable[[int, int], None] | None = None,
 ) -> ExtractedDocument:
     pages = _pdf_text_pages(path)
     should_ocr = (
@@ -140,7 +149,10 @@ def _extract_pdf(
     )
     if should_ocr:
         if paddle_ocr_available():
-            pages = _ocr_pdf_pages_paddle(path, language=language)
+            ocr_kwargs: dict[str, Any] = {"language": language}
+            if on_ocr_progress is not None:
+                ocr_kwargs["on_progress"] = on_ocr_progress
+            pages = _ocr_pdf_pages_paddle(path, **ocr_kwargs)
             method = "pymupdf+paddleocr"
         else:
             logger.warning(
@@ -184,12 +196,22 @@ def pages_need_ocr(pages: list[ExtractedPage]) -> bool:
 _needs_ocr = pages_need_ocr
 
 
-def _extract_image(path: Path, *, settings: Settings, language: str) -> ExtractedDocument:
+def _extract_image(
+    path: Path,
+    *,
+    settings: Settings,
+    language: str,
+    on_ocr_progress: Callable[[int, int], None] | None = None,
+) -> ExtractedDocument:
     text = ""
     method = "pillow"
     if settings.ocr_enabled and paddle_ocr_available():
+        if on_ocr_progress is not None:
+            on_ocr_progress(0, 1)
         text = ocr_image(path, language=language)
         method = "paddleocr"
+        if on_ocr_progress is not None:
+            on_ocr_progress(1, 1)
     else:
         with Image.open(path) as img:
             # Metadata-only fallback when OCR is unavailable.
@@ -215,10 +237,18 @@ def _extract_image(path: Path, *, settings: Settings, language: str) -> Extracte
     )
 
 
-def _ocr_pdf_pages_paddle(path: Path, *, language: str) -> list[ExtractedPage]:
+def _ocr_pdf_pages_paddle(
+    path: Path,
+    *,
+    language: str,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> list[ExtractedPage]:
     pages: list[ExtractedPage] = []
     with pymupdf.open(path) as doc:
-        for index in range(doc.page_count):
+        total = doc.page_count
+        if on_progress is not None:
+            on_progress(0, total)
+        for index in range(total):
             page = doc.load_page(index)
             pix = page.get_pixmap(dpi=_OCR_DPI, alpha=False)
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
@@ -229,6 +259,8 @@ def _ocr_pdf_pages_paddle(path: Path, *, language: str) -> list[ExtractedPage]:
             finally:
                 tmp_path.unlink(missing_ok=True)
             pages.append(ExtractedPage(page_number=index + 1, text=text))
+            if on_progress is not None:
+                on_progress(index + 1, total)
     return pages
 
 

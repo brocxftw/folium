@@ -284,6 +284,8 @@ class DocumentOut(ORMModel):
     indexed_at: datetime | None
     processing_status: str
     ocr_completed: bool
+    ocr_pages_done: int | None = None
+    ocr_pages_total: int | None = None
     text_extracted: bool
     document_indexed: bool
     has_embeddings: bool

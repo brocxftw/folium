@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { InboxFolderControl } from "./InboxFolderControl";
 import { InboxTagsControl } from "./InboxTagsControl";
-import { folderDisplayLabel } from "./formatMeta";
+import { folderDisplayLabel, isSystemInboxPath } from "./formatMeta";
 
 interface InboxManualFilingPanelProps {
   document: Document;
@@ -22,13 +22,7 @@ interface InboxManualFilingPanelProps {
 
 function hasFilingDestination(doc: Document): boolean {
   if (doc.pending_folder_path) return true;
-  if (
-    doc.folder_path &&
-    !/\/inbox$/i.test(doc.folder_path) &&
-    doc.folder_path.toLowerCase() !== "inbox"
-  ) {
-    return true;
-  }
+  if (doc.folder_path && !isSystemInboxPath(doc.folder_path)) return true;
   return false;
 }
 
