@@ -6,19 +6,20 @@ import json
 
 import pytest
 
+from folium.ai.base import AIProviderError
+from folium.ai.retry import is_transient_ai_error
 from folium.workers.processor import (
     _FOLDER_PATH_RE,
     _coerce_confidence,
     _field_confidence,
     _is_system_folder_path,
+    _library_relative_folder_path,
     _normalize_folder_path,
     _overall_confidence,
     _parse_suggestion_json,
     _parse_tag_entries,
     _require_suggestion_json,
 )
-from folium.ai.base import AIProviderError
-from folium.ai.retry import is_transient_ai_error
 
 
 @pytest.mark.parametrize(
@@ -148,6 +149,13 @@ def test_system_folder_paths_rejected(path: str) -> None:
 def test_filing_folder_paths_allowed(path: str) -> None:
     assert not _is_system_folder_path(path)
     assert _FOLDER_PATH_RE.match(path.replace(" / ", "/"))
+
+
+def test_library_relative_folder_path_strips_documents_root() -> None:
+    assert _library_relative_folder_path("Documents / ID / IC") == "ID / IC"
+    assert _library_relative_folder_path("Finance / Salary") == "Finance / Salary"
+    assert _library_relative_folder_path("Documents / Inbox") == "Inbox"
+    assert _library_relative_folder_path("Documents / Documents / ID") == "Documents / ID"
 
 
 def test_normalize_folder_path_collapses_slashes() -> None:

@@ -247,6 +247,8 @@ export interface Document {
   indexed_at: string | null;
   processing_status: "pending" | "processing" | "ready" | "failed" | "partial";
   ocr_completed: boolean;
+  ocr_pages_done?: number | null;
+  ocr_pages_total?: number | null;
   text_extracted: boolean;
   document_indexed: boolean;
   has_embeddings: boolean;

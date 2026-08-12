@@ -21,10 +21,13 @@ export function suggestionJobStatusForDoc(
   if (!latest) return "none";
   if (latest.status === "queued" || latest.status === "running") return "running";
   if (latest.status === "failed") return "failed";
+  // Completed with 0 pending can mean "AI produced nothing" OR "user accepted
+  // every suggestion". Keep the AI panel in both cases; only hard failures
+  // should fall back to manual filing.
   if (latest.status === "completed" && suggestionsCount === 0) return "empty";
   return "none";
 }
 
 export function showSuggestionFailure(status: SuggestionJobStatus): boolean {
-  return status === "failed" || status === "empty";
+  return status === "failed";
 }

@@ -10,7 +10,8 @@ import uuid
 from datetime import UTC, datetime
 from functools import partial
 
-from sqlalchemy import delete, select
+import pymupdf
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.ai.assignments import resolve_assignment
@@ -24,6 +25,7 @@ from folium.bootstrap import ensure_ai_settings
 from folium.core.config import get_settings
 from folium.core.exceptions import PrivacyViolationError, ValidationError
 from folium.core.logging import get_logger
+from folium.db.session import session_scope
 from folium.models import (
     AISuggestion,
     AIWorkloadRole,
@@ -85,6 +87,34 @@ async def _get_document(session: AsyncSession, document_id: uuid.UUID) -> Docume
     if doc is None:
         raise ValueError(f"Document {document_id} not found")
     return doc
+
+
+async def commit_ocr_progress(
+    document_id: uuid.UUID, done: int, total: int
+) -> None:
+    """Commit page progress on a separate session so the UI can poll mid-OCR."""
+    async with session_scope() as session:
+        await session.execute(
+            update(Document)
+            .where(Document.id == document_id)
+            .values(ocr_pages_done=done, ocr_pages_total=total)
+        )
+
+
+def _ocr_progress_callback(loop: asyncio.AbstractEventLoop, document_id: uuid.UUID):
+    def _on_progress(done: int, total: int) -> None:
+        try:
+            fut = asyncio.run_coroutine_threadsafe(
+                commit_ocr_progress(document_id, done, total),
+                loop,
+            )
+            fut.result(timeout=15)
+        except Exception:
+            logger.debug(
+                "OCR progress update failed for doc=%s", document_id, exc_info=True
+            )
+
+    return _on_progress
 
 
 async def _has_open_preflight_jobs(
@@ -301,6 +331,16 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
         extracted = await asyncio.to_thread(extract_fn)
     else:
         loop = asyncio.get_running_loop()
+        await commit_ocr_progress(doc.id, 0, 1)
+        extract_fn = partial(
+            extract_document,
+            path,
+            doc.mime_type,
+            settings=settings,
+            language=doc.language,
+            allow_ocr=True,
+            on_ocr_progress=_ocr_progress_callback(loop, doc.id),
+        )
         extracted = await loop.run_in_executor(get_ocr_executor(), extract_fn)
     await session.execute(delete(DocumentPage).where(DocumentPage.document_id == doc.id))
 
@@ -323,6 +363,9 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
         doc.ocr_completed = False
     else:
         doc.ocr_completed = extracted.method == "paddleocr" or "ocr" in extracted.method
+        if doc.ocr_completed:
+            doc.ocr_pages_done = 1
+            doc.ocr_pages_total = 1
     doc.language = (
         doc.language or extracted.language or detect_language_hint(doc.extracted_text or "")
     )
@@ -381,6 +424,13 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
 
     # PP-OCRv6 must stay on the dedicated OCR thread (Paddle is not pool-safe).
     loop = asyncio.get_running_loop()
+    try:
+        with pymupdf.open(path) as pdf:
+            page_total = pdf.page_count
+    except Exception:
+        page_total = prior_page_count or 0
+    if page_total:
+        await commit_ocr_progress(doc.id, 0, page_total)
     extracted = await loop.run_in_executor(
         get_ocr_executor(),
         partial(
@@ -390,6 +440,7 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
             settings=settings,
             language=doc.language,
             force_ocr=True,
+            on_ocr_progress=_ocr_progress_callback(loop, doc.id),
         ),
     )
     await session.execute(delete(DocumentPage).where(DocumentPage.document_id == doc.id))
@@ -415,6 +466,8 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
         doc.language = detect_language_hint(doc.extracted_text or "")
     ocr_page_count = extracted.page_count or len(extracted.pages)
     doc.page_count = ocr_page_count
+    doc.ocr_pages_done = ocr_page_count
+    doc.ocr_pages_total = ocr_page_count
     await session.flush()
 
     counter_deltas: dict[str, int] = {"ocr_pages": ocr_page_count}
@@ -682,6 +735,15 @@ def _is_system_folder_path(path: str) -> bool:
     return normalized.endswith("/inbox") or normalized.endswith("/trash")
 
 
+def _library_relative_folder_path(path: str) -> str:
+    """Strip a single leading Documents segment so prompts stay relative to root."""
+    normalized = _normalize_folder_path(path)
+    parts = [part for part in normalized.split(" / ") if part]
+    if parts and parts[0].lower() == "documents":
+        parts = parts[1:]
+    return " / ".join(parts)
+
+
 def _parse_suggestion_json(content: str) -> dict:
     text = content.strip()
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
@@ -864,7 +926,14 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         .all()
     )
     folder_paths = sorted(
-        {f.path_cache for f in folders if f.path_cache},
+        {
+            rel
+            for f in folders
+            if f.path_cache
+            and not _is_system_folder_path(f.path_cache)
+            and (rel := _library_relative_folder_path(f.path_cache))
+            and not _is_system_folder_path(rel)
+        },
         key=len,
     )
     types = (
@@ -906,7 +975,8 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         "for a birth certificate or 'Finance / Salary / 2025' for a payslip.\n"
         "- Prefer an Existing folder when it clearly fits; otherwise invent a "
         "new path and set create_folder true.\n"
-        "- Never suggest Inbox, Trash, or Documents alone.\n"
+        "- Never suggest Inbox, Trash, or Documents (alone or as Documents / Inbox).\n"
+        "- Do not prefix paths with Documents; Existing folders are relative to the library root.\n"
         "- Paths must use ' / ' between segments (not underscores).\n\n"
         f"Existing folders:\n{json.dumps(folder_paths[:80])}\n"
         f"Existing document types:\n{json.dumps(type_names)}\n"
@@ -981,33 +1051,39 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
 
     folder_path = data.get("folder_path")
     if isinstance(folder_path, str):
-        folder_path = _normalize_folder_path(folder_path)
+        folder_path = _library_relative_folder_path(folder_path)
         if (
             folder_path
             and not _is_system_folder_path(folder_path)
             and _FOLDER_PATH_RE.match(folder_path.replace(" / ", "/"))
         ):
-            normalized = folder_path.replace(" / ", "/")
+            relative = folder_path
+            relative_slash = relative.replace(" / ", "/")
             existing = next(
                 (
                     f
                     for f in folders
-                    if (f.path_cache or "").replace(" / ", "/") == normalized
-                    or (f.path_cache or "") == folder_path
+                    if _library_relative_folder_path(f.path_cache or "") == relative
+                    or (f.path_cache or "").replace(" / ", "/") == relative_slash
+                    or (f.path_cache or "") == relative
                 ),
                 None,
             )
             create_folder = existing is None
-            if existing is None:
-                # Also match leaf-only against path_cache ends
+            if existing is None and "/" not in relative_slash:
+                leaf = relative.lower()
                 for f in folders:
-                    cache = (f.path_cache or "").replace(" / ", "/")
-                    if cache.endswith("/" + normalized) or cache == normalized:
+                    cache_rel = _library_relative_folder_path(f.path_cache or "")
+                    if cache_rel.lower() == leaf or cache_rel.lower().endswith(" / " + leaf):
                         existing = f
                         create_folder = False
                         break
             value: dict = {
-                "path": existing.path_cache if existing else folder_path,
+                "path": (
+                    _library_relative_folder_path(existing.path_cache)
+                    if existing and existing.path_cache
+                    else relative
+                ),
                 "exists": existing is not None,
                 "create": create_folder,
             }

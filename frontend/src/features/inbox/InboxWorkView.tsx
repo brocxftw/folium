@@ -5,7 +5,9 @@ import {
   ArrowLeft,
   ArrowUpDown,
   CheckCheck,
+  RefreshCw,
   Search,
+  Trash2,
   Upload,
 } from "lucide-react";
 import {
@@ -24,6 +26,7 @@ import type { UploadEntry } from "@/lib/uploadTree";
 import { cn } from "@/lib/utils";
 import { UploadDropzone } from "@/components/documents/UploadDropzone";
 import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { Input } from "@/components/ui/Input";
 import {
   Dialog,
@@ -40,10 +43,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/DropdownMenu";
 import { InboxPreviewDialog } from "./InboxPreviewDialog";
+import { InboxProgressBar } from "./InboxProgressBar";
 import { InboxReviewCard } from "./InboxReviewCard";
 import { InboxRejectedCard } from "./InboxRejectedCard";
+import { inboxBatchProgress } from "./inboxPreparingPhases";
+import {
+  canRetrySuggestions,
+  isDocSettled,
+  visibleSelectedDocs,
+} from "./inboxReviewActions";
 import { InboxToast } from "./InboxToast";
 import { acceptAllSuggestions } from "./acceptAllSuggestions";
+import { isSystemInboxPath } from "./formatMeta";
 import { suggestionJobStatusForDoc } from "./suggestionJobStatus";
 import type { SessionRejection } from "./sessionRejections";
 
@@ -67,26 +78,8 @@ const SORT_OPTIONS = [
 function isProcessable(doc: Document): boolean {
   if (doc.inbox_status === "preparing" || doc.inbox_status === "failed") return false;
   if (doc.pending_folder_path) return true;
-  if (
-    doc.folder_path &&
-    !/\/inbox$/i.test(doc.folder_path) &&
-    doc.folder_path.toLowerCase() !== "inbox"
-  ) {
-    return true;
-  }
+  if (doc.folder_path && !isSystemInboxPath(doc.folder_path)) return true;
   return false;
-}
-
-/** True when preflight / AI suggestion work has finished for this document. */
-function isDocSettled(doc: Document): boolean {
-  if (doc.inbox_status === "preparing") return false;
-  if (
-    doc.processing_status === "pending" ||
-    doc.processing_status === "processing"
-  ) {
-    return false;
-  }
-  return true;
 }
 
 interface InboxWorkViewProps {
@@ -117,11 +110,12 @@ export function InboxWorkView({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [sort, setSort] = useState("added_date");
-  const [order, setOrder] = useState<"asc" | "desc">("desc");
+  const [order, setOrder] = useState<"asc" | "desc">("asc");
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [removeIds, setRemoveIds] = useState<string[] | null>(null);
   const [resultMsg, setResultMsg] = useState<string | null>(null);
   const [acceptAllBusy, setAcceptAllBusy] = useState(false);
+  const [retryBatchBusy, setRetryBatchBusy] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string> | null>(null);
 
   const listParams = {
@@ -143,7 +137,14 @@ export function InboxWorkView({
         d.processing_status === "pending" ||
         d.processing_status === "processing",
     );
-    return busy ? 3000 : false;
+    if (!busy) return false;
+    const ocrLive = items.some(
+      (d) =>
+        d.inbox_status === "preparing" &&
+        d.ocr_pages_total != null &&
+        d.ocr_pages_total > 0,
+    );
+    return ocrLive ? 2000 : 3000;
   };
 
   const { data: docList, isLoading, refetch, isFetching } = useDocuments(
@@ -159,7 +160,17 @@ export function InboxWorkView({
     aiHealth?.auto_tagging && aiHealth.indexing.status === "available",
   );
   const { data: pendingSuggestions = [] } = usePendingSuggestions(aiSuggestionsAvailable);
-  const { data: inboxJobs = [] } = useJobs(undefined, undefined);
+  const { data: inboxJobs = [] } = useJobs(undefined, undefined, {
+    refetchInterval: (query) => {
+      const jobs = query.state.data ?? [];
+      const ocrRunning = jobs.some(
+        (j) =>
+          (j.job_type === "ocr" || j.job_type === "text_extraction") &&
+          j.status === "running",
+      );
+      return ocrRunning ? 2500 : 5000;
+    },
+  });
 
   const processDocs = useProcessInboxDocuments();
   const removeFromQueue = useRemoveFromQueue();
@@ -176,6 +187,11 @@ export function InboxWorkView({
     }
     return map;
   }, [pendingSuggestions]);
+
+  const batchProgress = useMemo(
+    () => inboxBatchProgress(allInbox?.items ?? [], inboxJobs),
+    [allInbox?.items, inboxJobs],
+  );
 
   const counts = useMemo(() => {
     const items = allInbox?.items ?? [];
@@ -195,23 +211,28 @@ export function InboxWorkView({
     return c;
   }, [allInbox?.items, sessionRejections.length]);
 
-  const selectedDocs = documents.filter((d) => selectedIds.has(d.id));
-  const processTargets =
-    selectedIds.size > 0 ? selectedDocs.filter(isProcessable) : documents.filter(isProcessable);
+  const selectedDocs = visibleSelectedDocs(documents, selectedIds);
+  const hasVisibleSelection = selectedDocs.length > 0;
+  const processTargets = hasVisibleSelection
+    ? selectedDocs.filter(isProcessable)
+    : documents.filter(isProcessable);
   const processCount = processTargets.length;
 
-  const acceptScopeIds =
-    selectedIds.size > 0 ? Array.from(selectedIds) : documentIds;
+  const acceptScopeIds = hasVisibleSelection
+    ? selectedDocs.map((d) => d.id)
+    : documentIds;
   const pendingInScope = pendingSuggestions.filter((s) =>
     acceptScopeIds.includes(s.document_id),
   );
 
   const showRejectedInList = statusTab === "all" || statusTab === "failed";
 
-  const allDocsSettled =
-    documents.length > 0 && documents.every(isDocSettled);
+  const allVisibleSelected =
+    documents.length > 0 && documents.every((d) => selectedIds.has(d.id));
+  const someVisibleSelected = documents.some((d) => selectedIds.has(d.id));
+  const retrySuggestionTargets = selectedDocs.filter(canRetrySuggestions);
 
-  // Always start collapsed; keep collapsed while any file is still processing.
+  // Always start collapsed.
   useEffect(() => {
     if (documents.length === 0) return;
     if (expandedIds === null) {
@@ -219,14 +240,9 @@ export function InboxWorkView({
     }
   }, [documents.length, expandedIds]);
 
-  useEffect(() => {
-    if (!allDocsSettled) {
-      setExpandedIds(new Set());
-    }
-  }, [allDocsSettled]);
-
   const toggleExpand = (id: string) => {
-    if (!allDocsSettled) return;
+    const doc = documents.find((d) => d.id === id);
+    if (!doc || !isDocSettled(doc)) return;
     setExpandedIds((prev) => {
       const base = prev ?? new Set<string>();
       const next = new Set(base);
@@ -234,6 +250,14 @@ export function InboxWorkView({
       else next.add(id);
       return next;
     });
+  };
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(documents.map((d) => d.id)));
   };
 
   useEffect(() => {
@@ -321,6 +345,33 @@ export function InboxWorkView({
       refetch();
     } finally {
       setAcceptAllBusy(false);
+    }
+  };
+
+  const handleRetrySuggestionsBatch = async () => {
+    if (!aiSuggestionsAvailable || retrySuggestionTargets.length === 0) return;
+    setRetryBatchBusy(true);
+    let retried = 0;
+    let failed = 0;
+    const skipped = selectedDocs.length - retrySuggestionTargets.length;
+    try {
+      for (const doc of retrySuggestionTargets) {
+        try {
+          await reprocessSuggestions.mutateAsync(doc.id);
+          retried += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      const parts = [
+        retried ? `Retried suggestions for ${retried} document${retried === 1 ? "" : "s"}` : null,
+        skipped ? `${skipped} skipped` : null,
+        failed ? `${failed} failed` : null,
+      ].filter(Boolean);
+      setResultMsg(parts.join(" · ") || "No suggestions retried");
+      refetch();
+    } finally {
+      setRetryBatchBusy(false);
     }
   };
 
@@ -518,13 +569,90 @@ export function InboxWorkView({
             </div>
           </div>
 
-          <p className="mb-2.5 mt-2.5 text-xs font-medium text-[#5D6B76]">
-            {documents.length} document{documents.length === 1 ? "" : "s"}
-            {showRejectedInList && sessionRejections.length > 0
-              ? ` · ${sessionRejections.length} rejected`
-              : ""}
-            {selectedIds.size > 0 ? ` · ${selectedIds.size} selected` : ""}
-          </p>
+          {batchProgress.visible && (
+            <div className="mb-1 mt-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="text-sm font-semibold text-[#14212B]">
+                  Processing documents
+                </h2>
+                <p className="text-xs font-medium text-[#5D6B76]">
+                  {batchProgress.completed} / {batchProgress.total} · {batchProgress.percent}%
+                </p>
+              </div>
+              <InboxProgressBar percent={batchProgress.percent} className="mt-2" />
+              <p className="mt-1.5 text-xs text-[#74828D]">
+                OCR {batchProgress.active} active · {batchProgress.completed} completed ·{" "}
+                {batchProgress.queued} queued
+              </p>
+            </div>
+          )}
+
+          <div className="mb-2.5 mt-2.5 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2.5 text-xs font-medium text-[#5D6B76]">
+              <Checkbox
+                checked={
+                  allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false
+                }
+                onCheckedChange={() => toggleSelectAllVisible()}
+                aria-label="Select all visible documents"
+                disabled={documents.length === 0}
+              />
+              <span>
+                {documents.length} document{documents.length === 1 ? "" : "s"}
+                {showRejectedInList && sessionRejections.length > 0
+                  ? ` · ${sessionRejections.length} rejected`
+                  : ""}
+                {selectedDocs.length > 0 ? ` · ${selectedDocs.length} selected` : ""}
+              </span>
+            </div>
+            {selectedDocs.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-lg"
+                  onClick={() => setRemoveIds(selectedDocs.map((d) => d.id))}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Remove
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-lg"
+                  disabled={
+                    !aiSuggestionsAvailable ||
+                    retrySuggestionTargets.length === 0 ||
+                    retryBatchBusy
+                  }
+                  onClick={() => void handleRetrySuggestionsBatch()}
+                >
+                  <RefreshCw
+                    className={cn("h-3.5 w-3.5", retryBatchBusy && "animate-spin")}
+                  />
+                  Retry suggestions
+                  {retrySuggestionTargets.length > 0
+                    ? ` (${retrySuggestionTargets.length})`
+                    : ""}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-lg"
+                  disabled={
+                    !aiSuggestionsAvailable ||
+                    pendingInScope.length === 0 ||
+                    acceptAllBusy
+                  }
+                  onClick={() => void handleAcceptAll()}
+                >
+                  <CheckCheck className="h-3.5 w-3.5" />
+                  Accept AI suggestions
+                  {pendingInScope.length > 0 ? ` (${pendingInScope.length})` : ""}
+                </Button>
+              </div>
+            )}
+          </div>
 
           {isLoading ? (
             <div className="py-16 text-center text-sm text-[#74828D]">Loading inbox…</div>
@@ -560,8 +688,8 @@ export function InboxWorkView({
                   document={doc}
                   suggestions={docSuggestions}
                   selected={selectedIds.has(doc.id)}
-                  expanded={allDocsSettled && (expandedIds?.has(doc.id) ?? false)}
-                  reviewReady={allDocsSettled}
+                  expanded={isDocSettled(doc) && (expandedIds?.has(doc.id) ?? false)}
+                  reviewReady={isDocSettled(doc)}
                   aiSuggestionsAvailable={aiSuggestionsAvailable}
                   suggestionJobStatus={suggestionJobStatusForDoc(
                     inboxJobs,
@@ -573,7 +701,9 @@ export function InboxWorkView({
                       ? () => void reprocessSuggestions.mutateAsync(doc.id)
                       : undefined
                   }
-                  retrySuggestionsBusy={reprocessSuggestions.isPending}
+                  retrySuggestionsBusy={
+                    retryBatchBusy || reprocessSuggestions.isPending
+                  }
                   jobs={inboxJobs}
                   onToggleExpand={() => toggleExpand(doc.id)}
                   onSelect={(checked) => {

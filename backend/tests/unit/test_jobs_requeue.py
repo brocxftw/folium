@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from folium.models import Document, Folder, FolderKind, Job, JobStatus, JobType, User
+from folium.models import (
+    Document,
+    Folder,
+    FolderKind,
+    Job,
+    JobStatus,
+    JobType,
+    ProcessingStatus,
+    User,
+)
 from folium.services import jobs as job_service
 
 
@@ -105,3 +115,210 @@ async def test_cancel_jobs_for_trashed_documents(db_session: AsyncSession) -> No
     assert claimed is not None
     assert claimed.document_id == live.id
     assert claimed.id == live_job.id
+
+
+async def _inbox_doc(
+    db_session: AsyncSession,
+    *,
+    owner_id: uuid.UUID,
+    folder_id: uuid.UUID,
+    name: str,
+    added: datetime,
+) -> Document:
+    doc = Document(
+        owner_id=owner_id,
+        title=name,
+        original_filename=name,
+        storage_key=f"k-{name}",
+        checksum=f"c-{uuid.uuid4().hex}",
+        mime_type="text/plain",
+        file_size=1,
+        folder_id=folder_id,
+        inbox=True,
+        added_date=added,
+    )
+    db_session.add(doc)
+    await db_session.flush()
+    return doc
+
+
+@pytest.mark.asyncio
+async def test_claim_next_serializes_inbox_preflight(db_session: AsyncSession) -> None:
+    owner_id, folder_id = await _owner_and_folder(db_session)
+    now = datetime.now(UTC)
+    older = await _inbox_doc(
+        db_session, owner_id=owner_id, folder_id=folder_id, name="a.txt", added=now
+    )
+    newer = await _inbox_doc(
+        db_session,
+        owner_id=owner_id,
+        folder_id=folder_id,
+        name="b.txt",
+        added=now + timedelta(seconds=1),
+    )
+    older_job = Job(
+        job_type=JobType.TEXT_EXTRACTION,
+        status=JobStatus.QUEUED,
+        document_id=older.id,
+        priority=50,
+    )
+    newer_job = Job(
+        job_type=JobType.TEXT_EXTRACTION,
+        status=JobStatus.QUEUED,
+        document_id=newer.id,
+        priority=50,
+    )
+    db_session.add_all([older_job, newer_job])
+    await db_session.flush()
+
+    first = await job_service.claim_next(db_session, "w1")
+    assert first is not None
+    assert first.document_id == older.id
+
+    second = await job_service.claim_next(db_session, "w1")
+    assert second is None
+
+    first.status = JobStatus.COMPLETED
+    first.locked_by = None
+    await db_session.flush()
+
+    third = await job_service.claim_next(db_session, "w1")
+    assert third is not None
+    assert third.document_id == newer.id
+
+
+@pytest.mark.asyncio
+async def test_claim_next_allows_same_doc_thumbnail(db_session: AsyncSession) -> None:
+    owner_id, folder_id = await _owner_and_folder(db_session)
+    now = datetime.now(UTC)
+    older = await _inbox_doc(
+        db_session, owner_id=owner_id, folder_id=folder_id, name="a.txt", added=now
+    )
+    newer = await _inbox_doc(
+        db_session,
+        owner_id=owner_id,
+        folder_id=folder_id,
+        name="b.txt",
+        added=now + timedelta(seconds=1),
+    )
+    extract = Job(
+        job_type=JobType.TEXT_EXTRACTION,
+        status=JobStatus.QUEUED,
+        document_id=older.id,
+        priority=50,
+    )
+    thumb = Job(
+        job_type=JobType.THUMBNAIL,
+        status=JobStatus.QUEUED,
+        document_id=older.id,
+        priority=60,
+    )
+    other = Job(
+        job_type=JobType.TEXT_EXTRACTION,
+        status=JobStatus.QUEUED,
+        document_id=newer.id,
+        priority=50,
+    )
+    db_session.add_all([extract, thumb, other])
+    await db_session.flush()
+
+    first = await job_service.claim_next(db_session, "w1")
+    assert first is not None
+    assert first.id == extract.id
+
+    second = await job_service.claim_next(db_session, "w1")
+    assert second is not None
+    assert second.id == thumb.id
+
+
+@pytest.mark.asyncio
+async def test_claim_next_allows_library_jobs_during_inbox_preflight(
+    db_session: AsyncSession,
+) -> None:
+    owner_id, folder_id = await _owner_and_folder(db_session)
+    now = datetime.now(UTC)
+    inbox_doc = await _inbox_doc(
+        db_session, owner_id=owner_id, folder_id=folder_id, name="a.txt", added=now
+    )
+    library = Document(
+        owner_id=owner_id,
+        title="lib",
+        original_filename="lib.txt",
+        storage_key="k-lib",
+        checksum=f"c-{uuid.uuid4().hex}",
+        mime_type="text/plain",
+        file_size=1,
+        folder_id=folder_id,
+        inbox=False,
+    )
+    db_session.add(library)
+    await db_session.flush()
+    extract = Job(
+        job_type=JobType.TEXT_EXTRACTION,
+        status=JobStatus.QUEUED,
+        document_id=inbox_doc.id,
+        priority=50,
+    )
+    db_session.add(extract)
+    await db_session.flush()
+
+    first = await job_service.claim_next(db_session, "w1")
+    assert first is not None
+    assert first.id == extract.id
+
+    indexing = Job(
+        job_type=JobType.INDEXING,
+        status=JobStatus.QUEUED,
+        document_id=library.id,
+        priority=50,
+    )
+    db_session.add(indexing)
+    await db_session.flush()
+
+    second = await job_service.claim_next(db_session, "w1")
+    assert second is not None
+    assert second.id == indexing.id
+
+
+@pytest.mark.asyncio
+async def test_claim_next_allows_ready_inbox_suggestion_during_other_extract(
+    db_session: AsyncSession,
+) -> None:
+    owner_id, folder_id = await _owner_and_folder(db_session)
+    now = datetime.now(UTC)
+    preparing = await _inbox_doc(
+        db_session, owner_id=owner_id, folder_id=folder_id, name="a.txt", added=now
+    )
+    ready = await _inbox_doc(
+        db_session,
+        owner_id=owner_id,
+        folder_id=folder_id,
+        name="b.txt",
+        added=now + timedelta(seconds=1),
+    )
+    ready.processing_status = ProcessingStatus.READY
+    extract = Job(
+        job_type=JobType.TEXT_EXTRACTION,
+        status=JobStatus.QUEUED,
+        document_id=preparing.id,
+        priority=50,
+    )
+    db_session.add(extract)
+    await db_session.flush()
+
+    first = await job_service.claim_next(db_session, "w1")
+    assert first is not None
+    assert first.id == extract.id
+
+    suggestion = Job(
+        job_type=JobType.METADATA_SUGGESTION,
+        status=JobStatus.QUEUED,
+        document_id=ready.id,
+        priority=70,
+    )
+    db_session.add(suggestion)
+    await db_session.flush()
+
+    second = await job_service.claim_next(db_session, "w1")
+    assert second is not None
+    assert second.id == suggestion.id

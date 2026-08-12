@@ -22,13 +22,25 @@ export function documentSecondaryMeta(doc: Document): string {
   return parts.join(" · ");
 }
 
+/** True for Inbox (and Documents/Inbox) regardless of slash spacing. */
+export function isSystemInboxPath(path: string | null | undefined): boolean {
+  if (!path) return false;
+  const normalized = path
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/^\/+|\/+$/g, "")
+    .toLowerCase();
+  return (
+    normalized === "inbox" ||
+    normalized === "documents/inbox" ||
+    normalized.endsWith("/inbox")
+  );
+}
+
 export function folderDisplayLabel(doc: Document): string {
   if (doc.pending_folder_path) {
     return `+ New: ${doc.pending_folder_path}`;
   }
   const path = doc.folder_path;
-  if (!path) return "—";
-  // Hide system Inbox path as unassigned
-  if (/\/inbox$/i.test(path) || path.toLowerCase() === "inbox") return "—";
+  if (!path || isSystemInboxPath(path)) return "—";
   return path;
 }

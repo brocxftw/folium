@@ -7,6 +7,7 @@ import {
   File,
   FileImage,
   FileText,
+  RefreshCw,
   RotateCcw,
   Trash2,
 } from "lucide-react";
@@ -15,8 +16,10 @@ import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
 import { InboxStatusBadge } from "./InboxStatusBadge";
+import { InboxProgressBar } from "./InboxProgressBar";
 import { InboxAiSuggestionPanel } from "./InboxAiSuggestionPanel";
 import { InboxManualFilingPanel } from "./InboxManualFilingPanel";
+import { inboxRowProgress } from "./inboxPreparingPhases";
 import type { SuggestionJobStatus } from "./suggestionJobStatus";
 import { showSuggestionFailure } from "./suggestionJobStatus";
 import { documentSecondaryMeta } from "./formatMeta";
@@ -38,7 +41,7 @@ interface InboxReviewCardProps {
   suggestions: Suggestion[];
   selected: boolean;
   expanded: boolean;
-  /** AI suggestion panel is available only after every inbox file has finished preparing. */
+  /** True when this document has finished preparing and can be reviewed. */
   reviewReady?: boolean;
   /** When false, expanded review shows Manual filing instead of AI Suggestions. */
   aiSuggestionsAvailable?: boolean;
@@ -80,12 +83,18 @@ export function InboxReviewCard({
   const showReviewPanel = reviewReady && expanded;
   const aiSuggestionFailed =
     aiSuggestionsAvailable && showSuggestionFailure(suggestionJobStatus);
+  const completed = status === "ready" || status === "needs_review";
+  const rowProgress = inboxRowProgress(doc, jobs);
 
   return (
     <div
       className={cn(
-        "mb-3.5 rounded-xl border bg-white p-5 shadow-[0_2px_6px_rgba(20,33,43,0.04)] transition-colors",
-        hover ? "border-[#C7D4DA]" : "border-[#DCE3E8]",
+        "mb-3.5 rounded-xl border p-5 shadow-[0_2px_6px_rgba(20,33,43,0.04)] transition-colors",
+        completed
+          ? "border-[var(--color-row-selected-border)] bg-[var(--color-row-selected)]"
+          : hover
+            ? "border-[#C7D4DA] bg-white"
+            : "border-[#DCE3E8] bg-white",
       )}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -101,21 +110,26 @@ export function InboxReviewCard({
           <FileIcon doc={doc} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="truncate text-[17px] font-bold leading-snug text-[#14212B]">
-              {doc.original_filename}
-            </h3>
-            <InboxStatusBadge
-              status={status}
-              error={doc.processing_error}
-              document={doc}
-              jobs={jobs}
-            />
-          </div>
+          <h3 className="truncate text-[17px] font-bold leading-snug text-[#14212B]">
+            {doc.original_filename}
+          </h3>
           <p className="mt-1 text-xs uppercase tracking-wide text-[#74828D]">
             {documentSecondaryMeta(doc)}
           </p>
+          {rowProgress && (
+            <div className="mt-2.5 max-w-md">
+              <p className="mb-1 text-xs text-[#5D6B76]">{rowProgress.label}</p>
+              <InboxProgressBar percent={rowProgress.percent} />
+            </div>
+          )}
         </div>
+        <InboxStatusBadge
+          status={status}
+          error={doc.processing_error}
+          document={doc}
+          jobs={jobs}
+          className="shrink-0"
+        />
       </div>
 
       {showReviewPanel &&
@@ -167,6 +181,28 @@ export function InboxReviewCard({
         </button>
 
         <div className="flex items-center gap-2.5">
+          {reviewReady &&
+            aiSuggestionsAvailable &&
+            onRetrySuggestions &&
+            (status === "ready" || status === "needs_review") && (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-lg border-[#DCE3E8] px-3.5 font-semibold text-[#24333D]"
+                disabled={retrySuggestionsBusy || suggestionJobStatus === "running"}
+                onClick={onRetrySuggestions}
+              >
+                <RefreshCw
+                  className={cn(
+                    "h-4 w-4",
+                    (retrySuggestionsBusy || suggestionJobStatus === "running") &&
+                      "animate-spin",
+                  )}
+                  strokeWidth={1.75}
+                />
+                Retry Suggestions
+              </Button>
+            )}
           {reviewReady &&
             aiSuggestionsAvailable &&
             onAcceptAllSuggestions &&

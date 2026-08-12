@@ -11,6 +11,7 @@ const BADGE =
   "inline-flex items-center gap-1 border py-0.5 h-[26px] rounded-md px-2.5 text-[11px] font-semibold";
 
 const LABEL_STYLES: Record<ProcessingLabel, string> = {
+  queued: "border-[#DCE3E8] bg-[#F8FAFB] text-[#5D6B76]",
   ocr: "border-[#C9DDF7] bg-[#EAF3FE] text-[#2D6DB5]",
   indexing: "border-[#C9DDF7] bg-[#EAF3FE] text-[#2D6DB5]",
   preparing: "border-[#C9DDF7] bg-[#EAF3FE] text-[#2D6DB5]",

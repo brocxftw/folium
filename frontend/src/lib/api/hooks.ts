@@ -878,7 +878,11 @@ export function useAsk() {
 
 // ---- Jobs ----
 
-export function useJobs(status?: string, documentId?: string) {
+export function useJobs(
+  status?: string,
+  documentId?: string,
+  options?: Pick<UseQueryOptions<Job[], Error>, "refetchInterval">,
+) {
   return useQuery({
     queryKey: queryKeys.jobs(status, documentId),
     queryFn: () =>
@@ -886,7 +890,7 @@ export function useJobs(status?: string, documentId?: string) {
         ...(status ? { status } : {}),
         ...(documentId ? { document_id: documentId } : {}),
       }),
-    refetchInterval: 5000,
+    refetchInterval: options?.refetchInterval ?? 5000,
   });
 }
 

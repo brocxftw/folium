@@ -390,6 +390,8 @@ class Document(Base, TimestampMixin):
         nullable=False,
     )
     ocr_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    ocr_pages_done: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ocr_pages_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text_extracted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     document_indexed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     has_embeddings: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
