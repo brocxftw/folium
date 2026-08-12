@@ -6,9 +6,10 @@ import {
 } from "lucide-react";
 import type { DragEvent } from "react";
 import { cn, formatBytes, formatDate } from "@/lib/utils";
-import type { Document } from "@/lib/api/types";
+import type { Document, Folder, Tag as TagType } from "@/lib/api/types";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { TagList } from "@/components/tags/TagList";
+import { DocumentActionsMenu } from "@/features/documents/DocumentActionsMenu";
 import { RetrievalReadinessBadge } from "@/features/documents/RetrievalReadinessBadge";
 import { setDocumentDragData, clearDocumentDragData } from "@/features/documents/documentDrag";
 
@@ -18,6 +19,8 @@ interface DocumentRowProps {
   active: boolean;
   focused?: boolean;
   selectedIds: Set<string>;
+  folders?: Folder[];
+  tags?: TagType[];
   onCheckbox: (id: string, checked: boolean) => void;
   onRowPointer: (
     id: string,
@@ -25,6 +28,7 @@ interface DocumentRowProps {
   ) => void;
   onOpen: (id: string) => void;
   onFocusRow: (id: string) => void;
+  onActionComplete?: () => void;
 }
 
 function FileIcon({ mimeType }: { mimeType: string }) {
@@ -41,10 +45,13 @@ export function DocumentRow({
   active,
   focused,
   selectedIds,
+  folders,
+  tags,
   onCheckbox,
   onRowPointer,
   onOpen,
   onFocusRow,
+  onActionComplete,
 }: DocumentRowProps) {
   const handleDragStart = (event: DragEvent) => {
     const ids = selectedIds.has(document.id)
@@ -64,15 +71,19 @@ export function DocumentRow({
       onFocus={() => onFocusRow(document.id)}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest("[data-row-checkbox]")) return;
+        if ((event.target as HTMLElement).closest("[data-document-actions]")) return;
         onRowPointer(document.id, {
           shiftKey: event.shiftKey,
           metaKey: event.metaKey,
           ctrlKey: event.ctrlKey,
         });
       }}
-      onDoubleClick={() => onOpen(document.id)}
+      onDoubleClick={(event) => {
+        if ((event.target as HTMLElement).closest("[data-document-actions]")) return;
+        onOpen(document.id);
+      }}
       className={cn(
-        "cursor-pointer border-b border-surface-border outline-none transition-colors",
+        "group cursor-pointer border-b border-surface-border outline-none transition-colors",
         active && "bg-row-selected border-l-2 border-l-accent",
         !active && selected && "bg-row-selected/60",
         !active && !selected && "hover:bg-surface-hover",
@@ -93,7 +104,15 @@ export function DocumentRow({
       <td className="max-w-[280px] px-2 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <FileIcon mimeType={document.mime_type} />
-          <span className="truncate font-medium text-text-primary">{document.title}</span>
+          <span className="min-w-0 flex-1 truncate font-medium text-text-primary">
+            {document.title}
+          </span>
+          <DocumentActionsMenu
+            document={document}
+            folders={folders}
+            tags={tags}
+            onActionComplete={onActionComplete}
+          />
         </div>
       </td>
       <td className="hidden max-w-[120px] px-2 py-2 lg:table-cell">

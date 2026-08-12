@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, FileText, LayoutGrid, LayoutList } from "lucide-react";
-import type { Document } from "@/lib/api/types";
+import type { Document, Folder, Tag as TagType } from "@/lib/api/types";
 import { Button } from "@/components/ui/Button";
 import { DocumentCard } from "./DocumentCard";
 import { useDocumentSelectionModel } from "./useDocumentSelectionModel";
@@ -41,8 +41,11 @@ interface DocumentGridProps {
   documents: Document[];
   selectedIds: Set<string>;
   activeId?: string;
+  folders?: Folder[];
+  tags?: TagType[];
   onSelect: (ids: Set<string>) => void;
   onActiveChange: (id: string) => void;
+  onActionComplete?: () => void;
   isLoading?: boolean;
   emptyMessage?: string;
   page?: number;
@@ -55,8 +58,11 @@ export function DocumentGrid({
   documents,
   selectedIds,
   activeId,
+  folders,
+  tags,
   onSelect,
   onActiveChange,
+  onActionComplete,
   isLoading,
   emptyMessage = "No documents in this folder",
   page = 1,
@@ -121,6 +127,8 @@ export function DocumentGrid({
               active={activeId === doc.id}
               focused={focusedIndex === index}
               selectedIds={selectedIds}
+              folders={folders}
+              tags={tags}
               onOpen={onActiveChange}
               onPointerSelect={(mods) => {
                 const action = handleItemPointer(index, mods);
@@ -128,6 +136,7 @@ export function DocumentGrid({
               }}
               onCheckbox={(checked) => handleCheckbox(index, checked)}
               onFocus={() => undefined}
+              onActionComplete={onActionComplete}
             />
           ))}
         </div>

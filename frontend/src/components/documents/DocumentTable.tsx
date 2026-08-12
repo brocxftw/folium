@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
-import type { Document } from "@/lib/api/types";
+import type { Document, Folder, Tag as TagType } from "@/lib/api/types";
 import { DocumentRow } from "./DocumentRow";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
@@ -11,8 +11,11 @@ interface DocumentTableProps {
   documents: Document[];
   selectedIds: Set<string>;
   activeId?: string;
+  folders?: Folder[];
+  tags?: TagType[];
   onSelect: (ids: Set<string>) => void;
   onActiveChange: (id: string) => void;
+  onActionComplete?: () => void;
   isLoading?: boolean;
   emptyMessage?: string;
   page?: number;
@@ -25,8 +28,11 @@ export function DocumentTable({
   documents,
   selectedIds,
   activeId,
+  folders,
+  tags,
   onSelect,
   onActiveChange,
+  onActionComplete,
   isLoading,
   emptyMessage = "No documents in this folder",
   page = 1,
@@ -122,6 +128,8 @@ export function DocumentTable({
                 active={activeId === doc.id}
                 focused={focusedIndex === index}
                 selectedIds={selectedIds}
+                folders={folders}
+                tags={tags}
                 onCheckbox={(_id, checked) => handleCheckbox(index, checked)}
                 onRowPointer={(_id, mods) => {
                   const action = handleItemPointer(index, mods);
@@ -129,6 +137,7 @@ export function DocumentTable({
                 }}
                 onOpen={onActiveChange}
                 onFocusRow={() => setFocusedIndex(index)}
+                onActionComplete={onActionComplete}
               />
             ))}
           </tbody>

@@ -239,16 +239,18 @@ function FolderNode({
               <button
                 type="button"
                 className={cn(
-                  "hidden h-6 w-6 shrink-0 items-center justify-center rounded group-hover:flex",
+                  "hidden h-6 w-6 shrink-0 items-center justify-center rounded group-hover:flex data-[state=open]:flex",
                   surface
                     ? "text-text-muted hover:bg-surface-hover hover:text-text-primary"
                     : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text",
                 )}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Manage folder ${node.name}`}
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
               <DropdownMenuItem onClick={() => onCreateChild(node.id)}>
                 New subfolder
               </DropdownMenuItem>
