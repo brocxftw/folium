@@ -42,7 +42,8 @@ def test_effective_context_window_caps_to_provider() -> None:
     assert effective_context_window(8_000, 0) == 8_000
 
 
-def test_profile_output_presets_favour_evidence() -> None:
-    assert PROFILE_PRESETS["lightweight"]["max_output_tokens"] == 1_024
-    assert PROFILE_PRESETS["balanced"]["max_output_tokens"] == 1_536
-    assert PROFILE_PRESETS["quality"]["max_output_tokens"] == 2_048
+def test_profile_output_presets_allow_complete_answers() -> None:
+    # Raised so Ask lists/explanations are less likely to hit finish_reason=length.
+    assert PROFILE_PRESETS["lightweight"]["max_output_tokens"] == 2_048
+    assert PROFILE_PRESETS["balanced"]["max_output_tokens"] == 3_072
+    assert PROFILE_PRESETS["quality"]["max_output_tokens"] == 4_096
