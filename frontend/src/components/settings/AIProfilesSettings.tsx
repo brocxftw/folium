@@ -10,13 +10,13 @@ const PROFILES = [
     id: "lightweight",
     name: "Lightweight",
     description: "Minimal context and output for fast responses.",
-    details: ["3 retrieved chunks", "8k context", "1k output"],
+    details: ["3 retrieved chunks", "8k context", "2k output"],
   },
   {
     id: "balanced",
     name: "Balanced",
     description: "Good balance of quality and performance for most deployments.",
-    details: ["8 retrieved chunks", "16k context", "2k output"],
+    details: ["8 retrieved chunks", "16k context", "3k output"],
   },
   {
     id: "quality",
@@ -39,7 +39,7 @@ export function AIProfilesSettings() {
   const [limits, setLimits] = useState({
     retrieved_chunks: 3,
     max_context_tokens: 8000,
-    max_output_tokens: 1000,
+    max_output_tokens: 2048,
     conversation_history_tokens: 2000,
     parallel_llm_calls: 1,
   });

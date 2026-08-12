@@ -1,0 +1,57 @@
+{
+  "documents": [
+    {
+      "id": "long-report-01",
+      "title": "Annual Operations Report 2025",
+      "filename": "annual-ops-2025.pdf",
+      "pages": [
+        {"page_number": 1, "text": "ANNUAL OPERATIONS REPORT\nUNIQUE_BEGIN_OPS2025\nExecutive summary covering Q1 through Q4.\n"},
+        {"page_number": 5, "text": "SECTION 5 FINANCE\nUNIQUE_MID_OPS2025\nRevenue targets and variance analysis for ACME holdings.\n"},
+        {"page_number": 12, "text": "APPENDIX\nUNIQUE_END_OPS2025\nSigned 12 Dec 2025 by ACME HOLDINGS SDN BHD.\n"}
+      ],
+      "expect_sample_markers": ["UNIQUE_BEGIN_OPS2025", "UNIQUE_END_OPS2025"],
+      "expect_middle_optional": ["UNIQUE_MID_OPS2025"]
+    },
+    {
+      "id": "contract-01",
+      "title": "Master Service Agreement",
+      "filename": "msa-vendorx.pdf",
+      "pages": [
+        {"page_number": 1, "text": "MASTER SERVICE AGREEMENT\nUNIQUE_BEGIN_MSA\nThis Agreement is entered into as of 1 January 2026.\n"},
+        {"page_number": 8, "text": "8. LIABILITY\nUNIQUE_MID_MSA\nNeither party shall be liable for indirect damages.\n"},
+        {"page_number": 20, "text": "SIGNATURES\nUNIQUE_END_MSA\nVendorX Pte Ltd / Customer Co.\n"}
+      ],
+      "expect_sample_markers": ["UNIQUE_BEGIN_MSA", "UNIQUE_END_MSA"],
+      "expect_middle_optional": ["UNIQUE_MID_MSA"]
+    },
+    {
+      "id": "invoice-01",
+      "title": "ACME January Invoice",
+      "filename": "acme-inv-2026-01.pdf",
+      "pages": [
+        {"page_number": 1, "text": "INVOICE\nACME SDN BHD\nInvoice No INV-1001\nDate 5 Jan 2026\nAmount due RM 1,250.00\nUNIQUE_INVOICE_BODY\n"}
+      ],
+      "expect_sample_markers": ["UNIQUE_INVOICE_BODY", "ACME"],
+      "expect_middle_optional": []
+    },
+    {
+      "id": "book-excerpt-01",
+      "title": "Long Technical Manual",
+      "filename": "manual-vol2.pdf",
+      "pages": [],
+      "generated_pages": 40,
+      "expect_sample_markers": ["UNIQUE_MANUAL_P01", "UNIQUE_MANUAL_P40"],
+      "expect_middle_optional": ["UNIQUE_MANUAL_P20"]
+    },
+    {
+      "id": "short-note-01",
+      "title": "Parking receipt",
+      "filename": "parking.txt",
+      "pages": [
+        {"page_number": 1, "text": "Parking fee RM 5.00 paid 3 Mar 2026."}
+      ],
+      "expect_sample_markers": ["Parking fee RM 5.00"],
+      "expect_full_text": true
+    }
+  ]
+}

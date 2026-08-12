@@ -656,6 +656,7 @@ export interface AIPolicy {
   max_output_tokens: number;
   conversation_history_tokens: number;
   parallel_llm_calls: number;
+  semantic_min_score: number | null;
   active_embedding_provider: string | null;
   active_embedding_model: string | null;
   active_embedding_dimension: number | null;
@@ -680,6 +681,7 @@ export interface AIPolicyUpdate {
   max_output_tokens?: number;
   conversation_history_tokens?: number;
   parallel_llm_calls?: number;
+  semantic_min_score?: number | null;
 }
 
 export type AIWorkloadRole = "indexing" | "embedding" | "chat" | "vision";

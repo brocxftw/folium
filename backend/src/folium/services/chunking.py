@@ -23,9 +23,11 @@ MIN_TOKENS = 100
 OVERLAP_TOKENS = 64
 OVERLAP_RATIO = 0.10  # fallback when overlap_tokens not used for block tails
 
-_HEADING_RE = re.compile(
+HEADING_RE = re.compile(
     r"^(?:#{1,6}\s+.+|[A-Z0-9][A-Z0-9\s\-]{2,60}$|\d+(?:\.\d+)*[\.)]\s+.+)$"
 )
+# Backwards-compatible alias for internal callers.
+_HEADING_RE = HEADING_RE
 
 
 @dataclass(frozen=True)

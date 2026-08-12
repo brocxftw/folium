@@ -11,12 +11,21 @@ from datetime import UTC, datetime
 from functools import partial
 
 import pymupdf
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.ai.assignments import resolve_assignment
 from folium.ai.base import AIProviderError, ChatMessage
 from folium.ai.busy import provider_chat_guard
+from folium.ai.filing_context import (
+    PageText,
+    build_filing_sample,
+    format_filing_document_block,
+    legacy_prefix_fallback,
+    rank_folder_candidates,
+    rank_tag_candidates,
+    tokenize_for_candidates,
+)
 from folium.ai.privacy import PrivacyGate
 from folium.ai.registry import get_adapter
 from folium.ai.retry import is_transient_ai_error
@@ -34,6 +43,7 @@ from folium.models import (
     Document,
     DocumentChunk,
     DocumentPage,
+    DocumentTag,
     DocumentType,
     Folder,
     FolderKind,
@@ -217,7 +227,11 @@ def _provider_reachable_for_jobs(provider) -> bool:
     Configured-but-offline providers must not start long AI jobs that hold DB
     transactions open (which blocks trash/metadata updates).
     """
-    return bool(provider is not None and provider.enabled and provider.last_probe_status == "available")
+    return bool(
+        provider is not None
+        and provider.enabled
+        and provider.last_probe_status == "available"
+    )
 
 
 def _pages_from_extracted_text(text: str) -> list[ExtractedPage]:
@@ -925,17 +939,18 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         .scalars()
         .all()
     )
-    folder_paths = sorted(
-        {
-            rel
-            for f in folders
-            if f.path_cache
-            and not _is_system_folder_path(f.path_cache)
-            and (rel := _library_relative_folder_path(f.path_cache))
-            and not _is_system_folder_path(rel)
-        },
-        key=len,
-    )
+    folder_id_by_path: dict[str, uuid.UUID] = {}
+    all_folder_paths: list[str] = []
+    for folder in folders:
+        if not folder.path_cache or _is_system_folder_path(folder.path_cache):
+            continue
+        rel = _library_relative_folder_path(folder.path_cache)
+        if not rel or _is_system_folder_path(rel):
+            continue
+        if rel not in folder_id_by_path:
+            folder_id_by_path[rel] = folder.id
+            all_folder_paths.append(rel)
+
     types = (
         (await session.execute(select(DocumentType).where(DocumentType.owner_id == doc.owner_id)))
         .scalars()
@@ -950,13 +965,88 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
 
     type_names = [t.name for t in types]
     correspondent_names = [c.name for c in correspondents]
-    tag_names = [t.name for t in tags]
+
+    page_rows = (
+        (
+            await session.execute(
+                select(DocumentPage)
+                .where(DocumentPage.document_id == doc.id)
+                .order_by(DocumentPage.page_number)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    try:
+        filing_sample = build_filing_sample(
+            filename=doc.original_filename or "",
+            pages=[PageText(page_number=p.page_number, text=p.text or "") for p in page_rows],
+            extracted_text=text,
+            page_count=doc.page_count,
+        )
+        document_block = format_filing_document_block(filing_sample)
+        sample_text = filing_sample.document_text
+    except Exception:
+        logger.exception(
+            "filing sample failed for doc=%s; falling back to prefix truncation",
+            doc.id,
+        )
+        document_block = (
+            f"Filename: {doc.original_filename}\n"
+            f"Document text:\n{legacy_prefix_fallback(text)}"
+        )
+        sample_text = legacy_prefix_fallback(text)
+    else:
+        # Filename is already present in signals; keep an explicit line for models.
+        document_block = f"Filename: {doc.original_filename}\n\n{document_block}"
+
+    query_tokens = tokenize_for_candidates(doc.original_filename or "", sample_text)
+
+    folder_counts: dict[str, int] = {}
+    if folder_id_by_path:
+        count_rows = (
+            await session.execute(
+                select(Document.folder_id, func.count())
+                .where(
+                    Document.owner_id == doc.owner_id,
+                    Document.is_trashed.is_(False),
+                    Document.folder_id.in_(list(folder_id_by_path.values())),
+                )
+                .group_by(Document.folder_id)
+            )
+        ).all()
+        id_to_path = {folder_id: path for path, folder_id in folder_id_by_path.items()}
+        for folder_id, count in count_rows:
+            path = id_to_path.get(folder_id)
+            if path is not None:
+                folder_counts[path] = int(count)
+
+    folder_paths = rank_folder_candidates(
+        all_folder_paths,
+        query_tokens=query_tokens,
+        document_counts=folder_counts,
+        filename=doc.original_filename,
+    )
+
+    tag_usage_rows = (
+        await session.execute(
+            select(Tag.id, func.count(DocumentTag.document_id))
+            .outerjoin(DocumentTag, DocumentTag.tag_id == Tag.id)
+            .where(Tag.owner_id == doc.owner_id)
+            .group_by(Tag.id)
+        )
+    ).all()
+    usage_by_id = {tag_id: int(count) for tag_id, count in tag_usage_rows}
+    tag_names = rank_tag_candidates(
+        [(t.name, usage_by_id.get(t.id, 0)) for t in tags],
+        query_tokens=query_tokens,
+    )
 
     prompt = (
         "You help file documents into a personal archive. "
         "Return ONLY valid JSON with keys: "
         "folder_path (string using ' / ' separators, or null), "
-        "create_folder (boolean — true if folder_path is not in Existing folders), "
+        "create_folder (boolean — true if folder_path is not in Existing folder candidates), "
         "title (string or null), "
         "document_type (string name or null), "
         "correspondent (string name or null), "
@@ -971,19 +1061,28 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
         "- Put other field scores under confidence.\n\n"
         "Folder rules:\n"
         "- Prefer a specific filing destination from the document subject "
-        "(person, org, topic, year), e.g. 'Identity / Aishah Binti Abdul Azim' "
-        "for a birth certificate or 'Finance / Salary / 2025' for a payslip.\n"
-        "- Prefer an Existing folder when it clearly fits; otherwise invent a "
+        "(person, org, topic, year), e.g. 'Topic / PersonOrOrg' "
+        "for an identity document or 'Category / Year' for a dated record.\n"
+        "- Prefer an Existing folder candidate when it clearly fits; otherwise invent a "
         "new path and set create_folder true.\n"
+        "- Do not copy example paths literally; choose from candidates or invent "
+        "from the document.\n"
+        "- Resumes and CVs: prefer Job Hunt / career paths (or invent 'Job Hunt'); "
+        "never file them under Finance, Salary, payroll, or payslip folders.\n"
         "- Never suggest Inbox, Trash, or Documents (alone or as Documents / Inbox).\n"
         "- Do not prefix paths with Documents; Existing folders are relative to the library root.\n"
         "- Paths must use ' / ' between segments (not underscores).\n\n"
-        f"Existing folders:\n{json.dumps(folder_paths[:80])}\n"
+        "Tag rules:\n"
+        "- Prefer Existing tag candidates only when they clearly fit this document.\n"
+        "- If the candidate list is empty or weak, invent new topical tags from the document.\n"
+        "- Never reuse unrelated catalogue tags (skills, schools, ID types) just because "
+        "they appear in candidates.\n"
+        "- Suggest at most 5 high-confidence tags.\n\n"
+        f"Existing folder candidates:\n{json.dumps(folder_paths)}\n"
         f"Existing document types:\n{json.dumps(type_names)}\n"
         f"Existing correspondents:\n{json.dumps(correspondent_names)}\n"
-        f"Existing tags:\n{json.dumps(tag_names)}\n\n"
-        f"Filename: {doc.original_filename}\n"
-        f"Document text:\n{text[:10000]}"
+        f"Existing tag candidates:\n{json.dumps(tag_names)}\n\n"
+        f"{document_block}"
     )
 
     try:

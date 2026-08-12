@@ -120,6 +120,7 @@ def _policy_out(settings_row: AISettings) -> AIPolicyOut:
         max_output_tokens=settings_row.max_output_tokens,
         conversation_history_tokens=settings_row.conversation_history_tokens,
         parallel_llm_calls=settings_row.parallel_llm_calls,
+        semantic_min_score=settings_row.semantic_min_score,
         active_embedding_provider=settings_row.active_embedding_provider,
         active_embedding_model=settings_row.active_embedding_model,
         active_embedding_dimension=settings_row.active_embedding_dimension,
@@ -595,6 +596,17 @@ async def update_policy(
     ):
         if field in data and data[field] is not None:
             setattr(settings_row, field, data[field])
+
+    # Allow explicitly clearing the floor by sending null.
+    if "semantic_min_score" in data:
+        score = data["semantic_min_score"]
+        if score is None:
+            settings_row.semantic_min_score = None
+        else:
+            value = float(score)
+            if value < -1.0 or value > 1.0:
+                raise ValidationError("semantic_min_score must be between -1 and 1")
+            settings_row.semantic_min_score = value
 
     if settings_row.profile != AIProfileName.CUSTOM and any(
         f in data
