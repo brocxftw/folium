@@ -884,8 +884,12 @@ export function useAskConversation(documentId: string | undefined) {
 export function useAskDocument() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ documentId, ...body }: AskRequest & { documentId: string }) =>
-      api.post<AskResponse>(`/api/documents/${documentId}/ask`, body),
+    mutationFn: ({
+      documentId,
+      signal,
+      ...body
+    }: AskRequest & { documentId: string; signal?: AbortSignal }) =>
+      api.post<AskResponse>(`/api/documents/${documentId}/ask`, body, { signal }),
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({
         queryKey: queryKeys.askConversation(vars.documentId),

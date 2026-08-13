@@ -6,6 +6,7 @@ import {
   Plus,
   Send,
   Sparkles,
+  Square,
   X,
 } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
@@ -78,6 +79,7 @@ export function DocumentAskPanel({
   const [persistWarning, setPersistWarning] = useState<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
 
   const { data: conversation, isLoading, isError, refetch } =
     useAskConversation(active ? documentId : undefined);
@@ -89,6 +91,10 @@ export function DocumentAskPanel({
 
   const serverMessages = conversation?.messages ?? [];
   const messages = localMessages ?? serverMessages;
+  const isNewSession = messages.length === 0 && !pendingStatus;
+  const composerPlaceholder = isNewSession
+    ? "Ask something…"
+    : "Ask follow up…";
 
   useEffect(() => {
     setLocalMessages(null);
@@ -97,7 +103,15 @@ export function DocumentAskPanel({
     setPersistWarning(null);
     setActiveCitation(null);
     setDraft("");
+    abortRef.current?.abort();
+    abortRef.current = null;
   }, [documentId]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (localMessages == null) return;
@@ -125,6 +139,14 @@ export function DocumentAskPanel({
     onCitationActivate(citation);
   };
 
+  const stopAsk = () => {
+    abortRef.current?.abort();
+  };
+
+  const isAbortError = (err: unknown) =>
+    (err instanceof DOMException && err.name === "AbortError") ||
+    (err instanceof Error && err.name === "AbortError");
+
   const submit = async (confirmRemote = false, overrideQuestion?: string) => {
     const question = (overrideQuestion ?? draft).trim();
     if (!question || pendingStatus) return;
@@ -144,6 +166,9 @@ export function DocumentAskPanel({
     setDraft("");
     setPendingStatus("retrieving");
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       setPendingStatus("generating");
       const result = await ask.mutateAsync({
@@ -152,6 +177,7 @@ export function DocumentAskPanel({
         scope: "document",
         document_id: documentId,
         confirm_remote: confirmRemote,
+        signal: controller.signal,
       });
 
       const assistant: AskMessage = {
@@ -179,6 +205,12 @@ export function DocumentAskPanel({
         );
       }
     } catch (err) {
+      if (isAbortError(err)) {
+        // Stop: drop optimistic turn and restore the draft.
+        setLocalMessages(messages.length ? messages : null);
+        setDraft(question);
+        return;
+      }
       setLocalMessages(messages);
       setDraft(question);
       if (err instanceof ApiError && err.isForbidden) {
@@ -195,6 +227,9 @@ export function DocumentAskPanel({
         );
       }
     } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
       setPendingStatus(null);
     }
   };
@@ -340,26 +375,39 @@ export function DocumentAskPanel({
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Ask a follow-up…"
+            placeholder={composerPlaceholder}
             rows={1}
             className="max-h-40 min-h-[44px] resize-none rounded-[10px] pr-12"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                void submit(false);
+                if (!pendingStatus) void submit(false);
               }
             }}
             disabled={Boolean(pendingStatus)}
           />
-          <Button
-            size="icon"
-            className="absolute bottom-2 right-2 h-8 w-8 rounded-lg"
-            disabled={!draft.trim() || Boolean(pendingStatus)}
-            aria-label="Send"
-            onClick={() => void submit(false)}
-          >
-            <Send className="h-3.5 w-3.5" />
-          </Button>
+          {pendingStatus ? (
+            <Button
+              size="icon"
+              variant="danger"
+              className="absolute bottom-2 right-2 h-8 w-8 rounded-lg"
+              aria-label="Stop generating"
+              title="Stop"
+              onClick={stopAsk}
+            >
+              <Square className="h-3 w-3 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              size="icon"
+              className="absolute bottom-2 right-2 h-8 w-8 rounded-lg"
+              disabled={!draft.trim()}
+              aria-label="Send"
+              onClick={() => void submit(false)}
+            >
+              <Send className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
         <div className="mt-2 flex items-center gap-2 text-[11px] text-text-muted">
           <span>This document</span>

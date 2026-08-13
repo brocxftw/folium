@@ -14,6 +14,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/Dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip";
 import { RetrievalReadinessBadge } from "./RetrievalReadinessBadge";
 import { canAskDocument } from "./retrievalReadiness";
 import { cn } from "@/lib/utils";
@@ -143,19 +149,6 @@ export function DocumentViewerModal({
                   Trash
                 </Button>
               )}
-              {doc && (
-                <Button
-                  size="sm"
-                  variant={askOpen ? "default" : "secondary"}
-                  className="mr-1"
-                  disabled={!canAskDocument(doc)}
-                  aria-pressed={askOpen}
-                  onClick={() => setAskOpen((v) => !v)}
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Ask
-                </Button>
-              )}
             </div>
           </DialogHeader>
 
@@ -172,7 +165,7 @@ export function DocumentViewerModal({
             {/* Inspector when Ask closed; Ask replaces this rail when open (V1 mock). */}
             <aside
               className={cn(
-                "hidden shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex",
+                "relative hidden shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex",
                 askOpen ? "w-[440px]" : "w-[320px]",
               )}
             >
@@ -186,7 +179,31 @@ export function DocumentViewerModal({
                   className="h-full"
                 />
               ) : (
-                <DocumentInspector document={doc} />
+                <>
+                  <DocumentInspector document={doc} />
+                  {doc && canAskDocument(doc) && (
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label="Ask Folium AI"
+                            onClick={() => setAskOpen(true)}
+                            className={cn(
+                              "absolute bottom-4 right-4 z-10 flex h-12 w-12 items-center justify-center",
+                              "rounded-full bg-accent text-white shadow-md",
+                              "transition hover:bg-accent-hover hover:shadow-lg",
+                              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2",
+                            )}
+                          >
+                            <Sparkles className="h-5 w-5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">Ask Folium AI</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </>
               )}
             </aside>
           </div>
