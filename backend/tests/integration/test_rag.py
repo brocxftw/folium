@@ -10,8 +10,14 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from folium.ai.base import AIProviderAdapter, ChatMessage, ChatResult, EmbeddingResult, ModelCapabilities
-from folium.models import DocumentChunk, Job, JobType
+from folium.ai.base import (
+    AIProviderAdapter,
+    ChatMessage,
+    ChatResult,
+    EmbeddingResult,
+    ModelCapabilities,
+)
+from folium.models import DocumentChunk
 
 
 @dataclass

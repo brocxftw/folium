@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 
 from folium.core.exceptions import ValidationError
 
-
 _LOCAL_HOSTNAMES = frozenset({"localhost", "localhost.localdomain"})
 
 

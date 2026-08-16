@@ -13,9 +13,9 @@ How Folium processes actually run in the Compose stack versus local development.
 | `worker` | asyncio worker loop | `folium-worker` | healthy `db` and healthy `api` |
 | `web` | nginx | image default | healthy `api` |
 
-**Confirmed:** `api` and `worker` share `docker/Dockerfile.backend`. The worker does **not** run migrations (entrypoint skips Alembic when argv is `folium-worker`). Ordering `worker → api healthy` exists so schema is migrated before jobs run (**Inference:** that is the intent of `depends_on`).
+**Confirmed:** `api` and `worker` share `docker/Dockerfile.backend`. The worker does **not** run migrations (entrypoint skips Alembic when argv is `folium-worker`). Ordering `worker → api healthy` exists so schema is migrated before jobs run.
 
-Worker has **no Compose healthcheck**. Heartbeat is written to `app_settings` key `worker_heartbeat` (**Confirmed**); it is not part of `GET /health`.
+Worker Compose healthcheck runs `python -m folium.workers.healthcheck` (90s stale window). A background task writes `app_settings.worker_heartbeat` about every 10s. That heartbeat is **not** part of `GET /health`.
 
 ---
 
@@ -25,7 +25,7 @@ Worker has **no Compose healthcheck**. Heartbeat is written to `app_settings` ke
 |-------------------------|---------|
 | `8080 → 80` | `web` (primary UI) |
 | `8000 → 8000` | `api` (direct OpenAPI / health) |
-| `5433 → 5432` | `db` (dev/psql convenience) |
+| `5433 → 5432` | `db` (**development overlay only**) |
 
 Frontend origin default: `http://localhost:8080` (`FRONTEND_ORIGIN`). CORS allows that origin with credentials.
 
@@ -60,20 +60,19 @@ Serves `frontend/dist`. Proxies API. SPA fallback `try_files` → `index.html`. 
 
 ## Source-built vs distributable
 
-**Confirmed mixture leaning source-built:**
+Public Compose uses `image:` tags on GHCR (`ghcr.io/brocxftw/folium-backend` and `folium-web`). Contributors overlay `compose.dev.yaml` to `build:` from this tree.
 
-- Images are **built locally** from the git tree (`build: context: .`).
 - Frontend is compiled **inside** the `web` image; runtime `web` does not mount SPA source.
-- Backend image copies `backend/src` at **build** time. Default Compose does **not** bind-mount source. `docker-compose.debug.yml` **does** mount `./backend/src` for live API/worker code.
+- Backend image copies `backend/src` at **build** time. Public Compose does **not** bind-mount source. `docker-compose.debug.yml` **does** mount `./backend/src` for live API/worker code.
 - Bind mounts for **data** (`./data/documents` etc.) are runtime, not source.
 
-Users today: `git clone` → configure `.env` → `docker compose build && up`. Pre-built registry images are **not implemented**.
+Operators: download Release Compose + `.env.example` → `docker compose up -d`. Contributors: `docker compose -f docker-compose.yml -f compose.dev.yaml up --build -d`.
 
 ---
 
 ## Identity and version
 
-`GET /health` `version` comes from `FOLIUM_VERSION` env, else `git describe`, else `0.1.0`. Docker images typically have no `.git`, so production Compose **should** set `FOLIUM_VERSION`. Default Compose **does not** set it (**Confirmed** gap).
+`GET /health` `version` comes from `FOLIUM_VERSION` (leading `v` stripped), else `git describe`, else `0.1.0`. Published images set `FOLIUM_VERSION`, `FOLIUM_BUILD_REVISION`, and `FOLIUM_BUILD_DATE` at build time. Compose can pin the **image tag** with `FOLIUM_VERSION` independently of that metadata.
 
 ---
 

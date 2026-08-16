@@ -82,6 +82,17 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",  # existing line-length debt; wrap new code when practical
+    "B008",  # FastAPI Depends() in endpoint defaults
+    "B017",
+    "B027",
+    "SIM102",
+    "SIM103",
+    "SIM105",
+    "SIM108",
+    "UP047",
+]
 
 [tool.mypy]
 python_version = "3.13"

@@ -1,0 +1,40 @@
+# Local source-build overlay. Not used by GitHub Release installs.
+#
+#   docker compose -f docker-compose.yml -f compose.dev.yaml up --build -d
+#
+# Publishes Postgres on localhost:5433 for host-run pytest / uvicorn.
+
+services:
+  db:
+    ports:
+      - "5433:5432"
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+      args:
+        FOLIUM_VERSION: ${FOLIUM_VERSION:-0.0.0-dev}
+        FOLIUM_BUILD_REVISION: ${FOLIUM_BUILD_REVISION:-}
+        FOLIUM_BUILD_DATE: ${FOLIUM_BUILD_DATE:-}
+    image: ghcr.io/brocxftw/folium-backend:${FOLIUM_VERSION:-dev}
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+      args:
+        FOLIUM_VERSION: ${FOLIUM_VERSION:-0.0.0-dev}
+        FOLIUM_BUILD_REVISION: ${FOLIUM_BUILD_REVISION:-}
+        FOLIUM_BUILD_DATE: ${FOLIUM_BUILD_DATE:-}
+    image: ghcr.io/brocxftw/folium-backend:${FOLIUM_VERSION:-dev}
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        FOLIUM_VERSION: ${FOLIUM_VERSION:-0.0.0-dev}
+        FOLIUM_BUILD_REVISION: ${FOLIUM_BUILD_REVISION:-}
+        FOLIUM_BUILD_DATE: ${FOLIUM_BUILD_DATE:-}
+    image: ghcr.io/brocxftw/folium-web:${FOLIUM_VERSION:-dev}

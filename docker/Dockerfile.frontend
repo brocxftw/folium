@@ -6,6 +6,26 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM nginx:1.27-alpine
+
+ARG FOLIUM_VERSION=0.0.0-dev
+ARG FOLIUM_BUILD_REVISION=
+ARG FOLIUM_BUILD_DATE=
+ARG FOLIUM_SOURCE=https://github.com/brocxftw/folium
+
+LABEL org.opencontainers.image.title="Folium web" \
+      org.opencontainers.image.description="Folium static UI served by nginx" \
+      org.opencontainers.image.source="${FOLIUM_SOURCE}" \
+      org.opencontainers.image.url="${FOLIUM_SOURCE}" \
+      org.opencontainers.image.documentation="${FOLIUM_SOURCE}/blob/main/docs/deployment/install.md" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${FOLIUM_VERSION}" \
+      org.opencontainers.image.revision="${FOLIUM_BUILD_REVISION}" \
+      org.opencontainers.image.created="${FOLIUM_BUILD_DATE}"
+
+ENV FOLIUM_VERSION=${FOLIUM_VERSION} \
+    FOLIUM_BUILD_REVISION=${FOLIUM_BUILD_REVISION} \
+    FOLIUM_BUILD_DATE=${FOLIUM_BUILD_DATE}
+
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

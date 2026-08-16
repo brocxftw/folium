@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from folium.ai.embeddings import pad_embedding
 from folium.models import Document, DocumentChunk
 from folium.search.filters import DocumentSearchFilters, apply_document_search_filters
-from folium.ai.embeddings import pad_embedding
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,7 @@ cd backend
 
 CI installs `.[dev]` **without** `ocr`; Paddle is mocked.
 
-Ruff/mypy configured in `pyproject.toml`. CI runs `ruff check || true` (**not gating**).
+Ruff/mypy configured in `pyproject.toml`. CI runs `ruff check` as a **gate**.
 
 ## Frontend
 
@@ -31,14 +31,15 @@ Mostly unit tests for Inbox helpers, readiness, citations, a few component tests
 
 ```bash
 cp .env.example .env
-docker compose config
+# set POSTGRES_PASSWORD and secrets
+docker compose -f docker-compose.yml config
+docker compose -f docker-compose.yml -f compose.dev.yaml config
 ```
 
-CI does not `docker compose build` the app images.
+CI validates Compose interpolation. Image publish workflow builds amd64 images and smokes `GET /health`.
 
 ## Gaps (Confirmed)
 
 - No end-to-end browser tests
-- No migration-only test job beyond `alembic upgrade` in pytest setup
-- Lint not required to pass in CI
 - OCR extra untested in CI against real Paddle
+- Anonymous GHCR pull is only proven after the first tagged publish

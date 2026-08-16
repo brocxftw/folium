@@ -11,6 +11,14 @@ from pathlib import Path
 _FALLBACK = "0.1.0"
 
 
+def normalize_version(value: str) -> str:
+    """Strip whitespace and a leading ``v`` from tagged release strings."""
+    text = value.strip()
+    if len(text) > 1 and text[0] in {"v", "V"} and text[1].isdigit():
+        return text[1:]
+    return text
+
+
 def _repo_root() -> Path | None:
     here = Path(__file__).resolve()
     # backend/src/folium/core/version.py → repo root is parents[4]
@@ -48,7 +56,7 @@ def _git_describe(cwd: Path) -> str | None:
 @lru_cache(maxsize=1)
 def get_app_version() -> str:
     """Return the app version, resolved once and kept in process memory."""
-    env = (os.environ.get("FOLIUM_VERSION") or "").strip()
+    env = normalize_version(os.environ.get("FOLIUM_VERSION") or "")
     if env:
         return env
 
@@ -56,6 +64,6 @@ def get_app_version() -> str:
     if root is not None:
         described = _git_describe(root)
         if described:
-            return described
+            return normalize_version(described)
 
     return _FALLBACK

@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.models import Job, JobType, LibraryActivityCounters, User
-
 from folium.services import tags as tag_service
 from folium.workers.processor import mark_preflight_ready, process_text_extraction
 

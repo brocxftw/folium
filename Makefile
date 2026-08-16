@@ -1,16 +1,18 @@
 .PHONY: up down build test backend-test frontend-test migrate logs
 
+COMPOSE_DEV := docker compose -f docker-compose.yml -f compose.dev.yaml
+
 up:
-	docker compose up -d
+	$(COMPOSE_DEV) up -d
 
 down:
 	docker compose down
 
 build:
-	docker compose build
+	$(COMPOSE_DEV) build
 
 logs:
-	docker compose logs -f api worker web
+	$(COMPOSE_DEV) logs -f api worker web
 
 migrate:
 	cd backend && .venv/bin/alembic upgrade head

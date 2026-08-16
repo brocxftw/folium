@@ -70,4 +70,4 @@ SHA-256 of file bytes. Unique per owner among non-duplicate policy. Consume uses
 
 ## Compose site notes
 
-`group_add: ["10000"]` is present so the container can write certain CIFS shares. That GID is **deployment-specific**, not a Folium protocol.
+Public Compose does not set `group_add`. Operators who need a host GID for `0770` CIFS/NFS binds add it in `docker-compose.override.yml`. That GID is **deployment-specific**, not a Folium protocol.

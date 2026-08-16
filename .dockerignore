@@ -13,6 +13,7 @@ data/consume/**
 data/export/**
 .env
 *.md
+!backend/README.md
 .pytest_cache
 .mypy_cache
 .ruff_cache

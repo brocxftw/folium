@@ -183,9 +183,7 @@ def chunk_pages(
         current.append(block)
         current_tokens += block.tokens
 
-        if current_tokens >= cfg.target_max_tokens:
-            flush()
-        elif current_tokens >= cfg.target_min_tokens and block.is_heading:
+        if current_tokens >= cfg.target_max_tokens or current_tokens >= cfg.target_min_tokens and block.is_heading:
             flush()
 
     if current:

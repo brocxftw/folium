@@ -1,8 +1,8 @@
 # Environment variables
 
-Verified from `folium.core.config.Settings`, `folium.core.version`, Compose, and Dockerfiles. **Do not treat `.env.example` as complete.**
+Verified from `folium.core.config.Settings`, `folium.core.version`, Compose, and Dockerfiles.
 
-Legend: **Required** means “must be set to a non-default secret in any real deployment”, not “process will crash if unset” (many fields have insecure defaults).
+Legend: **Required** means “must be set to a non-default secret in any real deployment”, not “process will crash if unset” (many fields have insecure code defaults). Public `.env.example` leaves secrets empty so Compose fails closed on `POSTGRES_PASSWORD`.
 
 ## Application (`Settings`)
 
@@ -16,14 +16,14 @@ Legend: **Required** means “must be set to a non-default secret in any real de
 | `FOLIUM_PORT` | No | `8000` | api (local uvicorn) | Compose uvicorn hard-codes 8000 | No |
 | `FOLIUM_ADMIN_USERNAME` | First boot | `admin` | api | Bootstrap / lookup admin | No |
 | `FOLIUM_ADMIN_PASSWORD` | First boot | `changeme` | api | Bootstrap only | Yes |
-| `ALLOW_REGISTRATION` | No | `true` | api | Open registration | No |
+| `ALLOW_REGISTRATION` | No | code `true`; example `false` | api | Open registration | No |
 | `DEFAULT_STORAGE_QUOTA_BYTES` | No | `null` | api | Default quota for new users | No |
 | `DEFAULT_AI_MONTHLY_REQUEST_QUOTA` | No | `null` | api | Default AI quota | No |
 | `PASSWORD_RESET_TOKEN_TTL_HOURS` | No | `1` | api | Reset link TTL | No |
 | `MAX_AVATAR_SIZE_MB` | No | `2` | api | Avatar cap | No |
 | `CONSUME_OWNER_USERNAME` | No | `null` (earliest admin) | worker | Consume ingest owner | No |
-| `DATABASE_URL` | Yes | localhost:5433 async URL | api, worker | SQLAlchemy async | Yes (credentials) |
-| `DATABASE_URL_SYNC` | Yes | localhost:5433 sync URL | migrations / sync | Sync URL | Yes |
+| `DATABASE_URL` | Yes | localhost:5433 async URL | api, worker | SQLAlchemy async; **Compose overwrites** from `POSTGRES_*` | Yes |
+| `DATABASE_URL_SYNC` | Yes | localhost:5433 sync URL | migrations / worker healthcheck | Sync URL; **Compose overwrites** | Yes |
 | `DOCUMENTS_PATH` | Yes in containers | `/documents` | api, worker | Library storage root | No |
 | `CONSUME_PATH` | Yes in containers | `/consume` | api, worker | Consume root | No |
 | `EXPORT_PATH` | Yes in containers | `/export` | api, worker | Export root | No |
@@ -50,23 +50,23 @@ Legend: **Required** means “must be set to a non-default secret in any real de
 | `SESSION_TTL_HOURS` | No | `168` | api | Session lifetime | No |
 | `CSRF_COOKIE_NAME` | No | `folium_csrf` | api | Must match SPA (`folium_csrf` hard-coded) | No |
 | `FRONTEND_ORIGIN` | Prod | `http://localhost:8080` | api | CORS + CSRF origin | No |
-| `FOLIUM_BUILD_REVISION` | No | `null` | api | About page | No |
-| `FOLIUM_BUILD_DATE` | No | `null` | api | About page | No |
-| `FOLIUM_REPOSITORY_URL` | No | `null` | api | About links | No |
-| `FOLIUM_ISSUES_URL` | No | `null` | api | About links | No |
-| `FOLIUM_DOCS_URL` | No | `null` | api | About links | No |
-| `FOLIUM_RELEASES_URL` | No | `null` | api | About links | No |
-| `FOLIUM_LICENSE_URL` | No | `null` | api | About links | No |
+| `FOLIUM_BUILD_REVISION` | Images | `null` | api | About page; baked into published images | No |
+| `FOLIUM_BUILD_DATE` | Images | `null` | api | About page; baked into published images | No |
+| `FOLIUM_REPOSITORY_URL` | Images | GitHub URL in images | api | About links | No |
+| `FOLIUM_ISSUES_URL` | Images | GitHub issues in images | api | About links | No |
+| `FOLIUM_DOCS_URL` | Images | docs README in images | api | About links | No |
+| `FOLIUM_RELEASES_URL` | Images | GitHub releases in images | api | About links | No |
+| `FOLIUM_LICENSE_URL` | Images | LICENSE in images | api | About links | No |
 
 ## Version (not on Settings)
 
 | Variable | Required | Default | Service | Purpose | Sensitive |
 |----------|----------|---------|---------|---------|-----------|
-| `FOLIUM_VERSION` | Recommended in Docker | `git describe` or `0.1.0` | api | `/health` version | No |
+| `FOLIUM_VERSION` | Image tag + runtime | `latest` in repo Compose; baked in images | compose, api | Image tag **and** `/health` version | No |
 
-Compose **does not** set `FOLIUM_VERSION` today.
+Leading `v` is stripped (`v0.1.16` → `0.1.16`).
 
-## Compose / host only (not read by Python Settings)
+## Compose / host only
 
 | Variable | Required | Default | Service | Purpose | Sensitive |
 |----------|----------|---------|---------|---------|-----------|
@@ -74,14 +74,12 @@ Compose **does not** set `FOLIUM_VERSION` today.
 | `FOLIUM_CONSUME_HOST` | No | `./data/consume` | compose | Host bind source | No |
 | `FOLIUM_EXPORT_HOST` | No | `./data/export` | compose | Host bind source | No |
 | `FOLIUM_PADDLE_CACHE_HOST` | No | `./data/paddleocr` | compose | OCR cache bind | No |
-| `POSTGRES_USER` / `PASSWORD` / `DB` | In Compose file | `folium` | `db` | Image env; **hard-coded in yaml**, not `.env` | Yes |
+| `POSTGRES_USER` | No | `folium` | `db` + URL interpolation | Database role | No |
+| `POSTGRES_PASSWORD` | **Yes** | none (`:?`) | `db` + URL interpolation | Database password | Yes |
+| `POSTGRES_DB` | No | `folium` | `db` + URL interpolation | Database name | No |
+
+Do not put `@ : / # ?` in `POSTGRES_PASSWORD` (it is interpolated into a URL). Prefer `openssl rand -hex 24`.
 
 ## Dockerfile / Paddle (process env in image)
 
 `PADDLE_PDX_CACHE_HOME`, `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK`, `PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT`, `FLAGS_use_mkldnn` — OCR runtime, not Folium Settings.
-
-## Stale / unused relative to `.env.example`
-
-`.env.example` omits `JOB_STALE_RUNNING_SECONDS`, `JOB_LOCK_HEARTBEAT_SECONDS`, `FOLIUM_VERSION`. `.env.docker` is a shorter older template (missing many keys) — **Legacy**.
-
-Compose **overrides** `DATABASE_URL` regardless of `.env` values pointing at `localhost`.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
+from contextlib import suppress
 from datetime import UTC, datetime
 
 from folium.ai.health import HEALTH_PROBE_INTERVAL_SECONDS, probe_assigned_providers
@@ -14,6 +15,7 @@ from folium.db.session import session_scope
 from folium.models import AppSetting
 from folium.services import jobs as job_service
 from folium.storage.service import StorageService
+from folium.workers.healthcheck import WORKER_HEARTBEAT_KEY
 from folium.workers.processor import process_consume_file, process_job
 
 logger = get_logger(__name__)
@@ -233,6 +235,31 @@ async def _poll_ai_health(last_run: list[float], in_flight: list[asyncio.Task | 
     in_flight[0] = asyncio.create_task(_run())
 
 
+WORKER_LIVENESS_INTERVAL_SECONDS = 10.0
+
+
+async def _write_worker_heartbeat(wid: str) -> None:
+    async with session_scope() as session:
+        heartbeat = await session.get(AppSetting, WORKER_HEARTBEAT_KEY)
+        value = {"at": datetime.now(UTC).isoformat(), "worker_id": wid}
+        if heartbeat is None:
+            session.add(AppSetting(key=WORKER_HEARTBEAT_KEY, value=value))
+        else:
+            heartbeat.value = value
+
+
+async def _liveness_heartbeat(wid: str, stop: asyncio.Event) -> None:
+    while not stop.is_set():
+        try:
+            await _write_worker_heartbeat(wid)
+        except Exception:
+            logger.debug("Worker liveness heartbeat failed", exc_info=True)
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=WORKER_LIVENESS_INTERVAL_SECONDS)
+        except TimeoutError:
+            continue
+
+
 async def worker_loop() -> None:
     settings = get_settings()
     wid = worker_id()
@@ -254,23 +281,24 @@ async def worker_loop() -> None:
             "Cancelled %s job(s) for trashed documents on startup", cancelled_trashed
         )
 
-    while True:
-        async with session_scope() as session:
-            heartbeat = await session.get(AppSetting, "worker_heartbeat")
-            value = {"at": datetime.now(UTC).isoformat(), "worker_id": wid}
-            if heartbeat is None:
-                session.add(AppSetting(key="worker_heartbeat", value=value))
-            else:
-                heartbeat.value = value
-        # Health probe is fire-and-forget so unreachable AI cannot block jobs.
-        await _poll_ai_health(last_ai_health, ai_health_task)
-        tasks = [
-            _poll_jobs(wid, sem),
-            _poll_consume(settings.consume_poll_interval_seconds),
-            _poll_trash_purge(last_purge),
-        ]
-        await asyncio.gather(*tasks)
-        await asyncio.sleep(settings.job_poll_interval_seconds)
+    stop_liveness = asyncio.Event()
+    liveness_task = asyncio.create_task(_liveness_heartbeat(wid, stop_liveness))
+    try:
+        while True:
+            # Health probe is fire-and-forget so unreachable AI cannot block jobs.
+            await _poll_ai_health(last_ai_health, ai_health_task)
+            tasks = [
+                _poll_jobs(wid, sem),
+                _poll_consume(settings.consume_poll_interval_seconds),
+                _poll_trash_purge(last_purge),
+            ]
+            await asyncio.gather(*tasks)
+            await asyncio.sleep(settings.job_poll_interval_seconds)
+    finally:
+        stop_liveness.set()
+        liveness_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await liveness_task
 
 
 def run_worker() -> None:

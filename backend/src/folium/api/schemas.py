@@ -790,6 +790,13 @@ class HealthOut(BaseModel):
     version: str = "0.1.0"
 
 
+class WorkerHealthOut(BaseModel):
+    status: str
+    version: str = "0.1.0"
+    last_seen_at: datetime | None = None
+    worker_id: str | None = None
+
+
 class StorageHealthOut(BaseModel):
     status: str
     documents_ok: bool

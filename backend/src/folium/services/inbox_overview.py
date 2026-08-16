@@ -10,12 +10,12 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.models import Document, ProcessingStatus
+from folium.services import library_stats as library_stats_service
 from folium.services.documents import (
     _document_options,
     compute_inbox_status,
     document_to_dict,
 )
-from folium.services import library_stats as library_stats_service
 
 ActivityStatus = Literal["queued", "processing", "processed", "needs_review", "failed"]
 ActivityTab = Literal["recent", "processed", "failed"]

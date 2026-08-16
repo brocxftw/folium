@@ -116,13 +116,11 @@ Ownership: library entities keyed by `owner_id`. Unique `(owner_id, checksum)` o
 | Service | Image | Built or pulled |
 |---------|-------|-----------------|
 | `db` | `pgvector/pgvector:pg17` | Pulled |
-| `api` | `docker/Dockerfile.backend` | **Built from source** |
-| `worker` | same backend image, `command: folium-worker` | **Built from source** |
-| `web` | `docker/Dockerfile.frontend` (nginx) | **Built from source** |
+| `api` | `ghcr.io/brocxftw/folium-backend` | Pulled (public); built via `compose.dev.yaml` |
+| `worker` | same backend image, `command: folium-worker` | Same as api |
+| `web` | `ghcr.io/brocxftw/folium-web` | Pulled (public); built via `compose.dev.yaml` |
 
-**Confirmed:** current stack is a **source-built development/homelab Compose project**, not a pre-built distributable image set. No GHCR/image publish workflow.
-
-Site-specific Compose details: `group_add: ["10000"]` (comment: CIFS `lxc_shares`); Postgres password hard-coded in Compose; host port `5433`; default binds `./data/*`. Debug overlay bind-mounts `backend/src` into containers.
+Public Compose uses `image:` only. GHCR publish is `.github/workflows/publish-images.yml` on `v*` tags. Postgres is not published on the host in public Compose; `5433` is the development overlay. Extra GIDs belong in an override file, not the public Compose.
 
 ---
 
