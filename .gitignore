@@ -9,9 +9,30 @@
 *.key
 *.p12
 *.pfx
+*.p8
+*.ppk
+*.keystore
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*_rsa
+.netrc
+*.secret
 credentials.json
+credentials*.json
+serviceAccount*.json
+auth.json
+token.json
 secrets/
 .secrets/
+.aws/
+.huggingface/
+
+# Local Compose overlays (host paths, debug mounts, extra env)
+docker-compose.override.yml
+docker-compose.debug.yml
+docker-compose*.override.yml
 
 # ---- Python ----
 __pycache__/
@@ -42,6 +63,7 @@ frontend/coverage/
 .npm/
 .yarn/
 .pnpm-store/
+.npmrc
 
 # ---- Runtime data (keep directory placeholders) ----
 data/documents/**
@@ -57,6 +79,8 @@ data/paddleocr/**
 !data/export/**/.gitkeep
 *.sqlite3
 *.db
+*.dump
+*.sql.gz
 
 # ---- IDE / OS / editors ----
 .idea/
@@ -75,6 +99,10 @@ logs/
 tmp/
 temp/
 .TemporaryItems/
+
+# ---- Local operator notes (not the docs/ corpus) ----
+notes.md
+*.plan.md
 
 # ---- Test / CI artifacts ----
 test-results/
