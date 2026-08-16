@@ -1,360 +1,168 @@
 # Folium
 
-**Folium** is a self-hosted, AI-optional document management system. It is designed for homelabs, NAS-backed Docker hosts, and private deployments that need Paperless-ngx–style organisation with optional semantic search and evidence-backed document Q&A.
+Self-hosted **document management** for homelabs and private Docker hosts. Organisation, OCR, and keyword search are core. Embeddings, filing suggestions, and Ask Folium are **optional**.
 
 > Document management first. AI is an enhancement, not infrastructure.
 
-## Product philosophy
+Engineering detail lives in [`docs/`](docs/README.md). This README is the front door, not the source of truth.
 
-- Works fully **without any AI provider**
-- **Logical folders** are metadata; physical files stay content-addressed
-- **NFS is first-class** on the Docker host — Folium never mounts NFS itself
-- PostgreSQL (with pgvector) stays on **local storage**
-- Privacy modes are **enforced in application code**
-- Tool calling and agent loops stay **off**
+## Why Folium
 
-## Architecture
+- **Self-hosted** — Compose stack; your storage and PostgreSQL
+- **Document management first** — Inbox, folders, tags, trash work without an LLM
+- **AI optional** — no provider required for ingest, OCR, or keyword search
+- **Privacy-conscious** — application-enforced privacy modes; provider “no training” flags are claims, not guarantees
+- **Human-controlled filing** — Process is the Inbox gate to final chunk indexing
 
-```mermaid
-flowchart LR
-    Browser --> Web[ReactWeb]
-    Web --> API[FastAPI]
-    API --> DB[(PostgreSQLPgvector)]
-    API --> Storage[HostMountedStorage]
-    Worker[DBBackedWorker] --> DB
-    Worker --> Storage
-    Worker --> OCR[LocalOCR]
-    Worker --> AI[ConfiguredAIProviders]
-    HostNFS[HostNFS] --> Storage
-```
+## Features
 
-Services (Docker Compose):
+### Document management
 
-| Service | Role |
-|---------|------|
-| `web` | React UI (nginx) on port 8080 |
-| `api` | FastAPI REST API on port 8000 |
-| `worker` | Background OCR, indexing, embeddings |
-| `db` | PostgreSQL 17 + pgvector (local volume) |
+- Per-owner library: logical folders, tags, document types, correspondents
+- Inbox review queue and explicit **Process**
+- Archive flag vs Trash (soft-delete + retention purge)
+- Bulk move / tag / trash / archive
+- Multi-user accounts, invites, quotas, admin-approved password reset
 
-Logical paths inside containers:
+### OCR and ingestion
+
+- Upload and `/consume` drop folder
+- Content-addressed originals (SHA-256); duplicates by checksum
+- PDF text (PyMuPDF), DOCX, text/markdown, images
+- Local **PaddleOCR PP-OCRv6** (CPU) for scans — no LLM required
+
+### Search and retrieval
+
+- **Browse** empty-query lists vs **evidence search** (`POST /api/search`)
+- Keyword (PostgreSQL FTS) always
+- Semantic / hybrid (RRF) when embeddings exist; otherwise **keyword fallback**
+
+### Optional AI
+
+- Filing **suggestions** (not canonical until accepted)
+- Chunk **embeddings** for hybrid search and Ask
+- **Ask Folium** with validated chunk citations
+- Document Ask can persist a thread; workspace Ask does not
+- OpenAI-compatible, Anthropic, Gemini adapters; local or remote subject to policy
+
+### Administration
+
+- Settings: Profile, Artificial Intelligence, Library, System, Logs, About
+- Jobs view and cancel
+- Application logs in PostgreSQL
+- Health: `/health`, `/health/database`, `/health/storage`
+
+## How it works
 
 ```text
-/documents   originals, previews, thumbnails
-/consume     watched ingest folder
-/export      export destination
+Upload / Consume
+  → Extract / OCR
+  → Inbox
+  → Review
+  → Process
+  → Index (chunks)
+  → Optional embeddings
+  → Search / Ask
 ```
 
-## Quick start
+Library uploads that already specify a folder can skip Inbox and index after preflight.
+
+Architecture: [`docs/architecture/overview.md`](docs/architecture/overview.md)
+
+```text
+Browser → web (nginx) → api (FastAPI) → PostgreSQL + files
+                              ↓
+                         jobs table → worker (OCR, index, embed)
+```
+
+## AI is optional
+
+Without chat, embeddings, or remote APIs, Folium still:
+
+- Ingests and OCRs documents
+- Files via Inbox / Process
+- Searches with **keyword** FTS
+
+Ask, semantic search, auto-suggestions, and summaries need configured providers and privacy flags. Unreachable AI does **not** fail `/health`.
+
+Details: [`docs/backend/ai-and-rag.md`](docs/backend/ai-and-rag.md)
+
+## Installation
+
+**Current model:** clone this repository and **build images locally**. Pre-built registry images are not published.
 
 ```bash
 cp .env.example .env
-# edit secrets: FOLIUM_SECRET_KEY, FOLIUM_ENCRYPTION_KEY
-# FOLIUM_ADMIN_USERNAME / FOLIUM_ADMIN_PASSWORD are first-boot only
+# set FOLIUM_SECRET_KEY and FOLIUM_ENCRYPTION_KEY
 
 mkdir -p data/documents data/consume data/export
-# Containers run as UID 1000 — ensure bind mounts are writable
+# containers use UID 1000
 sudo chown -R 1000:1000 data/documents data/consume data/export
 
-docker compose up -d
+docker compose build && docker compose up -d
 ```
 
-Open http://localhost:8080 and sign in with the bootstrap admin from `.env` **only on first start**. After that, credentials live in the database — renaming the admin or changing the password in the UI does not require updating `.env`.
+UI: http://localhost:8080 — bootstrap admin from `.env` **on first start only**.  
+OpenAPI: http://localhost:8000/docs
 
-API docs: http://localhost:8000/docs
+Locked out of every admin: `docker compose exec -it api folium reset-admin-password`
 
-### Password recovery / locked out
+Deployment: [`docs/deployment/`](docs/deployment/overview.md)
 
-| Situation | What to do |
-|-----------|------------|
-| You know your password | Settings → Profile → Change password |
-| Another user forgot theirs | They use Forgot password; you approve in Settings → Users and share the link — or use **Set password** on their account |
-| Locked out of every admin | `docker compose exec -it api folium reset-admin-password` (optional `--username`, or defaults to earliest admin) |
+## Configuration
 
-`FOLIUM_ADMIN_PASSWORD` in `.env` is **never** re-applied on restart.
+Copy `.env.example`. Compose overrides database URLs to the `db` service. AI policy env vars **seed** the database once; later changes are in Settings.
 
-## Docker Compose
+Verified reference: [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md)
 
-```bash
-docker compose config
-docker compose build
-docker compose up -d
-docker compose logs -f api worker
-```
+## Storage
 
-Health endpoints:
+Logical folders are metadata. Blobs stay under `/documents/originals/{aa}/{checksum}.ext`.  
+Folium does **not** mount NFS — bind-mount host paths (optionally NFS-mounted on the host). Keep PostgreSQL on a **local** Docker volume.
 
-- `GET /health`
-- `GET /health/database`
-- `GET /health/storage`
+[`docs/architecture/storage.md`](docs/architecture/storage.md)
 
-Containers run as non-root where practical. No privileged mode.
+## Documentation
 
-## NFS setup
+**Start here:** [`docs/README.md`](docs/README.md)
 
-Folium does **not** mount NFS. Mount on the Docker host, then bind-mount into containers.
-
-```bash
-sudo mkdir -p /mnt/folium/{documents,consume,export}
-sudo mount nas:/volume/folium /mnt/folium
-```
-
-Persistent mount via `/etc/fstab` (example):
-
-```text
-nas:/volume/folium  /mnt/folium  nfs  defaults,_netdev  0  0
-```
-
-Point Compose at the host paths (in `.env` or shell):
-
-```bash
-export FOLIUM_DOCUMENTS_HOST=/mnt/folium/documents
-export FOLIUM_CONSUME_HOST=/mnt/folium/consume
-export FOLIUM_EXPORT_HOST=/mnt/folium/export
-docker compose up -d
-```
-
-Equivalent compose volume mapping:
-
-```yaml
-volumes:
-  - /mnt/folium/documents:/documents
-  - /mnt/folium/consume:/consume
-  - /mnt/folium/export:/export
-```
-
-**Never** put the PostgreSQL data volume on NFS.
-
-If NFS becomes temporarily unavailable:
-
-- `/health/storage` reports degraded/unavailable
-- writes that need storage are rejected safely
-- metadata in PostgreSQL is preserved
-- operation resumes when storage returns
-
-## Local document storage
-
-Without NFS, the default `./data/*` bind mounts are fine for development and small deployments.
-
-Physical layout (content-addressed):
-
-```text
-/documents/
-├── originals/
-│   └── 4f/4f2938....pdf
-├── previews/
-└── thumbnails/
-```
-
-Originals are never overwritten silently.
-
-## Logical folders vs physical files
-
-Users organise documents in a folder tree (e.g. `Finance / Property / LPPSA`).
-
-Moving a document between Folium folders updates **database metadata only**. It does not move large binaries across NFS.
-
-Each document belongs to exactly one logical folder. Tags provide cross-cutting classification.
-
-## OCR and text extraction
-
-Local only — no LLM required:
-
-- PDF embedded text via PyMuPDF (fast pre-flight)
-- Scanned PDFs via **PaddleOCR PP-OCRv6** (CPU) on rendered pages
-- Images via PaddleOCR PP-OCRv6
-- DOCX via python-docx
-- TXT / Markdown as UTF-8
-
-`OCR_LANGUAGE` accepts Folium/legacy codes (`eng`, `chi_sim`, …) and is mapped to PaddleOCR languages. Folium uses the **PP-OCRv6 small** tier on CPU. Models download into `PADDLE_PDX_CACHE_HOME` (Compose binds `./data/paddleocr` by default) on first OCR.
-
-Page-aware text is stored for citations and search.
-
-## Metadata, tags, and organisation
-
-Supported metadata includes title, folder, document type, correspondent, dates, language, notes, custom fields, archive state, and processing status.
-
-- Tags: many-to-many, filterable
-- Inbox: newly ingested / needs review
-- Trash: soft-delete before permanent removal
-- Folder deletion of non-empty folders requires an explicit strategy (move to parent, move to Inbox, or confirmed trash of contents)
-
-AI may suggest metadata/tags/folders but does not silently change canonical metadata unless auto-enrichment/auto-tagging is explicitly enabled.
-
-## Search
-
-Three layers:
-
-1. **Metadata** filters (folder, tags, type, correspondent, dates, MIME, archive, inbox)
-2. **Full-text search** (PostgreSQL `tsvector` / `websearch_to_tsquery`) — always available
-3. **Semantic search** (pgvector) — only when embeddings exist
-
-Default UI mode is **hybrid** retrieval with Reciprocal Rank Fusion. Folder-scoped search supports current folder, descendants, or selected folders.
-
-## RAG and citations
-
-Ask scopes: this document, selected documents, folder, folder tree, search result set, or library.
-
-Pipeline: scope → hybrid retrieval → context budget → LLM → answer + citations.
-
-Citations include `document_id`, `page_number`, and `chunk_id`. Clicking a citation opens the document at the page.
-
-If evidence is insufficient:
-
-```text
-Insufficient evidence was found in the selected documents.
-```
-
-The whole library is never dumped into a prompt — only retrieved chunks within Folium’s context budget.
-
-## AI provider setup
-
-Folium is model-agnostic. Configure separate providers/roles for:
-
-- Chat
-- Embeddings
-- Vision
-
-OpenAI-compatible endpoints work with LM Studio, vLLM, llama.cpp, LiteLLM, Ollama-compatible servers, and OpenRouter-style gateways. Native adapters also cover OpenAI, Anthropic, and Gemini where protocols differ.
-
-Secrets are encrypted server-side and returned only as masked values.
-
-### Example: local OpenAI-compatible (LM Studio / llama.cpp)
-
-```text
-Kind: openai_compatible
-Endpoint: http://host.docker.internal:1234/v1
-Chat model: your-chat-model
-Embedding model: your-embedding-model
-Mark as local: yes
-```
-
-### Example: Ollama
-
-```text
-Kind: ollama
-Endpoint: http://host.docker.internal:11434/v1
-```
-
-### Example: OpenRouter / cloud OpenAI
-
-Configure remote endpoint + API key, then set privacy mode and remote allow flags appropriately.
-
-## Privacy modes
-
-| Mode | Behaviour |
-|------|-----------|
-| **Local only** | No document content may be sent to remote AI endpoints (enforced in code) |
-| **Private hybrid** | Prefer local OCR/index/embeddings; remote LLM only when explicitly allowed |
-| **Standard** | Configured providers operate subject to allow/block flags |
-
-Additional controls: allow remote embeddings / Q&A / vision, warn before remote transmission, block remote AI completely.
-
-Provider “no training / zero retention” toggles are **provider policy claims**, not Folium guarantees. Folium clearly separates enforcement vs provider policy in the UI.
-
-## AI profiles (workload limits)
-
-| Profile | Retrieved chunks | Max context | Max output |
-|---------|------------------|-------------|------------|
-| Lightweight (default) | 3 | 8k | 1k |
-| Balanced | 8 | 16k | 2k |
-| Quality | 16 | 32k | 4k |
-| Custom | user-defined | user-defined | user-defined |
-
-Effective limit = `min(Folium configured limit, model capability)`. Tool calling stays disabled.
-
-## Settings operations workspace
-
-Settings has five top-level workspaces: Profile and About for every signed-in user,
-plus admin-only Artificial Intelligence, System, and Logs workspaces. System facts
-describe the application process and its container-visible environment; Folium
-does not require a Docker socket or privileged host agent.
-
-Structured API and worker events are retained in PostgreSQL for
-`APPLICATION_LOG_RETENTION_DAYS` (30 by default), with redacted CSV export and
-admin-only clear controls. Set `FOLIUM_DOCUMENTS_HOST_SOURCE` when the document
-volume has a known host source path; otherwise the UI labels it as unavailable.
-
-## Backups
-
-Back up all three:
-
-1. PostgreSQL volume (`folium_pgdata`)
-2. Document storage (`/documents` — often NFS)
-3. Application configuration (`.env`, compose overrides)
-
-Docker volumes alone do **not** contain the full document corpus when using NFS bind mounts.
-
-## Troubleshooting
-
-| Symptom | Check |
-|---------|--------|
-| Upload fails | `/health/storage`, disk permissions on bind mounts |
-| No search hits | Wait for worker jobs; confirm OCR/index completed |
-| Semantic search empty | Embeddings provider configured? Privacy allow remote embeddings? |
-| Ask blocked | Privacy mode / `confirm_remote` / chat provider |
-| NFS stale | Host mount health; Folium will degrade rather than corrupt |
-
-```bash
-docker compose ps
-curl -sf http://localhost:8000/health
-curl -sf http://localhost:8000/health/storage
-docker compose logs worker --tail=100
-```
+Vocabulary: [`ubiquitous-language.md`](ubiquitous-language.md)
 
 ## Development
 
-### Backend
+Host API + Vite, or Compose. See [`docs/development/local-development.md`](docs/development/local-development.md).
 
 ```bash
-cd backend
-uv venv --python 3.13
-uv pip install -e ".[dev,ocr]"
-cp ../.env.example ../.env   # point DATABASE_URL at localhost:5433
-docker compose up -d db
-alembic upgrade head
-uvicorn folium.main:app --reload --port 8000
-# other terminal:
-folium-worker
+make test          # backend pytest + frontend vitest/build
 ```
 
-### Frontend
+## Repository structure
 
-```bash
-cd frontend
-npm install
-npm run dev
+```text
+backend/     FastAPI, worker, Alembic, tests
+frontend/    React SPA
+docker/      Dockerfiles, nginx
+docs/        Architecture and operations
 ```
 
-Vite proxies `/api` and `/health` to the API.
+## Current limitations / project status
 
-## Testing
+- Source-built Compose; not an image-only install ([`production-readiness.md`](docs/deployment/production-readiness.md) — **Not ready** for public image distribution)
+- No project `LICENSE` file
+- `/export` is mounted but unused for document export
+- No SMTP; password reset is admin-approved
+- Default Compose publishes Postgres on host `5433` and uses a fixed DB password
+- No browser end-to-end test suite
+- `classification` job type exists without a handler
 
-```bash
-# Backend
-cd backend
-.venv/bin/pytest -q
+## Contributing
 
-# Frontend
-cd frontend
-npm test
-npm run build
+[`docs/development/contributing.md`](docs/development/contributing.md)
 
-# Compose validation
-docker compose config
-```
+## Licence
 
-External AI APIs are mocked in tests. No paid services are required.
+**No licence file is present in this repository.** Terms for use and redistribution are unset until maintainers add one. See also the dependency notes in [`docs/deployment/production-readiness.md`](docs/deployment/production-readiness.md) (PyMuPDF is typically AGPL-3.0).
 
-## Security notes
+## Acknowledgements
 
-- Argon2 password hashing, server-side sessions, CSRF on state-changing requests
-- Upload MIME validation, size limits, path confinement
-- Provider URL validation; no shell/filesystem tools exposed to models
-- Non-root containers, no privileged mode
-- Password recovery is **admin-approved**: users request a reset on the login page; an admin approves it in Settings → Users and shares the one-time link out-of-band (no SMTP yet)
-- Bootstrap `FOLIUM_ADMIN_*` env vars create the first user only; use Profile, Users → Set password, or `folium reset-admin-password` afterward
-
-## License
-
-Use and modify for your self-hosted deployments. Add a license file appropriate for your distribution when publishing.
+Built with FastAPI, PostgreSQL, [pgvector](https://github.com/pgvector/pgvector), React, PaddleOCR, PyMuPDF, and nginx. Inspired by the operational shape of self-hosted document managers such as Paperless-ngx, without being a fork of that project.
