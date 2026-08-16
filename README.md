@@ -89,29 +89,35 @@ Details: [`docs/backend/ai-and-rag.md`](docs/backend/ai-and-rag.md)
 
 ## Installation
 
-**Current model:** clone this repository and **build images locally**. Pre-built registry images are not published.
+**Primary path:** pull images from GHCR. Do not clone the repository.
 
 ```bash
+mkdir folium && cd folium
+curl -fsSL -o docker-compose.yml \
+  https://github.com/brocxftw/folium/releases/latest/download/docker-compose.yml
+curl -fsSL -o .env.example \
+  https://github.com/brocxftw/folium/releases/latest/download/.env.example
 cp .env.example .env
-# set FOLIUM_SECRET_KEY and FOLIUM_ENCRYPTION_KEY
-
-mkdir -p data/documents data/consume data/export
-# containers use UID 1000
-sudo chown -R 1000:1000 data/documents data/consume data/export
-
-docker compose build && docker compose up -d
+# set FOLIUM_SECRET_KEY, FOLIUM_ENCRYPTION_KEY, POSTGRES_PASSWORD, FOLIUM_ADMIN_PASSWORD
+mkdir -p data/documents data/consume data/export data/paddleocr
+sudo chown -R 1000:1000 data/documents data/consume data/export data/paddleocr
+docker compose up -d
 ```
+
+Full guide: [`docs/deployment/install.md`](docs/deployment/install.md)
 
 UI: http://localhost:8080 — bootstrap admin from `.env` **on first start only**.  
 OpenAPI: http://localhost:8000/docs
 
 Locked out of every admin: `docker compose exec -it api folium reset-admin-password`
 
+Contributors building from source: [`docs/development/local-development.md`](docs/development/local-development.md)
+
 Deployment: [`docs/deployment/`](docs/deployment/overview.md)
 
 ## Configuration
 
-Copy `.env.example`. Compose overrides database URLs to the `db` service. AI policy env vars **seed** the database once; later changes are in Settings.
+Copy `.env.example`. Compose builds `DATABASE_URL` from `POSTGRES_*`. AI policy env vars **seed** the database once; later changes are in Settings.
 
 Verified reference: [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md)
 
@@ -147,12 +153,13 @@ docs/        Architecture and operations
 
 ## Current limitations / project status
 
-- Source-built Compose; not an image-only install ([`production-readiness.md`](docs/deployment/production-readiness.md) — **Not ready** for public image distribution)
+- GHCR images are **linux/amd64**; ARM is untested ([`production-readiness.md`](docs/deployment/production-readiness.md))
+- Packages must be **public** on GHCR after the first publish (one-time maintainer step)
 - `/export` is mounted but unused for document export
 - No SMTP; password reset is admin-approved
-- Default Compose publishes Postgres on host `5433` and uses a fixed DB password
 - No browser end-to-end test suite
 - `classification` job type exists without a handler
+- Database migrations are forward-only; image rollback does not undo schema changes
 
 ## Contributing
 

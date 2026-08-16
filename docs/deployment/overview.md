@@ -1,21 +1,19 @@
 # Deployment overview
 
-## Current supported model
+## Supported model
 
-**Confirmed:** operators **clone this repository**, copy `.env.example` → `.env`, optionally create `data/*` directories, then:
+Operators install **pre-built images** from GHCR. They download `docker-compose.yml` and `.env.example` from a GitHub Release — no git clone and no Folium image build.
 
 ```text
-docker compose build
+download docker-compose.yml
+download .env.example
+configure .env
 docker compose up -d
 ```
 
-Folium is **not** distributed as published GHCR/Docker Hub images in this repo. There is no standalone `docker-compose.yml` that only `image:`-pulls Folium services.
+Step-by-step: [Install](install.md).
 
-Mixture: **Postgres image is pulled**; **api/worker/web are built from source**.
-
-End-user vs developer: Compose is the intended runtime for homelab use **and** is source-built. Local Vite/uvicorn is documented separately under [development](../development/local-development.md).
-
----
+Postgres is pulled from Docker Hub (`pgvector/pgvector:pg17`). Folium `api`/`worker`/`web` are pulled from GHCR.
 
 ## What you get
 
@@ -27,12 +25,23 @@ End-user vs developer: Compose is the intended runtime for homelab use **and** i
 
 First boot creates the bootstrap admin from `FOLIUM_ADMIN_USERNAME` / `FOLIUM_ADMIN_PASSWORD` if no users exist.
 
----
+## Contributors
+
+Clone the repository and source-build with [compose.dev.yaml](../../compose.dev.yaml):
+
+```bash
+docker compose -f docker-compose.yml -f compose.dev.yaml up --build -d
+```
+
+See [local development](../development/local-development.md).
 
 ## Further reading
 
+- [Install](install.md)
+- [Upgrades](upgrades.md)
+- [Backup](backup.md)
 - [Docker](docker.md)
 - [Storage mounts](storage-mounts.md)
 - [Environment variables](environment-variables.md)
 - [Healthchecks](healthchecks.md)
-- [Production readiness](production-readiness.md) (public-release audit — not a how-to)
+- [Production readiness](production-readiness.md)

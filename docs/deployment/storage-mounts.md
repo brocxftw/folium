@@ -12,8 +12,12 @@ Folium does **not** mount NFS. Mount on the host, then bind-mount.
 | `${FOLIUM_PADDLE_CACHE_HOST:-./data/paddleocr}` | `/app/.paddleocr` | OCR model cache | Local disk (not required on NFS) |
 | `folium_pgdata` | `/var/lib/postgresql/data` | Database | **Local Docker volume only — not NFS** |
 
-UID **1000** must be able to write document/consume/export binds (Compose `user: 1000:1000`). Extra GID 10000 is for a specific CIFS setup; other hosts may ignore or need adjustment.
+UID **1000** must be able to write document/consume/export binds (Compose `user: 1000:1000`). Public Compose does not add extra GIDs; use `docker-compose.override.yml` if a share is `0770` for a host group.
 
 ## After container destroy
 
 Named volume + host binds persist. Recreate with `docker compose up -d` (without `-v`).
+
+`docker compose down` keeps data. `docker compose down -v` **deletes** `folium_pgdata`.
+
+See [backup](backup.md).

@@ -69,4 +69,4 @@ queued → running → completed
 - `GET /api/jobs/{id}`
 - `POST /api/jobs/{id}/cancel`
 
-There is no separate “worker health” HTTP endpoint. Compose does not healthcheck the worker container.
+There is no separate “worker health” HTTP *API under `/api`*. Unauthenticated `GET /health/worker` reads `worker_heartbeat`. Compose healthchecks the worker container with `python -m folium.workers.healthcheck`.

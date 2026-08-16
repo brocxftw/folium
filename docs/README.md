@@ -13,7 +13,7 @@ CODE  →  docs/  →  README.md
 | Document | Description |
 |----------|-------------|
 | [Overview](architecture/overview.md) | What Folium is, boundaries, main flows (~10 min) |
-| [Runtime](architecture/runtime-architecture.md) | Compose processes, ports, source-built vs images |
+| [Runtime](architecture/runtime-architecture.md) | Compose processes, ports, images vs source-build |
 | [Data model](architecture/data-model.md) | Entities, ownership, derived vs canonical |
 | [Document lifecycle](architecture/document-lifecycle.md) | Upload → Inbox → Process → index/embed → trash |
 | [Storage](architecture/storage.md) | Content-addressed files, mounts, NFS |
@@ -48,12 +48,15 @@ CODE  →  docs/  →  README.md
 
 | Document | Description |
 |----------|-------------|
-| [Overview](deployment/overview.md) | Clone-and-build Compose model |
+| [Overview](deployment/overview.md) | Image-based Compose model |
+| [Install](deployment/install.md) | GHCR pull; no git clone |
+| [Upgrades](deployment/upgrades.md) | `compose pull` / rollback limits |
+| [Backup](deployment/backup.md) | Postgres volume, documents, `.env` |
 | [Docker](deployment/docker.md) | Services, images, entrypoints |
 | [Storage mounts](deployment/storage-mounts.md) | Binds and volumes |
 | [Environment variables](deployment/environment-variables.md) | Verified env reference |
 | [Healthchecks](deployment/healthchecks.md) | Container vs app vs AI |
-| [Production readiness](deployment/production-readiness.md) | Public-release audit + licences |
+| [Production readiness](deployment/production-readiness.md) | Public-release status + licences |
 
 ## Development
 

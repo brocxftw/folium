@@ -1,11 +1,11 @@
 # Local development
 
-Developer workflow as verified in the repo (`Makefile`, README scripts, Vite, pytest). Separate from [end-user Compose](../deployment/overview.md).
+Developer workflow as verified in the repo (`Makefile`, README scripts, Vite, pytest). Separate from [end-user image install](../deployment/install.md).
 
 ## Prerequisites
 
 - Docker (for Postgres + optional full stack)
-- Python 3.13 + [uv](https://docs.astral.sh/uv/)
+- Python 3.13 + [uv](https://astral.sh/uv)
 - Node 20 + npm
 - Git
 
@@ -13,8 +13,9 @@ Developer workflow as verified in the repo (`Makefile`, README scripts, Vite, py
 
 ```bash
 cp .env.example .env
-# Point DATABASE_URL at localhost:5433 when API runs on the host
-docker compose up -d db
+# Set POSTGRES_PASSWORD (required by Compose) and secrets.
+# Point DATABASE_URL at localhost:5433 when the API runs on the host.
+docker compose -f docker-compose.yml -f compose.dev.yaml up -d db
 ```
 
 Host API defaults in Settings already use `localhost:5433`. Compose `api` overrides URLs to hostname `db`.
@@ -45,11 +46,17 @@ npm run dev          # :8080, proxies /api and /health → :8000
 
 Do not run Compose `web` on 8080 at the same time as Vite.
 
-## Full stack
+## Full stack from source
 
 ```bash
-make build && make up    # docker compose build && up -d
+make build && make up    # docker compose -f docker-compose.yml -f compose.dev.yaml
 make logs
+```
+
+Equivalent:
+
+```bash
+docker compose -f docker-compose.yml -f compose.dev.yaml up --build -d
 ```
 
 Hot reload of Python in Compose requires `docker-compose.debug.yml` source mounts (or rebuild). Frontend in Compose is a **production nginx build**, not Vite HMR.
