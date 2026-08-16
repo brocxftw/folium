@@ -11,6 +11,7 @@ import { ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AskCitationSnapshot, Citation } from "@/lib/api/types";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover";
+import { rewriteChunkMarkersForDisplay } from "./citationNormalize";
 
 export function toCitation(c: AskCitationSnapshot | Citation): Citation {
   const anyC = c as AskCitationSnapshot & Partial<Citation>;
@@ -268,6 +269,9 @@ export function MarkdownResponse({
     if (n != null) byNumber.set(n, c);
   }
 
+  // Defense in depth: rewrite/strip raw chunk markers from older persisted messages.
+  const safeContent = rewriteChunkMarkersForDisplay(content, citations);
+
   const withCitations = (children: ReactNode) =>
     injectCitations(children, byNumber, activeNumber, onActivate);
 
@@ -387,7 +391,7 @@ export function MarkdownResponse({
           hr: () => <hr className="my-3 border-surface-border" />,
         }}
       >
-        {content}
+        {safeContent}
       </ReactMarkdown>
     </div>
   );

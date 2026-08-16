@@ -33,8 +33,24 @@ _INCOMPLETE_CITATION_RE = re.compile(
     re.IGNORECASE,
 )
 
-CITATION_PATTERN = re.compile(
-    r"\[chunk:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\]"
+_UUID = (
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+# Single marker: [chunk:<uuid>]
+CITATION_PATTERN = re.compile(rf"\[chunk:({_UUID})\]", re.IGNORECASE)
+
+# Any chunk:<uuid> occurrence (also covers multi-id groups the model invents).
+CHUNK_ID_PATTERN = re.compile(rf"chunk:\s*({_UUID})", re.IGNORECASE)
+
+# Bracket groups with one or more chunk ids, e.g.
+# [chunk:uuid] or [chunk:uuid, chunk:uuid]
+CHUNK_CITATION_GROUP_PATTERN = re.compile(
+    rf"\[\s*chunk:\s*{_UUID}"
+    rf"(?:\s*,\s*chunk:\s*{_UUID})*"
+    rf"\s*\]",
+    re.IGNORECASE,
 )
 
 SCOPE_DOCUMENT = "document"
@@ -417,12 +433,37 @@ def build_rag_prompt(question: str, chunks: list[RetrievedChunk]) -> tuple[str, 
     ]
 
 
+# Models sometimes cite evidence as [1]/[2] matching "Passage N:" in the prompt
+# instead of the required [chunk:<uuid>] form.
+_NUMERIC_PASSAGE_CITATION_RE = re.compile(r"\[(\d+)\]")
+
+
+def expand_numeric_passage_citations(
+    answer: str,
+    retrieved: list[RetrievedChunk],
+) -> str:
+    """Map ``[n]`` passage citations to ``[chunk:<uuid>]`` when ``n`` is in range."""
+    if not retrieved:
+        return answer
+
+    def _replace(match: re.Match[str]) -> str:
+        try:
+            index = int(match.group(1))
+        except ValueError:
+            return match.group(0)
+        if index < 1 or index > len(retrieved):
+            return match.group(0)
+        return f"[chunk:{retrieved[index - 1].chunk.id}]"
+
+    return _NUMERIC_PASSAGE_CITATION_RE.sub(_replace, answer)
+
+
 def parse_citations(answer: str, chunk_map: dict[uuid.UUID, RetrievedChunk]) -> list[Citation]:
     """Extract and validate chunk citations from an model answer."""
     seen: set[uuid.UUID] = set()
     citations: list[Citation] = []
 
-    for match in CITATION_PATTERN.finditer(answer):
+    for match in CHUNK_ID_PATTERN.finditer(answer):
         chunk_id = uuid.UUID(match.group(1))
         if chunk_id in seen:
             continue
@@ -596,10 +637,10 @@ async def ask(
         duration_ms=duration_ms,
     )
 
-    answer = chat_result.content.strip()
+    raw_answer = chat_result.content.strip()
     passages = passages_from_chunks(retrieved)
 
-    if _answer_indicates_insufficient_evidence(answer):
+    if _answer_indicates_insufficient_evidence(raw_answer):
         return AskResult(
             answer=INSUFFICIENT_EVIDENCE_ANSWER,
             citations=[],
@@ -609,9 +650,11 @@ async def ask(
             insufficient_evidence=True,
         )
 
-    if _answer_looks_truncated(answer, chat_result.finish_reason):
+    if _answer_looks_truncated(raw_answer, chat_result.finish_reason):
         raise ValidationError(OUTPUT_TRUNCATED_MESSAGE)
 
+    # Accept [n] passage-index citations the model often emits instead of [chunk:uuid].
+    answer = expand_numeric_passage_citations(raw_answer, retrieved)
     citations = parse_citations(answer, chunk_map)
     if not citations:
         return AskResult(

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Trash2 } from "lucide-react";
+import { Leaf, Trash2 } from "lucide-react";
 import { useDocument, useTrashDocument } from "@/lib/api/hooks";
 import type { Citation, Folder } from "@/lib/api/types";
 import { DocumentViewer } from "@/components/viewer/DocumentViewer";
@@ -153,7 +153,7 @@ export function DocumentViewerModal({
           </DialogHeader>
 
           <div className="flex min-h-0 flex-1">
-            <div className="min-w-0 flex-1 bg-surface-muted">
+            <div className="relative min-w-0 flex-1 bg-surface-muted">
               <DocumentViewer
                 document={doc}
                 page={page}
@@ -161,14 +161,31 @@ export function DocumentViewerModal({
                 highlightQuote={viewerHighlightQuote}
                 className="h-full"
               />
-            </div>
-            {/* Inspector when Ask closed; Ask replaces this rail when open (V1 mock). */}
-            <aside
-              className={cn(
-                "relative hidden shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex",
-                askOpen ? "w-[440px]" : "w-[320px]",
+              {!askOpen && doc && canAskDocument(doc) && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Ask Folium AI"
+                        onClick={() => setAskOpen(true)}
+                        className={cn(
+                          "absolute bottom-4 right-4 z-10 flex h-12 w-12 items-center justify-center",
+                          "rounded-full bg-accent text-white shadow-md",
+                          "transition hover:bg-accent-hover hover:shadow-lg",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2",
+                        )}
+                      >
+                        <Leaf className="h-5 w-5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">Ask Folium AI</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               )}
-            >
+            </div>
+            {/* Inspector when Ask closed; Ask replaces this rail when open (same width). */}
+            <aside className="relative hidden w-[440px] shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex">
               {askOpen && doc ? (
                 <DocumentAskPanel
                   documentId={doc.id}
@@ -179,31 +196,7 @@ export function DocumentViewerModal({
                   className="h-full"
                 />
               ) : (
-                <>
-                  <DocumentInspector document={doc} />
-                  {doc && canAskDocument(doc) && (
-                    <TooltipProvider delayDuration={200}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label="Ask Folium AI"
-                            onClick={() => setAskOpen(true)}
-                            className={cn(
-                              "absolute bottom-4 right-4 z-10 flex h-12 w-12 items-center justify-center",
-                              "rounded-full bg-accent text-white shadow-md",
-                              "transition hover:bg-accent-hover hover:shadow-lg",
-                              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2",
-                            )}
-                          >
-                            <Sparkles className="h-5 w-5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="left">Ask Folium AI</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                </>
+                <DocumentInspector document={doc} />
               )}
             </aside>
           </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Eraser,
   Leaf,
@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/Dialog";
 import { AnswerBody, SourcesDrawer } from "./MarkdownResponse";
 import { cn } from "@/lib/utils";
+
 const SUGGESTED_PROMPTS = [
   "Summarise the main argument",
   "What are the key ideas?",
@@ -60,9 +61,19 @@ function formatTime(iso: string): string {
   }
 }
 
+/** Stable thread order: time, then user before assistant on ties. */
+function sortMessages(messages: AskMessage[]): AskMessage[] {
+  return [...messages].sort((a, b) => {
+    const ta = new Date(a.created_at).getTime();
+    const tb = new Date(b.created_at).getTime();
+    if (ta !== tb) return ta - tb;
+    if (a.role !== b.role) return a.role === "user" ? -1 : 1;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export function DocumentAskPanel({
   documentId,
-  documentTitle,
   active = true,
   onClose,
   onCitationActivate,
@@ -71,15 +82,21 @@ export function DocumentAskPanel({
   const [draft, setDraft] = useState("");
   const [localMessages, setLocalMessages] = useState<AskMessage[] | null>(null);
   const [pendingStatus, setPendingStatus] = useState<PendingStatus>(null);
+  const [queue, setQueue] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pendingRemote, setPendingRemote] = useState(false);
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
   const [persistWarning, setPersistWarning] = useState<string | null>(null);
+  const [composerFocused, setComposerFocused] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
+  const queueRef = useRef<string[]>([]);
+  const processingRef = useRef(false);
+  const serverMessagesRef = useRef<AskMessage[]>([]);
+  const skipDrainRef = useRef(false);
 
   const { data: conversation, isLoading, isError, refetch } =
     useAskConversation(active ? documentId : undefined);
@@ -90,8 +107,9 @@ export function DocumentAskPanel({
   const chatAvailable = aiHealth?.chat.status === "available";
 
   const serverMessages = conversation?.messages ?? [];
-  const messages = localMessages ?? serverMessages;
-  const isNewSession = messages.length === 0 && !pendingStatus;
+  serverMessagesRef.current = serverMessages;
+  const messages = sortMessages(localMessages ?? serverMessages);
+  const isNewSession = messages.length === 0 && !pendingStatus && queue.length === 0;
   const composerPlaceholder = isNewSession
     ? "Ask something…"
     : "Ask follow up…";
@@ -103,8 +121,13 @@ export function DocumentAskPanel({
     setPersistWarning(null);
     setActiveCitation(null);
     setDraft("");
+    setQueue([]);
+    queueRef.current = [];
+    skipDrainRef.current = true;
     abortRef.current?.abort();
     abortRef.current = null;
+    processingRef.current = false;
+    setPendingStatus(null);
   }, [documentId]);
 
   useEffect(() => {
@@ -115,24 +138,17 @@ export function DocumentAskPanel({
 
   useEffect(() => {
     if (localMessages == null) return;
+    if (pendingStatus || queue.length > 0 || processingRef.current) return;
     // Once server catches up after invalidate, drop optimistic overlay.
     if (serverMessages.length >= localMessages.length) {
       setLocalMessages(null);
     }
-  }, [serverMessages, localMessages]);
+  }, [serverMessages, localMessages, pendingStatus, queue.length]);
 
   useEffect(() => {
     if (!stickToBottom.current || !threadRef.current) return;
     threadRef.current.scrollTop = threadRef.current.scrollHeight;
-  }, [messages, pendingStatus]);
-
-  const latestAssistantCitations = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const m = messages[i];
-      if (m.role === "assistant" && m.citations.length > 0) return m.citations;
-    }
-    return [];
-  }, [messages]);
+  }, [messages, pendingStatus, queue]);
 
   const activateCitation = (citation: Citation) => {
     setActiveCitation(citation.display_number ?? null);
@@ -140,6 +156,8 @@ export function DocumentAskPanel({
   };
 
   const stopAsk = () => {
+    // Stop only the in-flight turn; queued follow-ups remain and will start next.
+    skipDrainRef.current = false;
     abortRef.current?.abort();
   };
 
@@ -147,27 +165,30 @@ export function DocumentAskPanel({
     (err instanceof DOMException && err.name === "AbortError") ||
     (err instanceof Error && err.name === "AbortError");
 
-  const submit = async (confirmRemote = false, overrideQuestion?: string) => {
-    const question = (overrideQuestion ?? draft).trim();
-    if (!question || pendingStatus) return;
+  const runAskAndDrain = async (question: string, confirmRemote = false) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
     setError(null);
     setPersistWarning(null);
     setPendingRemote(false);
     stickToBottom.current = true;
 
     const optimisticUser: AskMessage = {
-      id: `temp-user-${Date.now()}`,
+      id: `temp-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       role: "user",
       content: question,
       citations: [],
       created_at: new Date().toISOString(),
     };
-    setLocalMessages([...messages, optimisticUser]);
-    setDraft("");
+    setLocalMessages((prev) =>
+      sortMessages([...(prev ?? serverMessagesRef.current), optimisticUser]),
+    );
     setPendingStatus("retrieving");
 
     const controller = new AbortController();
     abortRef.current = controller;
+    let shouldDrain = true;
+    let restoreDraft: string | null = null;
 
     try {
       setPendingStatus("generating");
@@ -180,6 +201,9 @@ export function DocumentAskPanel({
         signal: controller.signal,
       });
 
+      const assistantCreated = new Date(
+        new Date(optimisticUser.created_at).getTime() + 1,
+      ).toISOString();
       const assistant: AskMessage = {
         id: result.assistant_message_id ?? `temp-assistant-${Date.now()}`,
         role: "assistant",
@@ -192,13 +216,17 @@ export function DocumentAskPanel({
           title: c.title,
           quote: c.quote,
         })),
-        created_at: new Date().toISOString(),
+        created_at: assistantCreated,
       };
-      setLocalMessages([
-        ...messages,
-        { ...optimisticUser, id: result.user_message_id ?? optimisticUser.id },
-        assistant,
-      ]);
+      setLocalMessages((prev) => {
+        const base = prev ?? serverMessagesRef.current;
+        const withoutTemp = base.filter((m) => m.id !== optimisticUser.id);
+        const userMsg: AskMessage = {
+          ...optimisticUser,
+          id: result.user_message_id ?? optimisticUser.id,
+        };
+        return sortMessages([...withoutTemp, userMsg, assistant]);
+      });
       if (result.persist_failed) {
         setPersistWarning(
           "Your answer was generated, but the conversation could not be saved.",
@@ -206,36 +234,82 @@ export function DocumentAskPanel({
       }
     } catch (err) {
       if (isAbortError(err)) {
-        // Stop: drop optimistic turn and restore the draft.
-        setLocalMessages(messages.length ? messages : null);
-        setDraft(question);
-        return;
-      }
-      setLocalMessages(messages);
-      setDraft(question);
-      if (err instanceof ApiError && err.isForbidden) {
-        setPendingRemote(true);
-        setError(
-          err.message ||
-            "This provider is remote. Confirm to send the question outside your host.",
-        );
+        setLocalMessages((prev) => {
+          const base = (prev ?? serverMessagesRef.current).filter(
+            (m) => m.id !== optimisticUser.id,
+          );
+          return base.length ? sortMessages(base) : null;
+        });
+        restoreDraft = question;
+        // Still drain queue after stop so follow-ups proceed.
       } else {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "I couldn't complete that request.",
-        );
+        shouldDrain = false;
+        setLocalMessages((prev) => {
+          const base = (prev ?? serverMessagesRef.current).filter(
+            (m) => m.id !== optimisticUser.id,
+          );
+          return base.length ? sortMessages(base) : null;
+        });
+        setDraft(question);
+        if (err instanceof ApiError && err.isForbidden) {
+          setPendingRemote(true);
+          setError(
+            err.message ||
+              "This provider is remote. Confirm to send the question outside your host.",
+          );
+        } else {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "I couldn't complete that request.",
+          );
+        }
       }
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
       }
       setPendingStatus(null);
+      processingRef.current = false;
+      if (restoreDraft) {
+        setDraft((d) => (d.trim() || queueRef.current.length ? d : restoreDraft!));
+      }
     }
+
+    if (shouldDrain && !skipDrainRef.current) {
+      const [next, ...rest] = queueRef.current;
+      if (next) {
+        queueRef.current = rest;
+        setQueue(rest);
+        void runAskAndDrain(next, false);
+      }
+    } else if (skipDrainRef.current) {
+      skipDrainRef.current = false;
+    }
+  };
+
+  const submit = (confirmRemote = false, overrideQuestion?: string) => {
+    const question = (overrideQuestion ?? draft).trim();
+    if (!question) return;
+
+    if (pendingStatus || processingRef.current) {
+      queueRef.current = [...queueRef.current, question];
+      setQueue(queueRef.current);
+      setDraft("");
+      stickToBottom.current = true;
+      return;
+    }
+
+    setDraft("");
+    void runAskAndDrain(question, confirmRemote);
   };
 
   const handleNewChat = async () => {
     setConfirmNew(false);
+    skipDrainRef.current = true;
+    abortRef.current?.abort();
+    queueRef.current = [];
+    setQueue([]);
     await newChat.mutateAsync(documentId);
     setLocalMessages([]);
     setError(null);
@@ -245,6 +319,10 @@ export function DocumentAskPanel({
 
   const handleClear = async () => {
     setConfirmClear(false);
+    skipDrainRef.current = true;
+    abortRef.current?.abort();
+    queueRef.current = [];
+    setQueue([]);
     await clearChat.mutateAsync(documentId);
     setLocalMessages([]);
     setError(null);
@@ -268,11 +346,11 @@ export function DocumentAskPanel({
       <PanelHeader
         onClose={onClose}
         onNew={() => {
-          if (messages.length > 0) setConfirmNew(true);
+          if (messages.length > 0 || queue.length > 0) setConfirmNew(true);
           else void handleNewChat();
         }}
         onClear={() => setConfirmClear(true)}
-        clearDisabled={messages.length === 0}
+        clearDisabled={messages.length === 0 && queue.length === 0}
       />
 
       <div
@@ -308,10 +386,8 @@ export function DocumentAskPanel({
           </div>
         )}
 
-        {!isLoading && !isError && messages.length === 0 && !pendingStatus && (
-          <EmptyState
-            onPick={(prompt) => void submit(false, prompt)}
-          />
+        {!isLoading && !isError && isNewSession && (
+          <EmptyState onPick={(prompt) => submit(false, prompt)} />
         )}
 
         {messages.map((message) => (
@@ -337,6 +413,21 @@ export function DocumentAskPanel({
             </p>
           </div>
         )}
+
+        {queue.map((queued, index) => (
+          <div
+            key={`queued-${index}-${queued.slice(0, 24)}`}
+            className="rounded-xl border border-dashed border-accent/30 bg-accent/[0.04] p-3.5"
+          >
+            <div className="mb-2 flex items-center justify-between gap-2 text-xs text-text-muted">
+              <span className="font-medium text-text-secondary">You</span>
+              <span>Queued</span>
+            </div>
+            <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-text-primary">
+              {queued}
+            </p>
+          </div>
+        ))}
       </div>
 
       {(error || persistWarning) && (
@@ -348,7 +439,7 @@ export function DocumentAskPanel({
                 <Button
                   size="sm"
                   className="mt-2"
-                  onClick={() => void submit(true)}
+                  onClick={() => submit(true)}
                 >
                   Confirm remote AI and ask
                 </Button>
@@ -357,7 +448,7 @@ export function DocumentAskPanel({
                   size="sm"
                   variant="secondary"
                   className="mt-2"
-                  onClick={() => void submit(false)}
+                  onClick={() => submit(false)}
                 >
                   Retry
                 </Button>
@@ -375,56 +466,60 @@ export function DocumentAskPanel({
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder={composerPlaceholder}
+            placeholder={
+              pendingStatus
+                ? "Type a follow-up to queue…"
+                : composerPlaceholder
+            }
             rows={1}
             className="max-h-40 min-h-[44px] resize-none rounded-[10px] pr-12"
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => setComposerFocused(false)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                if (!pendingStatus) void submit(false);
+                submit(false);
               }
             }}
-            disabled={Boolean(pendingStatus)}
           />
           {pendingStatus ? (
-            <Button
-              size="icon"
-              variant="danger"
-              className="absolute bottom-2 right-2 h-8 w-8 rounded-lg"
-              aria-label="Stop generating"
-              title="Stop"
-              onClick={stopAsk}
-            >
-              <Square className="h-3 w-3 fill-current" />
-            </Button>
+            draft.trim() ? (
+              <Button
+                size="icon"
+                className="absolute bottom-2 right-2 h-8 w-8 rounded-lg"
+                aria-label="Queue follow-up"
+                title="Queue follow-up"
+                onClick={() => submit(false)}
+              >
+                <Send className="h-3.5 w-3.5" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                variant="danger"
+                className={cn(
+                  "absolute bottom-2 right-2 h-8 w-8 rounded-lg transition-colors",
+                  composerFocused
+                    ? "bg-danger hover:bg-red-700"
+                    : "bg-danger/35 hover:bg-danger/55",
+                )}
+                aria-label="Stop generating"
+                title="Stop"
+                onClick={stopAsk}
+              >
+                <Square className="h-3 w-3 fill-current" />
+              </Button>
+            )
           ) : (
             <Button
               size="icon"
               className="absolute bottom-2 right-2 h-8 w-8 rounded-lg"
               disabled={!draft.trim()}
               aria-label="Send"
-              onClick={() => void submit(false)}
+              onClick={() => submit(false)}
             >
               <Send className="h-3.5 w-3.5" />
             </Button>
-          )}
-        </div>
-        <div className="mt-2 flex items-center gap-2 text-[11px] text-text-muted">
-          <span>This document</span>
-          {documentTitle && (
-            <>
-              <span aria-hidden>·</span>
-              <span className="truncate">{documentTitle}</span>
-            </>
-          )}
-          {latestAssistantCitations.length > 0 && (
-            <>
-              <span aria-hidden>·</span>
-              <span>
-                {latestAssistantCitations.length} source
-                {latestAssistantCitations.length === 1 ? "" : "s"}
-              </span>
-            </>
           )}
         </div>
       </div>

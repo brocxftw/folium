@@ -5,14 +5,19 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import case, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from folium.ai.base import ChatMessage
-from folium.ai.rag import CITATION_PATTERN, Citation
+from folium.ai.rag import (
+    CHUNK_CITATION_GROUP_PATTERN,
+    CHUNK_ID_PATTERN,
+    Citation,
+)
 from folium.models import AskConversation, AskMessage
 from folium.services.chunking import estimate_tokens
 
@@ -21,15 +26,25 @@ logger = logging.getLogger(__name__)
 ROLE_USER = "user"
 ROLE_ASSISTANT = "assistant"
 
+# Prefer user before assistant when timestamps collide (UUIDs are not ordered).
+_MESSAGE_ROLE_ORDER = case(
+    (AskMessage.role == ROLE_USER, 0),
+    else_=1,
+)
+
+# Catch malformed / leftover bracketed chunk markers after the main rewrite.
+_BRACKETED_CHUNK_LEFTOVER_RE = re.compile(r"\[chunk:[^\]]*\]", re.IGNORECASE)
+
 
 def rewrite_answer_with_display_citations(
     answer: str,
     citations: list[Citation],
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Replace ``[chunk:<uuid>]`` with ``[1]…[n]`` using citation order.
+    """Replace chunk citation markers with ``[1]…[n]`` using citation order.
 
-    Only validated citations (already filtered by ``parse_citations``) get numbers.
-    Unknown chunk markers are stripped so raw UUIDs never reach the UI.
+    Handles single ``[chunk:<uuid>]`` and multi-id groups such as
+    ``[chunk:<uuid>, chunk:<uuid>]``. Unknown markers are stripped so raw
+    chunk references never reach the UI.
     """
     id_to_number: dict[uuid.UUID, int] = {}
     snapshots: list[dict[str, Any]] = []
@@ -46,18 +61,30 @@ def rewrite_answer_with_display_citations(
             }
         )
 
-    def _replace(match: re.Match[str]) -> str:
-        try:
-            chunk_id = uuid.UUID(match.group(1))
-        except ValueError:
+    def _replace_group(match: re.Match[str]) -> str:
+        numbers: list[int] = []
+        for id_match in CHUNK_ID_PATTERN.finditer(match.group(0)):
+            try:
+                chunk_id = uuid.UUID(id_match.group(1))
+            except ValueError:
+                continue
+            number = id_to_number.get(chunk_id)
+            if number is not None and number not in numbers:
+                numbers.append(number)
+        if not numbers:
             return ""
-        number = id_to_number.get(chunk_id)
-        if number is None:
-            return ""
-        return f"[{number}]"
+        return "".join(f"[{number}]" for number in numbers)
 
-    rewritten = CITATION_PATTERN.sub(_replace, answer)
+    rewritten = CHUNK_CITATION_GROUP_PATTERN.sub(_replace_group, answer)
+    rewritten = strip_raw_chunk_markers(rewritten)
     return normalize_display_citation_text(rewritten), snapshots
+
+
+def strip_raw_chunk_markers(text: str) -> str:
+    """Remove any remaining raw ``chunk:<uuid>`` markers from display text."""
+    cleaned = _BRACKETED_CHUNK_LEFTOVER_RE.sub("", text)
+    cleaned = CHUNK_ID_PATTERN.sub("", cleaned)
+    return cleaned
 
 
 def normalize_display_citation_text(text: str) -> str:
@@ -75,7 +102,7 @@ def normalize_display_citation_text(text: str) -> str:
     cleaned = re.sub(r"\[(\d+)\]\s+([.,;:!?])", r"[\1]\2", cleaned)
     cleaned = re.sub(r"[^\S\n]{2,}", " ", cleaned)
     cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned)
-    return cleaned
+    return cleaned.strip()
 
 
 def select_history_for_model(
@@ -149,10 +176,25 @@ async def list_messages(
     result = await session.scalars(
         select(AskMessage)
         .where(AskMessage.conversation_id == conversation_id)
-        .order_by(AskMessage.created_at.asc(), AskMessage.id.asc())
+        .order_by(
+            AskMessage.created_at.asc(),
+            _MESSAGE_ROLE_ORDER,
+            AskMessage.id.asc(),
+        )
     )
     return list(result.all())
 
+
+def sort_messages_chronologically(messages: list[AskMessage]) -> list[AskMessage]:
+    """Stable conversation order: time, then user before assistant."""
+    return sorted(
+        messages,
+        key=lambda m: (
+            m.created_at,
+            0 if m.role == ROLE_USER else 1,
+            str(m.id),
+        ),
+    )
 
 async def append_message(
     session: AsyncSession,
@@ -161,19 +203,21 @@ async def append_message(
     role: str,
     content: str,
     citations: list[dict[str, Any]] | None = None,
+    created_at: datetime | None = None,
 ) -> AskMessage:
-    message = AskMessage(
-        conversation_id=conversation_id,
-        role=role,
-        content=content,
-        citations=citations,
-    )
+    kwargs: dict[str, Any] = {
+        "conversation_id": conversation_id,
+        "role": role,
+        "content": content,
+        "citations": citations,
+    }
+    if created_at is not None:
+        kwargs["created_at"] = created_at
+    message = AskMessage(**kwargs)
     session.add(message)
     await session.flush()
     conversation = await session.get(AskConversation, conversation_id)
     if conversation is not None:
-        from datetime import UTC, datetime
-
         conversation.updated_at = datetime.now(UTC)
     await session.flush()
     return message

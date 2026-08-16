@@ -468,7 +468,7 @@ async def get_ask_conversation(
     if conversation is None:
         return AskConversationOut(id=None, document_id=document_id, messages=[])
 
-    messages = sorted(conversation.messages, key=lambda m: (m.created_at, m.id))
+    messages = ask_conv_service.sort_messages_chronologically(list(conversation.messages))
     return AskConversationOut(
         id=conversation.id,
         document_id=document_id,
@@ -612,6 +612,8 @@ async def ask_document(
     user_message_id = None
     assistant_message_id = None
     try:
+        from datetime import timedelta
+
         user_msg = await ask_conv_service.append_message(
             db,
             conversation_id=conversation.id,
@@ -624,6 +626,8 @@ async def ask_document(
             role=ask_conv_service.ROLE_ASSISTANT,
             content=display_answer,
             citations=citation_snapshots or None,
+            # Guarantee assistant sorts after its user turn even if clocks collide.
+            created_at=user_msg.created_at + timedelta(milliseconds=1),
         )
         user_message_id = user_msg.id
         assistant_message_id = assistant_msg.id

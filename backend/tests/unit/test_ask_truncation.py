@@ -121,6 +121,82 @@ async def test_length_finish_without_citations_raises_truncation(
 
 
 @pytest.mark.asyncio
+async def test_numeric_passage_citations_are_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Models often emit [1] for Passage 1; that must not be treated as no evidence."""
+    from folium.ai.rag import expand_numeric_passage_citations, parse_citations
+
+    chunk_id = uuid.uuid4()
+    chunk = SimpleNamespace(
+        id=chunk_id,
+        text="Make the cue invisible and the good habit obvious.",
+        token_count=10,
+        page_number=22,
+    )
+    retrieved = [
+        SimpleNamespace(
+            chunk=chunk,
+            document_id=uuid.uuid4(),
+            document_title="Atomic Habits",
+            score=1.0,
+            source="semantic",
+        )
+    ]
+    expanded = expand_numeric_passage_citations(
+        "Swap habits using the four laws [1].",
+        retrieved,  # type: ignore[arg-type]
+    )
+    assert f"[chunk:{chunk_id}]" in expanded
+    citations = parse_citations(
+        expanded,
+        {chunk_id: retrieved[0]},  # type: ignore[arg-type]
+    )
+    assert len(citations) == 1
+    assert citations[0].chunk_id == chunk_id
+
+    async def _fake_resolve(*_a, **_k):
+        return [uuid.uuid4()]
+
+    async def _fake_retrieve(*_a, **_k):
+        return retrieved
+
+    monkeypatch.setattr("folium.ai.rag.resolve_scope_document_ids", _fake_resolve)
+    monkeypatch.setattr("folium.ai.rag.hybrid_retrieve", _fake_retrieve)
+    monkeypatch.setattr("folium.ai.rag.assert_ai_quota", AsyncMock())
+    monkeypatch.setattr("folium.ai.rag.record_usage", AsyncMock())
+    monkeypatch.setattr("folium.ai.rag.PrivacyGate.assert_can_qa", lambda self: None)
+
+    provider = SimpleNamespace(
+        name="local",
+        context_window=None,
+        chat_model="mock",
+        is_local=True,
+    )
+    adapter = _FakeAdapter(
+        ChatResult(
+            content="Use the four laws to swap habits [1].",
+            model="mock",
+            finish_reason="stop",
+        )
+    )
+
+    result = await ask(
+        AsyncMock(),
+        question="How do I swap a bad habit?",
+        settings=_lightweight_settings(),  # type: ignore[arg-type]
+        chat_provider=provider,  # type: ignore[arg-type]
+        chat_adapter=adapter,  # type: ignore[arg-type]
+        chat_model="mock",
+        scope=_library_scope(),  # type: ignore[arg-type]
+        owner_id=uuid.uuid4(),
+    )
+    assert isinstance(result, AskResult)
+    assert result.insufficient_evidence is False
+    assert len(result.citations) == 1
+
+
+@pytest.mark.asyncio
 async def test_complete_answer_without_citations_is_insufficient_evidence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
