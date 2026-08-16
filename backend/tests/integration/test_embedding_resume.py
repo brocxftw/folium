@@ -16,7 +16,6 @@ from folium.models import (
     ChunkEmbeddingStatus,
     Document,
     DocumentChunk,
-    Job,
     JobStatus,
     JobType,
 )

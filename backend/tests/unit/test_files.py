@@ -26,9 +26,10 @@ def test_normalize_filename_strips_path_and_unsafe_chars() -> None:
 
 
 def test_split_relative_path() -> None:
-    from folium.core.files import split_relative_path
-    from folium.core.exceptions import ValidationError
     import pytest
+
+    from folium.core.exceptions import ValidationError
+    from folium.core.files import split_relative_path
 
     segs, name = split_relative_path("Finance/2024/invoice.pdf")
     assert segs == ["Finance", "2024"]

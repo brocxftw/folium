@@ -11,12 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.models import (
     Document,
+    DocumentTag,
     Folder,
     FolderKind,
     LibraryActivityCounters,
     ProcessingStatus,
     Tag,
-    DocumentTag,
 )
 
 COUNTER_FIELDS = (

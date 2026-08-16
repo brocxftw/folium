@@ -637,9 +637,7 @@ async def _finalize_document(
         doc.has_embeddings = True
         doc.embedding_error = None
         doc.embedding_finished_at = datetime.now(UTC)
-        if doc.processing_status == ProcessingStatus.PARTIAL:
-            doc.processing_status = ProcessingStatus.READY
-        elif doc.processing_status != ProcessingStatus.FAILED:
+        if doc.processing_status == ProcessingStatus.PARTIAL or doc.processing_status != ProcessingStatus.FAILED:
             doc.processing_status = ProcessingStatus.READY
         ai_settings.active_embedding_provider = provider_name
         ai_settings.active_embedding_model = model

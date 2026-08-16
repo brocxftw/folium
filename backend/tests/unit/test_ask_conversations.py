@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from folium.ai.rag import Citation
-from datetime import UTC, datetime
-
 from folium.services.ask_conversations import (
     rewrite_answer_with_display_citations,
     select_history_for_model,
