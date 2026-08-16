@@ -1,26 +1,34 @@
+# Public Folium Compose — pull pre-built images. No repository source required.
+#
+# Install: copy this file and .env.example from a GitHub Release, then:
+#   cp .env.example .env
+#   # set secrets and POSTGRES_PASSWORD
+#   docker compose up -d
+#
+# Pin a release with FOLIUM_VERSION=X.Y.Z in .env (Release assets default to that tag).
+# Contributors building from source: docker compose -f docker-compose.yml -f compose.dev.yaml up --build -d
+#
+# Extra host GIDs (e.g. CIFS): use a gitignored docker-compose.override.yml with group_add.
+
 services:
   db:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
-      POSTGRES_USER: folium
-      POSTGRES_PASSWORD: folium
-      POSTGRES_DB: folium
+      POSTGRES_USER: ${POSTGRES_USER:-folium}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-folium}
     volumes:
       - folium_pgdata:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U folium -d folium"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 20
-    # Keep Postgres on local Docker volume — never on NFS
+    # Keep Postgres on a local Docker volume — never on NFS.
 
   api:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
+    image: ghcr.io/brocxftw/folium-backend:${FOLIUM_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       db:
@@ -28,8 +36,8 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://folium:folium@db:5432/folium
-      DATABASE_URL_SYNC: postgresql+psycopg://folium:folium@db:5432/folium
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-folium}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-folium}
+      DATABASE_URL_SYNC: postgresql+psycopg://${POSTGRES_USER:-folium}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-folium}
       DOCUMENTS_PATH: /documents
       CONSUME_PATH: /consume
       EXPORT_PATH: /export
@@ -47,19 +55,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 20s
+      start_period: 40s
     user: "1000:1000"
-    # CIFS share is mode 0770 owned by group lxc_shares (gid 10000)
-    group_add:
-      - "10000"
     read_only: false
     security_opt:
       - no-new-privileges:true
 
   worker:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
+    image: ghcr.io/brocxftw/folium-backend:${FOLIUM_VERSION:-latest}
     restart: unless-stopped
     command: ["folium-worker"]
     depends_on:
@@ -70,8 +73,8 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://folium:folium@db:5432/folium
-      DATABASE_URL_SYNC: postgresql+psycopg://folium:folium@db:5432/folium
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-folium}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-folium}
+      DATABASE_URL_SYNC: postgresql+psycopg://${POSTGRES_USER:-folium}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-folium}
       DOCUMENTS_PATH: /documents
       CONSUME_PATH: /consume
       EXPORT_PATH: /export
@@ -82,15 +85,17 @@ services:
       - ${FOLIUM_EXPORT_HOST:-./data/export}:/export
       - ${FOLIUM_PADDLE_CACHE_HOST:-./data/paddleocr}:/app/.paddleocr
     user: "1000:1000"
-    group_add:
-      - "10000"
+    healthcheck:
+      test: ["CMD", "python", "-m", "folium.workers.healthcheck"]
+      interval: 15s
+      timeout: 8s
+      retries: 8
+      start_period: 60s
     security_opt:
       - no-new-privileges:true
 
   web:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.frontend
+    image: ghcr.io/brocxftw/folium-web:${FOLIUM_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       api:
