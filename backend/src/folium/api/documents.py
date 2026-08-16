@@ -11,10 +11,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.ai.assignments import resolve_assignment
+from folium.ai.profiles import resolve_profile
 from folium.ai.rag import RAGScope
 from folium.ai.rag import ask as rag_ask
 from folium.ai.registry import get_adapter
 from folium.api.schemas import (
+    AskCitationSnapshotOut,
+    AskConversationOut,
+    AskMessageOut,
     AskRequest,
     AskResponse,
     BulkActionRequest,
@@ -36,6 +40,7 @@ from folium.bootstrap import ensure_ai_settings
 from folium.core.exceptions import NotFoundError, PrivacyViolationError, ValidationError
 from folium.db.session import get_db
 from folium.models import AIWorkloadRole, DocumentPage, Tag
+from folium.services import ask_conversations as ask_conv_service
 from folium.services import documents as doc_service
 from folium.services import folders as folder_service
 from folium.storage.service import StorageService
@@ -445,6 +450,106 @@ async def document_content(
     )
 
 
+@router.get(
+    "/api/documents/{document_id}/ask/conversation",
+    response_model=AskConversationOut,
+)
+async def get_ask_conversation(
+    document_id: uuid.UUID,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AskConversationOut:
+    await doc_service.get_document(db, document_id, owner_id=_user.id)
+    conversation = await ask_conv_service.load_conversation_with_messages(
+        db,
+        owner_id=_user.id,
+        document_id=document_id,
+    )
+    if conversation is None:
+        return AskConversationOut(id=None, document_id=document_id, messages=[])
+
+    messages = ask_conv_service.sort_messages_chronologically(list(conversation.messages))
+    return AskConversationOut(
+        id=conversation.id,
+        document_id=document_id,
+        updated_at=conversation.updated_at,
+        messages=[_ask_message_out(m) for m in messages],
+    )
+
+
+@router.post(
+    "/api/documents/{document_id}/ask/conversation/new",
+    response_model=AskConversationOut,
+)
+async def new_ask_conversation(
+    document_id: uuid.UUID,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AskConversationOut:
+    await doc_service.get_document(db, document_id, owner_id=_user.id)
+    conversation = await ask_conv_service.replace_with_new_conversation(
+        db,
+        owner_id=_user.id,
+        document_id=document_id,
+    )
+    return AskConversationOut(
+        id=conversation.id,
+        document_id=document_id,
+        updated_at=conversation.updated_at,
+        messages=[],
+    )
+
+
+@router.delete(
+    "/api/documents/{document_id}/ask/conversation",
+    response_model=MessageOut,
+)
+async def clear_ask_conversation(
+    document_id: uuid.UUID,
+    _sess: SafeSession,
+    _user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> MessageOut:
+    await doc_service.get_document(db, document_id, owner_id=_user.id)
+    deleted = await ask_conv_service.clear_conversation(
+        db,
+        owner_id=_user.id,
+        document_id=document_id,
+    )
+    if deleted:
+        return MessageOut(message="Conversation cleared")
+    return MessageOut(message="No conversation to clear")
+
+
+def _ask_message_out(message) -> AskMessageOut:
+    snapshots: list[AskCitationSnapshotOut] = []
+    raw = message.citations or []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            snapshots.append(
+                AskCitationSnapshotOut(
+                    display_number=int(item["display_number"]),
+                    chunk_id=uuid.UUID(str(item["chunk_id"])),
+                    document_id=uuid.UUID(str(item["document_id"])),
+                    page_number=item.get("page_number"),
+                    title=item.get("title"),
+                    quote=item.get("quote"),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    return AskMessageOut(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        citations=snapshots,
+        created_at=message.created_at,
+    )
+
+
 @router.post("/api/documents/{document_id}/ask", response_model=AskResponse)
 async def ask_document(
     document_id: uuid.UUID,
@@ -463,6 +568,19 @@ async def ask_document(
         embed_model,
         embed_provider_name,
     ) = await _resolve_ai_for_ask(db, body.confirm_remote)
+
+    conversation = await ask_conv_service.get_or_create_conversation(
+        db,
+        owner_id=_user.id,
+        document_id=document_id,
+    )
+    prior = await ask_conv_service.list_messages(db, conversation_id=conversation.id)
+    profile = resolve_profile(settings_row)
+    history = ask_conv_service.select_history_for_model(
+        prior,
+        token_budget=profile.conversation_history_tokens,
+    )
+
     scope = RAGScope(kind="document", document_id=document_id)
     result = await rag_ask(
         db,
@@ -476,19 +594,67 @@ async def ask_document(
         embed_adapter=embed_adapter,
         embedding_model=embed_model,
         embedding_provider=embed_provider_name,
+        conversation=history or None,
     )
+
+    display_answer, citation_snapshots = ask_conv_service.rewrite_answer_with_display_citations(
+        result.answer,
+        result.citations,
+    )
+    if result.insufficient_evidence:
+        display_answer = (
+            "I couldn't find enough evidence in this document to answer that reliably.\n\n"
+            "Try asking about a specific chapter, concept, or passage."
+        )
+        citation_snapshots = []
+
+    persist_failed = False
+    user_message_id = None
+    assistant_message_id = None
+    try:
+        from datetime import timedelta
+
+        user_msg = await ask_conv_service.append_message(
+            db,
+            conversation_id=conversation.id,
+            role=ask_conv_service.ROLE_USER,
+            content=body.question.strip(),
+        )
+        assistant_msg = await ask_conv_service.append_message(
+            db,
+            conversation_id=conversation.id,
+            role=ask_conv_service.ROLE_ASSISTANT,
+            content=display_answer,
+            citations=citation_snapshots or None,
+            # Guarantee assistant sorts after its user turn even if clocks collide.
+            created_at=user_msg.created_at + timedelta(milliseconds=1),
+        )
+        user_message_id = user_msg.id
+        assistant_message_id = assistant_msg.id
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "ask conversation persist failed for document=%s",
+            document_id,
+        )
+        persist_failed = True
+
+    numbered_citations = [
+        CitationOut(
+            document_id=uuid.UUID(snap["document_id"]),
+            page_number=snap.get("page_number"),
+            chunk_id=uuid.UUID(snap["chunk_id"]),
+            title=snap.get("title") or "",
+            quote=snap.get("quote"),
+            display_number=int(snap["display_number"]),
+        )
+        for snap in citation_snapshots
+    ]
+
     return AskResponse(
-        answer=result.answer,
-        citations=[
-            CitationOut(
-                document_id=c.document_id,
-                page_number=c.page_number,
-                chunk_id=c.chunk_id,
-                title=c.title,
-                quote=c.quote,
-            )
-            for c in result.citations
-        ],
+        answer=display_answer,
+        citations=numbered_citations,
         passages=[
             CitationOut(
                 document_id=c.document_id,
@@ -504,6 +670,10 @@ async def ask_document(
         privacy_mode=settings_row.privacy_mode.value,
         is_local=chat_provider.is_local,
         insufficient_evidence=result.insufficient_evidence,
+        conversation_id=conversation.id,
+        user_message_id=user_message_id,
+        assistant_message_id=assistant_message_id,
+        persist_failed=persist_failed,
     )
 
 

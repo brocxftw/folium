@@ -734,6 +734,59 @@ class AISuggestion(Base, TimestampMixin):
     document: Mapped[Document] = relationship(back_populates="suggestions")
 
 
+class AskConversation(Base, TimestampMixin):
+    """One active Ask Folium conversation per owner+document (V1)."""
+
+    __tablename__ = "ask_conversations"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "document_id",
+            name="uq_ask_conversations_owner_document",
+        ),
+        Index("ix_ask_conversations_owner_id", "owner_id"),
+        Index("ix_ask_conversations_document_id", "document_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+
+    messages: Mapped[list[AskMessage]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="AskMessage.created_at",
+    )
+
+
+class AskMessage(Base):
+    __tablename__ = "ask_messages"
+    __table_args__ = (
+        Index("ix_ask_messages_conversation_id", "conversation_id"),
+        Index("ix_ask_messages_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("ask_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Validated citation snapshots for assistant messages (display_number, chunk_id, …).
+    citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    conversation: Mapped[AskConversation] = relationship(back_populates="messages")
+
+
 class AppSetting(Base, TimestampMixin):
     __tablename__ = "app_settings"
 

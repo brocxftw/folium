@@ -515,6 +515,7 @@ export interface Citation {
   chunk_id: UUID;
   title: string;
   quote: string | null;
+  display_number?: number | null;
 }
 
 export interface AskResponse {
@@ -526,6 +527,34 @@ export interface AskResponse {
   privacy_mode: string;
   is_local: boolean;
   insufficient_evidence: boolean;
+  conversation_id?: UUID | null;
+  user_message_id?: UUID | null;
+  assistant_message_id?: UUID | null;
+  persist_failed?: boolean;
+}
+
+export interface AskCitationSnapshot {
+  display_number: number;
+  chunk_id: UUID;
+  document_id: UUID;
+  page_number: number | null;
+  title: string | null;
+  quote: string | null;
+}
+
+export interface AskMessage {
+  id: UUID;
+  role: "user" | "assistant";
+  content: string;
+  citations: AskCitationSnapshot[];
+  created_at: string;
+}
+
+export interface AskConversation {
+  id: UUID | null;
+  document_id: UUID;
+  messages: AskMessage[];
+  updated_at: string | null;
 }
 
 // ---- Jobs ----

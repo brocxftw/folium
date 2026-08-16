@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Trash2 } from "lucide-react";
+import { Leaf, Trash2 } from "lucide-react";
 import { useDocument, useTrashDocument } from "@/lib/api/hooks";
 import type { Citation, Folder } from "@/lib/api/types";
 import { DocumentViewer } from "@/components/viewer/DocumentViewer";
 import { DocumentInspector } from "@/components/inspector/DocumentInspector";
 import { Breadcrumbs } from "@/components/documents/Breadcrumbs";
-import { AIChatPanel, type AIDrawerScope } from "@/components/ask/AIChatPanel";
+import { DocumentAskPanel } from "@/components/ask/DocumentAskPanel";
 import { Button } from "@/components/ui/Button";
 import {
   Dialog,
@@ -14,6 +14,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/Dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip";
 import { RetrievalReadinessBadge } from "./RetrievalReadinessBadge";
 import { canAskDocument } from "./retrievalReadiness";
 import { cn } from "@/lib/utils";
@@ -26,6 +32,11 @@ interface DocumentViewerModalProps {
   onPageChange?: (page: number) => void;
   onNavigateToFolder?: (folderId: string | undefined) => void;
   onTrashed?: (documentId: string) => void;
+}
+
+interface ActiveHighlight {
+  page: number;
+  quote: string;
 }
 
 export function DocumentViewerModal({
@@ -42,24 +53,19 @@ export function DocumentViewerModal({
   const trashDocument = useTrashDocument();
   const [confirmTrash, setConfirmTrash] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
+  const [highlight, setHighlight] = useState<ActiveHighlight | null>(null);
 
   useEffect(() => {
-    if (!open) setAskOpen(false);
+    if (!open) {
+      setAskOpen(false);
+      setHighlight(null);
+    }
   }, [open]);
 
   useEffect(() => {
     setAskOpen(false);
+    setHighlight(null);
   }, [activeId]);
-
-  const askScope: AIDrawerScope | undefined = useMemo(() => {
-    if (!doc) return undefined;
-    return {
-      kind: "document",
-      documentId: doc.id,
-      previewDocuments: [doc],
-      label: doc.title || doc.original_filename || "Current document",
-    };
-  }, [doc]);
 
   const handleTrash = async () => {
     if (!doc) return;
@@ -72,13 +78,25 @@ export function DocumentViewerModal({
   const handleCitation = (citation: Citation) => {
     if (citation.document_id === activeId && citation.page_number != null) {
       onPageChange?.(citation.page_number);
+      if (citation.quote) {
+        setHighlight({ page: citation.page_number, quote: citation.quote });
+      } else {
+        setHighlight(null);
+      }
       return;
     }
     if (citation.document_id !== activeId) {
       onActiveIdChange(citation.document_id);
       if (citation.page_number != null) onPageChange?.(citation.page_number);
+      setHighlight(null);
     }
   };
+
+  const viewerHighlightQuote = useMemo(() => {
+    if (!highlight || page == null) return undefined;
+    if (highlight.page !== page) return undefined;
+    return highlight.quote;
+  }, [highlight, page]);
 
   return (
     <>
@@ -131,51 +149,54 @@ export function DocumentViewerModal({
                   Trash
                 </Button>
               )}
-              {doc && (
-                <Button
-                  size="sm"
-                  variant={askOpen ? "default" : "secondary"}
-                  className="mr-1"
-                  disabled={!canAskDocument(doc)}
-                  aria-pressed={askOpen}
-                  onClick={() => setAskOpen((v) => !v)}
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Ask
-                </Button>
-              )}
             </div>
           </DialogHeader>
 
           <div className="flex min-h-0 flex-1">
-            <div className="min-w-0 flex-1 bg-surface-muted">
+            <div className="relative min-w-0 flex-1 bg-surface-muted">
               <DocumentViewer
                 document={doc}
                 page={page}
                 onPageChange={onPageChange}
+                highlightQuote={viewerHighlightQuote}
                 className="h-full"
               />
-            </div>
-            <aside className="hidden w-[320px] shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex">
-              <DocumentInspector document={doc} />
-            </aside>
-            <aside
-              className={cn(
-                "hidden shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex",
-                askOpen ? "w-[360px]" : "w-0 border-l-0",
+              {!askOpen && doc && canAskDocument(doc) && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Ask Folium AI"
+                        onClick={() => setAskOpen(true)}
+                        className={cn(
+                          "absolute bottom-4 right-4 z-10 flex h-12 w-12 items-center justify-center",
+                          "rounded-full bg-accent text-white shadow-md",
+                          "transition hover:bg-accent-hover hover:shadow-lg",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2",
+                        )}
+                      >
+                        <Leaf className="h-5 w-5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">Ask Folium AI</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               )}
-              aria-hidden={!askOpen}
-            >
-              {askOpen && askScope && (
-                <AIChatPanel
+            </div>
+            {/* Inspector when Ask closed; Ask replaces this rail when open (same width). */}
+            <aside className="relative hidden w-[440px] shrink-0 flex-col overflow-hidden border-l border-surface-border bg-surface md:flex">
+              {askOpen && doc ? (
+                <DocumentAskPanel
+                  documentId={doc.id}
+                  documentTitle={doc.title || doc.original_filename}
                   active={askOpen}
-                  initialScope={askScope}
-                  onCitationClick={handleCitation}
-                  showScopeSelector={false}
-                  title="Ask about this document"
-                  description="Answers are scoped to the open document."
+                  onClose={() => setAskOpen(false)}
+                  onCitationActivate={handleCitation}
                   className="h-full"
                 />
+              ) : (
+                <DocumentInspector document={doc} />
               )}
             </aside>
           </div>
