@@ -148,7 +148,6 @@ docs/        Architecture and operations
 ## Current limitations / project status
 
 - Source-built Compose; not an image-only install ([`production-readiness.md`](docs/deployment/production-readiness.md) — **Not ready** for public image distribution)
-- No project `LICENSE` file
 - `/export` is mounted but unused for document export
 - No SMTP; password reset is admin-approved
 - Default Compose publishes Postgres on host `5433` and uses a fixed DB password
@@ -161,7 +160,9 @@ docs/        Architecture and operations
 
 ## Licence
 
-**No licence file is present in this repository.** Terms for use and redistribution are unset until maintainers add one. See also the dependency notes in [`docs/deployment/production-readiness.md`](docs/deployment/production-readiness.md) (PyMuPDF is typically AGPL-3.0).
+Folium is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+This matches the copyleft terms of PyMuPDF, which Folium uses for PDF text extraction and rendering. See also the dependency notes in [`docs/deployment/production-readiness.md`](docs/deployment/production-readiness.md). This is not legal advice.
 
 ## Acknowledgements
 
