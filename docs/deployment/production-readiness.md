@@ -20,9 +20,7 @@ docker compose up -d
 | Finding | Why it blocks public image-only deploy |
 |---------|----------------------------------------|
 | No published Folium images / registry workflow | Users must `build:` from a git checkout |
-| No `LICENSE` file | Legal terms for redistribution unset |
 | Default secrets in examples and Compose (`changeme`, Postgres `folium/folium`) | Unsafe if copied blindly |
-| PyMuPDF (AGPL-3.0) as a runtime dependency | Licence compatibility for a public release needs **maintainer legal review** (not legal advice) |
 
 ### High
 
@@ -63,7 +61,6 @@ docker compose up -d
 
 ### Must fix before public release
 
-- Choose and add a **licence**; review **PyMuPDF AGPL** (and any other copyleft) against that choice
 - Publish versioned images **or** clearly remain “source-built only”
 - Remove/default-safe secrets; parameterize Postgres password
 - Set `FOLIUM_VERSION` at image build
@@ -129,7 +126,7 @@ Sources: package metadata / upstream licence files commonly published with these
 | nginx | `web` image | BSD-2-like | nginx.org | Routine |
 | Node / Python base images | Runtime | Various | Image OS | Routine |
 
-Unresolved: **no project LICENSE**; **PyMuPDF AGPL** vs intended Folium licence. Treat as **public-release blockers** until reviewed.
+Folium’s project licence is **GNU AGPL v3.0** (`LICENSE` at the repository root), chosen to align with PyMuPDF’s typical AGPL-3.0 terms. That does **not** replace review of other dependency licences (Paddle wheels, base images). This is not legal advice.
 
 ---
 
@@ -139,6 +136,6 @@ Unresolved: **no project LICENSE**; **PyMuPDF AGPL** vs intended Folium licence.
 Not ready
 ```
 
-**Justification:** Folium runs as a **source-built Compose homelab** with real DMS functionality and optional AI, but it cannot be obtained as versioned images, has no project licence, ships insecure default database credentials in Compose, and includes an AGPL PDF library that must be reconciled with distribution plans. Data *can* persist if operators back up the volume and binds, but that path is undocumented as a product feature. AI-down does not take the app offline — that part *is* ready.
+**Justification:** Folium runs as a **source-built Compose homelab** with real DMS functionality and optional AI, but it cannot be obtained as versioned images and ships insecure default database credentials in Compose. Data *can* persist if operators back up the volume and binds, but that path is undocumented as a product feature. AI-down does not take the app offline — that part *is* ready. The project is licensed under AGPL-3.0.
 
 Classification is **Not ready** for the stated public image-only bar. For a technical operator who clones the repo, the stack is **usable with caveats** (secrets, UID 1000, first-boot admin, OCR model download).

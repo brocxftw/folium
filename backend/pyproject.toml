@@ -3,6 +3,7 @@ name = "folium"
 version = "0.1.0"
 description = "Self-hosted AI-native document management system"
 readme = "README.md"
+license = { text = "AGPL-3.0-only" }
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115.0",

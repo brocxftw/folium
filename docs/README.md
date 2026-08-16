@@ -2,7 +2,7 @@
 
 Engineering docs derived from the **active codebase**. The root [README](../README.md) is the public front door; it must not outrun this tree.
 
-Product vocabulary: [`ubiquitous-language.md`](../ubiquitous-language.md).
+Product vocabulary: [`ubiquitous-language.md`](../ubiquitous-language.md). Licence: [GNU AGPL v3.0](../LICENSE).
 
 ```text
 CODE  →  docs/  →  README.md

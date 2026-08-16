@@ -30,7 +30,7 @@ folium/
 
 Not architectural source: `notes.md`, `documents-workspace-redesign.plan.md`, `.cursor/`, `docs/ui-ux/FOLIUM_UI_UX_AUDIT.md` (secondary; dated 2026-08-10 and stale on Ask conversations).
 
-`scripts/` exists and is empty (**Confirmed**). No project `LICENSE` file (**Confirmed**).
+`scripts/` exists and is empty (**Confirmed**). Project licence: GNU AGPL v3.0 (`LICENSE`) (**Confirmed**).
 
 ---
 
