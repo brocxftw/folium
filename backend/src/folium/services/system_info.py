@@ -19,6 +19,7 @@ from folium import __version__
 from folium.core.config import get_settings
 from folium.models import AppSetting, Document, Job, JobStatus
 from folium.storage.service import StorageService
+from folium.workers.healthcheck import WORKER_HEARTBEAT_KEY
 
 PROCESS_STARTED_MONOTONIC = time.monotonic()
 
@@ -56,7 +57,7 @@ async def system_summary(db: AsyncSession) -> dict[str, Any]:
         )
     ).all()
     jobs: dict[JobStatus, int] = {status: int(count) for status, count in job_rows}
-    heartbeat = await db.get(AppSetting, "worker_heartbeat")
+    heartbeat = await db.get(AppSetting, WORKER_HEARTBEAT_KEY)
     last_seen = None
     if heartbeat and isinstance(heartbeat.value, dict):
         with suppress(TypeError, ValueError):
