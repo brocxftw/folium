@@ -8,6 +8,13 @@
   --color-sidebar-hover: #1a2332;
   --color-sidebar-active: #1e3a34;
 
+  --color-navbar: #0f172a;
+  --color-navbar-accent: #14b8a6;
+  --color-navbar-text: #f8fafc;
+  --color-navbar-muted: #cbd5e1;
+  --color-navbar-hover: rgba(255, 255, 255, 0.08);
+  --color-navbar-border: rgba(255, 255, 255, 0.06);
+
   --color-surface: #ffffff;
   --color-surface-muted: #f8fafc;
   --color-surface-border: #e2e8f0;

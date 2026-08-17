@@ -22,7 +22,6 @@ import {
 } from "@/components/ask/AIChatDrawer";
 import { DocumentExplorerSidebar } from "./DocumentExplorerSidebar";
 import { DocumentsHeader } from "./DocumentsHeader";
-import { DocumentViewTabs } from "./DocumentViewTabs";
 import { RecentDocuments } from "./RecentDocuments";
 import {
   DocumentBulkToolbar,
@@ -335,6 +334,8 @@ export function DocumentsPage() {
             searchMode={state.searchMode}
             evidenceActive={isEvidenceSearch}
             semanticAvailable={searchResponse?.semantic_available ?? true}
+            view={state.view}
+            onViewChange={(view) => patch({ view })}
             onSearchCommit={(q) => patch({ q })}
             onSearchModeChange={(searchMode) => patch({ searchMode })}
             onAsk={openAskDefault}
@@ -363,15 +364,11 @@ export function DocumentsPage() {
           )}
 
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <DocumentViewTabs
-                view={state.view}
-                onChange={(view) => patch({ view })}
-              />
-              {(isFetching || isSearching) && !(isLoading || isSearchLoading) && (
+            {(isFetching || isSearching) && !(isLoading || isSearchLoading) && (
+              <div className="flex justify-end">
                 <span className="text-[11px] text-text-muted">Updating…</span>
-              )}
-            </div>
+              </div>
+            )}
 
             {showRecentCards && (
               <RecentDocuments
