@@ -90,6 +90,7 @@ AI_WARN_BEFORE_REMOTE=true
 COMPOSE_PROJECT_NAME=${FOLIUM_COMPOSE_PROJECT:-folium}
 FOLIUM_BIND=${FOLIUM_BIND}
 FOLIUM_HTTP_PORT=${FOLIUM_HTTP_PORT}
+FOLIUM_API_PORT=${FOLIUM_API_PORT:-8000}
 EOF
   chmod 600 "${dest}"
   log_info "wrote .env (mode 600)"
@@ -164,7 +165,7 @@ if expose == "1":
     lines += [
         "  api:",
         "    ports:",
-        '      - "${FOLIUM_BIND}:8000:8000"',
+        '      - "${FOLIUM_BIND}:${FOLIUM_API_PORT}:8000"',
     ]
     if extra:
         lines += ["    group_add:", f'      - "{extra}"']
@@ -241,7 +242,7 @@ config_compose_validate() {
   local out
   if ! out="$(folium_compose config 2>&1)"; then
     log_error "docker compose config failed"
-    printf '%s\n' "${out}" | _folium_redact >&2
+    printf '%s\n' "${out}" | _folium_redact >>"${FOLIUM_LOG_FILE:-/dev/null}"
     return 1
   fi
   log_info "docker compose config ok"
@@ -255,7 +256,7 @@ Version:         ${FOLIUM_VERSION_TAG} (image tag ${FOLIUM_VERSION})
 Directory:       ${FOLIUM_INSTALL_DIR}
 Project name:    ${FOLIUM_COMPOSE_PROJECT}
 Bind / port:     ${FOLIUM_BIND}:${FOLIUM_HTTP_PORT}
-Expose OpenAPI:  ${FOLIUM_EXPOSE_API}
+Expose OpenAPI:  ${FOLIUM_EXPOSE_API}${FOLIUM_EXPOSE_API:+ (host ${FOLIUM_API_PORT:-8000})}
 FRONTEND_ORIGIN: ${FOLIUM_FRONTEND_ORIGIN}
 Documents:       ${FOLIUM_DOCS_PATH}
 Consume:         ${FOLIUM_CONSUME_PATH}

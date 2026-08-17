@@ -42,7 +42,7 @@ state_write() {
   umask 022
   mkdir -p "${FOLIUM_INSTALL_DIR}"
   export FOLIUM_METHOD FOLIUM_VERSION FOLIUM_VERSION_TAG FOLIUM_INSTALL_DIR
-  export FOLIUM_BIND FOLIUM_HTTP_PORT FOLIUM_EXPOSE_API FOLIUM_FRONTEND_ORIGIN
+  export FOLIUM_BIND FOLIUM_HTTP_PORT FOLIUM_API_PORT FOLIUM_EXPOSE_API FOLIUM_FRONTEND_ORIGIN
   export FOLIUM_DOCS_PATH FOLIUM_CONSUME_PATH FOLIUM_EXPORT_PATH FOLIUM_PADDLE_PATH
   export FOLIUM_EXTRA_GID FOLIUM_COMPOSE_PROJECT
   python3 - "${dest}" <<PY
@@ -57,6 +57,7 @@ data = {
   "network": {
     "bind": os.environ.get("FOLIUM_BIND", "0.0.0.0"),
     "port": int(os.environ.get("FOLIUM_HTTP_PORT", "8080")),
+    "api_port": int(os.environ.get("FOLIUM_API_PORT", "8000")),
     "expose_api": os.environ.get("FOLIUM_EXPOSE_API", "0") == "1",
     "frontend_origin": os.environ.get("FOLIUM_FRONTEND_ORIGIN", ""),
   },

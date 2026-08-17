@@ -122,8 +122,11 @@ assert_ok "override has extra gid" grep -q '10000' "${TMP}/docker-compose.overri
 assert_fail "override omits api publish" grep -q '8000:8000' "${TMP}/docker-compose.override.yml"
 
 FOLIUM_EXPOSE_API="1"
+FOLIUM_API_PORT="8000"
 config_write_override
-assert_ok "override can publish api" grep -q '8000:8000' "${TMP}/docker-compose.override.yml"
+assert_ok "override can publish api" grep -q '\${FOLIUM_BIND}:\${FOLIUM_API_PORT}:8000' "${TMP}/docker-compose.override.yml"
+
+assert_ok "blocked invalid port" network_port_blocked "0"
 
 FOLIUM_VERSION="0.1.16"
 FOLIUM_SECRET_KEY="unit-test-secret"

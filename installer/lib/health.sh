@@ -48,6 +48,9 @@ health_wait() {
   base="$(network_health_base)"
   log_info "waiting for health at ${base} (${retries} attempts)"
   for i in $(seq 1 "${retries}"); do
+    if declare -F folium_health_progress >/dev/null 2>&1; then
+      folium_health_progress "${i}" "${retries}"
+    fi
     if health_services_present \
       && health_http_ok "${base}/health" "ok" \
       && health_http_ok "${base}/health/database" "ok" \

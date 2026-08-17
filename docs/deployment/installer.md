@@ -42,7 +42,9 @@ bash installer/pack.sh /tmp/install-folium.sh
 8. Waits for `GET /health`, `/health/database`, `/health/storage`, and `/health/worker`. AI health is ignored.
 9. Installs `/usr/local/bin/folium` (`status`, `start`, `stop`, `restart`, `logs`, `doctor`). `update` and `uninstall` are stubs in v1.
 
-Secrets are generated with `openssl rand`. The bootstrap admin password is shown **once** on the success screen and is not written to the installer log (`/tmp/folium-install-*.log`).
+Secrets are generated with `openssl rand`. The bootstrap admin password is shown **once** on the success screen and is not written to the installer log (`/tmp/folium-install-*.log`). The welcome screen shows the exact log path for that run.
+
+The TUI keeps a blue background between screens. Cancel is labeled **Back** and returns to the previous step. Ctrl+C is the only way to abort a dialog. Install progress (pull/build/start/health) is shown with a gauge; Compose output goes to the log file.
 
 There is no timezone prompt. Folium timestamps are UTC.
 
@@ -109,7 +111,7 @@ CI runs ShellCheck and `installer/tests/run.sh`.
 | LAN bind `0.0.0.0` + detected IPv4 origin | Manual |
 | Reverse-proxy `FRONTEND_ORIGIN` only | Manual |
 | Existing NFS/CIFS binds + extra GID | Manual (no fstab edits) |
-| Occupied HTTP port | Installer aborts with `ss` / `docker` output |
+| Occupied HTTP port | Installer asks for another port (does not exit) |
 | Non-amd64 | Hard-fail in `system_check` (needs an ARM host) |
 | Docker missing → get.docker.com | Manual / VM |
 | Ctrl+C during TUI | Restores tty; does not delete data |
