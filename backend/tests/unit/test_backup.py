@@ -57,7 +57,11 @@ def test_unsupported_format_rejected() -> None:
     assert any("Unsupported" in msg for msg in messages)
 
 
-def test_newer_backup_version_rejected() -> None:
+def test_newer_backup_version_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    import folium.backup.verify as verify_mod
+
+    # Pin a semver app version so CI shallow-checkout SHAs do not skip this gate.
+    monkeypatch.setattr(verify_mod, "__version__", "0.1.0")
     manifest = BackupManifest(
         format_version=1,
         folium_version="99.0.0",
@@ -183,7 +187,10 @@ def test_schedule_weekly_and_missed_daily_fires_once() -> None:
     assert nxt_daily == datetime(2026, 8, 18, 2, 0, tzinfo=UTC)
 
 
-def test_older_schema_is_compatible() -> None:
+def test_older_schema_is_compatible(monkeypatch: pytest.MonkeyPatch) -> None:
+    import folium.backup.verify as verify_mod
+
+    monkeypatch.setattr(verify_mod, "__version__", "0.2.0")
     manifest = BackupManifest(
         format_version=1,
         folium_version="0.1.0",
