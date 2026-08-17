@@ -50,14 +50,15 @@ describe("Settings workspace navigation", () => {
     );
   }
 
-  it("shows exactly six top-level entries to administrators", () => {
+  it("shows exactly seven top-level entries to administrators", () => {
     renderLayout();
     const navigation = screen.getByRole("navigation", { name: "Settings sections" });
-    expect(within(navigation).getAllByRole("link")).toHaveLength(6);
+    expect(within(navigation).getAllByRole("link")).toHaveLength(7);
     for (const label of [
       "Profile",
       "Artificial Intelligence",
       "Library",
+      "Backup & Restore",
       "System",
       "Logs",
       "About",

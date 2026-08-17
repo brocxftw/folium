@@ -52,7 +52,7 @@ CODE  →  docs/  →  README.md
 | [Installer](deployment/installer.md) | Whiptail TUI; GHCR pull or source build |
 | [Install](deployment/install.md) | Manual GHCR pull; no git clone |
 | [Upgrades](deployment/upgrades.md) | `compose pull` / rollback limits |
-| [Backup](deployment/backup.md) | Postgres volume, documents, `.env` |
+| [Backup](deployment/backup.md) | `.folium` bundles, `/backups` mount, first-run restore |
 | [Docker](deployment/docker.md) | Services, images, entrypoints |
 | [Storage mounts](deployment/storage-mounts.md) | Binds and volumes |
 | [Environment variables](deployment/environment-variables.md) | Verified env reference |

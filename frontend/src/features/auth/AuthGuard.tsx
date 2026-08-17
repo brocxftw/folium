@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { useSession } from "@/lib/api/hooks";
+import { useBootstrapStatus, useSession } from "@/lib/api/hooks";
 import { AppShell } from "@/components/layout/AppShell";
 
 function LoadingScreen() {
@@ -12,11 +12,15 @@ function LoadingScreen() {
 
 export function AuthGuard() {
   const { data: session, isLoading } = useSession();
+  const { data: bootstrap } = useBootstrapStatus();
   const location = useLocation();
 
   if (isLoading) return <LoadingScreen />;
 
   if (!session) {
+    if (bootstrap && !bootstrap.ready) {
+      return <Navigate to="/setup" replace />;
+    }
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
@@ -29,11 +33,17 @@ export function AuthGuard() {
 
 export function GuestGuard() {
   const { data: session, isLoading } = useSession();
+  const { data: bootstrap } = useBootstrapStatus();
+  const location = useLocation();
 
   if (isLoading) return <LoadingScreen />;
 
   if (session) {
     return <Navigate to="/documents" replace />;
+  }
+
+  if (bootstrap && !bootstrap.ready && location.pathname !== "/setup") {
+    return <Navigate to="/setup" replace />;
   }
 
   return <Outlet />;

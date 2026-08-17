@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     documents_path: Path = Field(default=Path("/documents"), alias="DOCUMENTS_PATH")
     consume_path: Path = Field(default=Path("/consume"), alias="CONSUME_PATH")
     export_path: Path = Field(default=Path("/export"), alias="EXPORT_PATH")
+    backups_path: Path = Field(default=Path("/backups"), alias="BACKUPS_PATH")
     documents_host_source: str | None = Field(default=None, alias="FOLIUM_DOCUMENTS_HOST_SOURCE")
 
     max_upload_size_mb: int = Field(default=100, alias="MAX_UPLOAD_SIZE_MB")

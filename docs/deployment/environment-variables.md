@@ -27,6 +27,7 @@ Legend: **Required** means “must be set to a non-default secret in any real de
 | `DOCUMENTS_PATH` | Yes in containers | `/documents` | api, worker | Library storage root | No |
 | `CONSUME_PATH` | Yes in containers | `/consume` | api, worker | Consume root | No |
 | `EXPORT_PATH` | Yes in containers | `/export` | api, worker | Export root | No |
+| `BACKUPS_PATH` | Yes in containers | `/backups` | api, worker | Backup repository root | No |
 | `FOLIUM_DOCUMENTS_HOST_SOURCE` | No | `null` | api | UI label for host path | No |
 | `MAX_UPLOAD_SIZE_MB` | No | `100` | api | Upload cap | No |
 | `ALLOWED_MIME_TYPES` | No | pdf/png/jpeg/txt/md/docx | api | MIME allow-list | No |
@@ -73,6 +74,7 @@ Leading `v` is stripped (`v0.1.16` → `0.1.16`).
 | `FOLIUM_DOCUMENTS_HOST` | No | `./data/documents` | compose | Host bind source | No |
 | `FOLIUM_CONSUME_HOST` | No | `./data/consume` | compose | Host bind source | No |
 | `FOLIUM_EXPORT_HOST` | No | `./data/export` | compose | Host bind source | No |
+| `FOLIUM_BACKUPS_HOST` | No | `./data/backups` | compose | Backup repository bind | No |
 | `FOLIUM_PADDLE_CACHE_HOST` | No | `./data/paddleocr` | compose | OCR cache bind | No |
 | `POSTGRES_USER` | No | `folium` | `db` + URL interpolation | Database role | No |
 | `POSTGRES_PASSWORD` | **Yes** | none (`:?`) | `db` + URL interpolation | Database password | Yes |

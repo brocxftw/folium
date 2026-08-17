@@ -52,6 +52,8 @@ _TRUNCATE_TABLES = (
     "document_chunks",
     "document_pages",
     "documents",
+    "backup_records",
+    "backup_settings",
     "jobs",
     "sessions",
     "password_reset_requests",
@@ -72,11 +74,13 @@ def _apply_storage_paths(base: Path) -> None:
     docs = base / "documents"
     consume = base / "consume"
     export = base / "export"
-    for path in (docs, consume, export):
+    backups = base / "backups"
+    for path in (docs, consume, export, backups):
         path.mkdir(parents=True, exist_ok=True)
     os.environ["DOCUMENTS_PATH"] = str(docs)
     os.environ["CONSUME_PATH"] = str(consume)
     os.environ["EXPORT_PATH"] = str(export)
+    os.environ["BACKUPS_PATH"] = str(backups)
     get_settings.cache_clear()
 
 
@@ -98,6 +102,18 @@ async def _truncate_and_bootstrap() -> None:
             tables = ", ".join(_TRUNCATE_TABLES)
             await session.execute(text(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE"))
             await bootstrap(session)
+            # Tests exercise a ready instance; first-run setup is covered separately.
+            from folium.auth import service as auth_service
+            from folium.bootstrap import ensure_ai_settings
+            from folium.models import InstanceState
+            from folium.services import folders as folder_service
+            from folium.services import instance_state as instance_state_service
+
+            admin = await auth_service.ensure_admin_user(session)
+            await folder_service.ensure_system_folders(session, admin.id)
+            await ensure_ai_settings(session)
+            await instance_state_service.ensure_installation_id(session)
+            await instance_state_service.set_instance_state(session, InstanceState.READY)
             await session.commit()
         await dispose_engine()
 
@@ -190,7 +206,11 @@ async def db_session(_schema_initialized: None) -> AsyncGenerator[AsyncSession]:
     factory = get_session_factory()
     async with factory() as session:
         yield session
-        await session.rollback()
+        try:
+            await session.rollback()
+        except Exception:
+            # Restore terminates other DB backends; the fixture connection may already be gone.
+            pass
 
 
 @pytest_asyncio.fixture

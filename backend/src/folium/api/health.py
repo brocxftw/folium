@@ -10,6 +10,7 @@ from folium import __version__
 from folium.api.schemas import HealthOut, StorageHealthOut, WorkerHealthOut
 from folium.db.session import get_db
 from folium.models import AppSetting
+from folium.services import instance_state as instance_state_service
 from folium.storage.service import StorageService
 from folium.workers.healthcheck import (
     WORKER_HEARTBEAT_KEY,
@@ -21,8 +22,9 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health", response_model=HealthOut)
-async def health() -> HealthOut:
-    return HealthOut(status="ok", version=__version__)
+async def health(db: AsyncSession = Depends(get_db)) -> HealthOut:
+    state = await instance_state_service.get_instance_state(db)
+    return HealthOut(status="ok", version=__version__, instance_state=state.value)
 
 
 @router.get("/health/database", response_model=HealthOut)

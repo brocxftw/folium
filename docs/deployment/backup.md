@@ -1,48 +1,90 @@
-# Backup
+# Backup and restore
 
-Folium does not ship a backup daemon. Operators copy three things.
+Folium can create versioned `.folium` backup bundles and restore them from Settings or during first-run setup. Backup and restore do **not** require an AI or embedding provider.
 
-## Must back up
+## What a backup contains
 
-| Item | What it is | How |
-|------|------------|-----|
-| PostgreSQL | Metadata, FTS, jobs, users, optional embeddings | Named Docker volume `folium_pgdata` |
-| `/documents` | Content-addressed originals, thumbnails, previews, avatars | Host bind `FOLIUM_DOCUMENTS_HOST` |
-| `.env` | Secrets, DB password, origin, version pin | File next to Compose |
+A Folium backup is the canonical recoverable state of an installation:
 
-Example while the stack is **stopped** or after a DB dump:
+- PostgreSQL dump (`pg_dump` custom format), excluding `application_logs` and `sessions`
+- Original document blobs referenced by that dump
+- User avatars (they cannot be rebuilt)
+- Encrypted AI provider keys as they exist in the database (ciphertext only)
+- A `manifest.json` and SHA-256 checksums
 
-```bash
-docker compose stop
-docker run --rm -v folium_pgdata:/var/lib/postgresql/data -v "$(pwd)/backup:/backup" \
-  alpine tar czf /backup/folium-pgdata.tar.gz -C /var/lib/postgresql/data .
-tar czf backup/documents.tar.gz -C "$(dirname "${FOLIUM_DOCUMENTS_HOST:-./data/documents}")" \
-  "$(basename "${FOLIUM_DOCUMENTS_HOST:-./data/documents}")"
-cp .env backup/env
-docker compose start
+Intentionally excluded (rebuilt after restore where possible):
+
+- Thumbnails and preview images
+- Consume and export directory contents
+- PaddleOCR model cache
+- Application logs and live sessions
+
+Embeddings and search indexes stay in the database dump so the Library is usable immediately. If you later change embedding providers, existing vectors are **not** treated as coverage for the new model.
+
+The bundle never includes `.env` secrets, database passwords, or API keys in `manifest.json`. After restore, keep using the same `FOLIUM_ENCRYPTION_KEY` if you need those stored provider credentials to decrypt.
+
+## `/backups` mount
+
+Folium only sees `/backups`. The host (or Docker) mounts local disk, NFS, or CIFS there. Folium does **not** mount network filesystems itself.
+
+```text
+# docker-compose.yml (api + worker)
+${FOLIUM_BACKUPS_HOST:-./data/backups}:/backups
 ```
 
-A logical dump (stack up) is also valid:
+Examples:
 
-```bash
-docker compose exec -T db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup/folium.sql
+```text
+/host/local/folium-backups:/backups
+/mnt/nfs/folium-backups:/backups
+/mnt/cifs/folium-backups:/backups
 ```
 
-Use the same user/database names as `.env`.
+Default host path is `./data/backups` (installer: `$INSTALL_DIR/data/backups`). This is **not** the installer `INSTALL_DIR/backups/` directory used for config snapshots.
 
-## Also consider
+Existing deployments start without this bind until Compose is updated; `/backups` exists in the image but is not durable. Settings reports repository health. `/health/storage` is not failed solely because backups are unavailable.
 
-| Path | Role | If omitted |
-|------|------|------------|
-| `/consume` | Drop folder for ingest | In-flight files only; not the library |
-| `/export` | Reserved export directory | Unused for document export today |
-| PaddleOCR cache | Downloaded OCR models | First OCR after restore re-downloads |
+## Using backups
 
-## Compose down vs wipe
+Open **Settings → Backup & Restore** (administrators):
 
-```bash
-docker compose down      # keeps named volume and host binds
-docker compose down -v   # DELETES folium_pgdata (Postgres)
-```
+1. Optionally enable automatic backups (daily, weekly, or every N hours, UTC).
+2. Set backups-to-keep (default 7) and verify-after-create (default on).
+3. **Back up now** queues a worker job.
+4. History supports Inspect, Verify, Restore, and Delete (restore/delete require confirmation).
 
-Recreating containers (`up -d` after `down`) does not delete documents or the database volume.
+Retention runs only after a successful backup that passed required verification. Failed or incomplete `.tmp` bundles are never counted. Corrupted backups are not auto-deleted if they would remove the only copy.
+
+## First-run restore
+
+A brand-new empty database no longer creates the bootstrap admin until you choose:
+
+- **Set up new Folium**, or
+- **Restore backup** from `.folium` files already in `/backups`
+
+Browser upload is not available in V1. Copy the bundle onto the backup mount first.
+
+After a successful restore, sign in with accounts from the backup (not the installer-generated password, unless that was the backup’s admin).
+
+## Version compatibility
+
+| Case | Behaviour |
+|------|-----------|
+| Same version | Supported |
+| Older backup → newer app | Supported; Alembic upgrades after restore |
+| Newer backup → older app | Rejected before destructive restore |
+| Unknown format version | Rejected |
+
+## Restore safety
+
+Restore replaces PostgreSQL canonical state. Folium writes a best-effort safety dump under `/backups/.pre-restore-*` for authenticated restores (needs free disk). Originals are content-addressed and additive. If restore fails after the destructive database step, Folium attempts rollback from that dump when present. This is **not** a guarantee; keep off-host copies of `.folium` files.
+
+During restore the worker idles. The Library becomes available after canonical restore; thumbnail rebuild continues in the background.
+
+## V1 limitations
+
+- Full backups only (no incremental / cloud / S3)
+- No Folium-managed NFS/CIFS mounting
+- No browser upload of backup files
+- No backup-bundle encryption UI
+- `folium update` CLI is still not an updater; backups are in-app

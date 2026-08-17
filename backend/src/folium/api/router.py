@@ -9,6 +9,8 @@ from folium.api import (
     ai,
     ask,
     auth,
+    backups,
+    bootstrap,
     documents,
     folders,
     health,
@@ -25,6 +27,7 @@ from folium.api import (
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(bootstrap.router)
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(folders.router)
@@ -38,5 +41,6 @@ api_router.include_router(ask.router)
 api_router.include_router(jobs.router)
 api_router.include_router(ai.router)
 api_router.include_router(system.router)
+api_router.include_router(backups.router)
 api_router.include_router(logs.router)
 api_router.include_router(about.router)

@@ -42,6 +42,8 @@ queued → running → completed
 | `embedding` | After indexing if embedding provider healthy | Chunk text | Vectors + padding | `has_embeddings`, chunk statuses | Partial embeddings possible; `embedding_error` |
 | `summary` | After indexing if `auto_enrichment` | Document text | Direct summary (not RAG) | `ai_summary` | **Soft-fail**; filing unchanged |
 | `classification` | — | — | **No handler** | skip | **Legacy** enum value |
+| `backup` | Manual or schedule | Postgres + originals | Write `.folium` bundle | `backup_records` | Job fail; no retention |
+| `backup_verify` | Settings Verify | Existing bundle | Checksums + compatibility | verification status | Record marked corrupted/failed |
 
 ### Indexing ≠ Embedding ≠ AI “indexing” role
 

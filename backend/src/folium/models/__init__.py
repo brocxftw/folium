@@ -52,6 +52,8 @@ class JobType(enum.StrEnum):
     CLASSIFICATION = "classification"
     SUMMARY = "summary"
     METADATA_SUGGESTION = "metadata_suggestion"
+    BACKUP = "backup"
+    BACKUP_VERIFY = "backup_verify"
 
 
 class ProcessingStatus(enum.StrEnum):
@@ -792,6 +794,97 @@ class AppSetting(Base, TimestampMixin):
 
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+
+class BackupScheduleType(enum.StrEnum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    INTERVAL_HOURS = "interval_hours"
+
+
+class BackupRecordStatus(enum.StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class BackupVerificationStatus(enum.StrEnum):
+    HEALTHY = "healthy"
+    UNVERIFIED = "unverified"
+    CORRUPTED = "corrupted"
+    INCOMPATIBLE = "incompatible"
+    FAILED = "failed"
+
+
+class InstanceState(enum.StrEnum):
+    UNINITIALISED = "uninitialised"
+    INITIALISING = "initialising"
+    READY = "ready"
+    RESTORING = "restoring"
+    RECOVERING = "recovering"
+    FAILED = "failed"
+
+
+class BackupSettings(Base, TimestampMixin):
+    """Singleton backup policy (id=1)."""
+
+    __tablename__ = "backup_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    schedule_type: Mapped[BackupScheduleType] = mapped_column(
+        Enum(BackupScheduleType, name="backup_schedule_type", values_callable=lambda x: [e.value for e in x]),
+        default=BackupScheduleType.DAILY,
+        nullable=False,
+    )
+    backup_time: Mapped[str] = mapped_column(String(5), default="02:00", nullable=False)
+    weekday: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    interval_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    repository_subdir: Mapped[str] = mapped_column(String(256), default="", nullable=False)
+    retention_count: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
+    verify_after_backup: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BackupRecord(Base, TimestampMixin):
+    __tablename__ = "backup_records"
+    __table_args__ = (Index("ix_backup_records_created_at", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    relative_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    document_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    folium_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    schema_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    format_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[BackupRecordStatus] = mapped_column(
+        Enum(BackupRecordStatus, name="backup_record_status", values_callable=lambda x: [e.value for e in x]),
+        default=BackupRecordStatus.QUEUED,
+        nullable=False,
+    )
+    verification_status: Mapped[BackupVerificationStatus] = mapped_column(
+        Enum(
+            BackupVerificationStatus,
+            name="backup_verification_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=BackupVerificationStatus.UNVERIFIED,
+        nullable=False,
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    manifest: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    progress_stage: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
 
 class LibraryActivityCounters(Base, TimestampMixin):

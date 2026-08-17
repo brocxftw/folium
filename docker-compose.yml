@@ -42,12 +42,14 @@ services:
       DOCUMENTS_PATH: /documents
       CONSUME_PATH: /consume
       EXPORT_PATH: /export
+      BACKUPS_PATH: /backups
       FOLIUM_DOCUMENTS_HOST_SOURCE: ${FOLIUM_DOCUMENTS_HOST_SOURCE:-}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
     volumes:
       - ${FOLIUM_DOCUMENTS_HOST:-./data/documents}:/documents
       - ${FOLIUM_CONSUME_HOST:-./data/consume}:/consume
       - ${FOLIUM_EXPORT_HOST:-./data/export}:/export
+      - ${FOLIUM_BACKUPS_HOST:-./data/backups}:/backups
       - ${FOLIUM_PADDLE_CACHE_HOST:-./data/paddleocr}:/app/.paddleocr
     ports:
       - "8000:8000"
@@ -79,11 +81,13 @@ services:
       DOCUMENTS_PATH: /documents
       CONSUME_PATH: /consume
       EXPORT_PATH: /export
+      BACKUPS_PATH: /backups
       FOLIUM_DOCUMENTS_HOST_SOURCE: ${FOLIUM_DOCUMENTS_HOST_SOURCE:-}
     volumes:
       - ${FOLIUM_DOCUMENTS_HOST:-./data/documents}:/documents
       - ${FOLIUM_CONSUME_HOST:-./data/consume}:/consume
       - ${FOLIUM_EXPORT_HOST:-./data/export}:/export
+      - ${FOLIUM_BACKUPS_HOST:-./data/backups}:/backups
       - ${FOLIUM_PADDLE_CACHE_HOST:-./data/paddleocr}:/app/.paddleocr
     user: "1000:1000"
     healthcheck:

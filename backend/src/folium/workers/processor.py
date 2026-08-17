@@ -1303,6 +1303,18 @@ async def process_metadata_suggestion(session: AsyncSession, job: Job) -> dict:
     return {"suggestions": created, "needs_review": needs_review}
 
 
+async def process_backup(session: AsyncSession, job: Job) -> dict:
+    from folium.services import backup as backup_service
+
+    return await backup_service.run_backup_job(session, job)
+
+
+async def process_backup_verify(session: AsyncSession, job: Job) -> dict:
+    from folium.services import backup as backup_service
+
+    return await backup_service.run_verify_job(session, job)
+
+
 async def process_job(session: AsyncSession, job: Job) -> dict:
     """Dispatch a job to the appropriate handler."""
     handlers = {
@@ -1313,6 +1325,8 @@ async def process_job(session: AsyncSession, job: Job) -> dict:
         JobType.EMBEDDING: process_embedding,
         JobType.SUMMARY: process_summary,
         JobType.METADATA_SUGGESTION: process_metadata_suggestion,
+        JobType.BACKUP: process_backup,
+        JobType.BACKUP_VERIFY: process_backup_verify,
     }
     handler = handlers.get(job.job_type)
     if handler is None:

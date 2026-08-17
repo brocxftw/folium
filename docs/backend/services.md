@@ -16,6 +16,8 @@ Domain services sit between HTTP and the database. Prefer these boundaries over 
 | **Ask conversations** | One thread per owner+document; history budget; citation rewrite (`services/ask_conversations.py`) |
 | **Inbox / library stats** | Overview metrics and increment-only counters |
 | **System / logs** | Diagnostics and retained application logs |
+| **Backup** | Bundle create/verify/retention, repository health (`services/backup.py`, `folium.backup`) |
+| **Instance state** | First-run / restore lifecycle (`services/instance_state.py`) |
 
 OCR extraction is **not** a “service” package; it is `folium.ocr` invoked from the worker.
 
