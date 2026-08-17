@@ -37,8 +37,16 @@ FOLIUM_MODE="${FOLIUM_MODE:-install}"
 SHOW_ADMIN_PASSWORD=0
 
 on_interrupt() {
-  stty sane 2>/dev/null || true
-  printf '\nInstall cancelled. Existing data was not deleted.\n' >&2
+  # Set the flag first so any UI retry loop stops immediately.
+  FOLIUM_INTERRUPTED=1
+  export FOLIUM_INTERRUPTED
+  # Avoid re-entering cleanup if a nested signal arrives.
+  trap '' INT TERM
+  ui_kill_whiptail_children 2>/dev/null || true
+  ui_session_end 2>/dev/null || true
+  stty sane </dev/tty 2>/dev/null || stty sane 2>/dev/null || true
+  printf '\nInstall cancelled. Existing data was not deleted.\n' >/dev/tty 2>/dev/null \
+    || printf '\nInstall cancelled. Existing data was not deleted.\n' >&2
   log_info "interrupted by signal"
   exit 130
 }
@@ -95,11 +103,13 @@ ensure_whiptail() {
 abort() {
   local msg="$1"
   log_error "${msg}"
+  ui_gauge_stop 2>/dev/null || true
   if [[ "${FOLIUM_UI}" == "none" ]]; then
     printf '%s\n' "${msg}" >&2
   else
     ui_msgbox "${msg}"
   fi
+  ui_session_end 2>/dev/null || true
   exit 1
 }
 
@@ -111,14 +121,25 @@ ensure_docker_ready() {
   if [[ "${FOLIUM_NONINTERACTIVE}" == "1" ]]; then
     abort "Docker Engine and the Compose plugin are required."
   fi
-  if ! ui_yesno "Docker Engine is not running (or Compose is missing).
+  local choice=""
+  FOLIUM_UI_NOCANCEL=1
+  choice="$(ui_menu "Docker Engine is not running (or Compose is missing).
 
 Folium can run Docker's official install script (get.docker.com). This requires root, adds Docker's apt/yum repository, and starts the docker service.
 
-Install Docker Engine now?"; then
+Ctrl+C cancels the installer." \
+    install "Install Docker Engine now" \
+    exit "Exit installer")" || abort "Docker is required."
+  FOLIUM_UI_NOCANCEL=0
+  if [[ "${choice}" != "install" ]]; then
     abort "Docker is required. Install Docker, then re-run this installer."
   fi
-  if ! dep_install_docker_engine; then
+  ui_gauge_start "Installing Docker Engine..."
+  ui_gauge_update 20 "Running get.docker.com (output in log)"
+  local rc=0
+  dep_install_docker_engine >>"${FOLIUM_LOG_FILE}" 2>&1 || rc=$?
+  ui_gauge_stop
+  if [[ "${rc}" -ne 0 ]]; then
     abort "Docker installation failed. See ${FOLIUM_LOG_FILE}."
   fi
   if ! docker_info_ok || ! docker_compose_ok; then
@@ -128,20 +149,46 @@ Install Docker Engine now?"; then
 
 prompt_existing() {
   local dir="$1"
-  local choice
-  choice="$(ui_menu "Folium files were found in ${dir}.
+  local current_ver=""
+  local choice=""
+  current_ver="$(config_env_get FOLIUM_VERSION "${dir}/.env" 2>/dev/null || true)"
+  if [[ -z "${current_ver}" ]]; then
+    current_ver="$(FOLIUM_INSTALL_DIR="${dir}" state_read_field version 2>/dev/null || true)"
+  fi
+  FOLIUM_UI_NOCANCEL=1
+  choice="$(ui_menu "Folium is already installed in:
+${dir}
+${current_ver:+Current version: ${current_ver}}
 
-Reconfigure walks through settings again (existing .env is backed up; secrets are kept unless you rotate them).
+Update pulls the selected release images and restarts the stack (keeps data and .env secrets).
+Reconfigure walks through settings again.
 Repair restarts the stack and waits for health without rewriting .env.
-Exit leaves everything unchanged." \
+
+Ctrl+C cancels." \
+    update "Update (pull release images)" \
     reconfigure "Reconfigure" \
     repair "Repair (re-up + health)" \
-    exit "Exit")" || exit 130
+    exit "Exit")"
+  FOLIUM_UI_NOCANCEL=0
   case "${choice}" in
+    update) FOLIUM_MODE=update ;;
     reconfigure) FOLIUM_MODE=reconfigure ;;
     repair) FOLIUM_MODE=repair ;;
-    *) exit 0 ;;
+    *) ui_session_end; exit 0 ;;
   esac
+}
+
+discover_existing_install() {
+  local dir=""
+  dir="$(state_discover_dir || true)"
+  if [[ -z "${dir}" && -f "${FOLIUM_DEFAULT_INSTALL_DIR}/docker-compose.yml" ]]; then
+    dir="${FOLIUM_DEFAULT_INSTALL_DIR}"
+  fi
+  if [[ -z "${dir}" && -f "${FOLIUM_DEFAULT_INSTALL_DIR}/.env" ]]; then
+    dir="${FOLIUM_DEFAULT_INSTALL_DIR}"
+  fi
+  [[ -n "${dir}" ]] || return 1
+  printf '%s' "${dir}"
 }
 
 load_existing_defaults() {
@@ -163,6 +210,7 @@ load_existing_defaults() {
     if [[ "$(state_read_field network.expose_api || true)" == "true" ]]; then
       FOLIUM_EXPOSE_API=1
     fi
+    FOLIUM_API_PORT="$(state_read_field network.api_port || true)"
   fi
   if [[ -f "${FOLIUM_INSTALL_DIR}/.env" ]]; then
     FOLIUM_KEEP_SECRETS=1
@@ -175,6 +223,7 @@ load_existing_defaults() {
     FOLIUM_FRONTEND_ORIGIN="$(config_env_get FRONTEND_ORIGIN || printf '%s' "${FOLIUM_FRONTEND_ORIGIN:-}")"
     FOLIUM_BIND="$(config_env_get FOLIUM_BIND || printf '%s' "${FOLIUM_BIND:-}")"
     FOLIUM_HTTP_PORT="$(config_env_get FOLIUM_HTTP_PORT || printf '%s' "${FOLIUM_HTTP_PORT:-}")"
+    FOLIUM_API_PORT="$(config_env_get FOLIUM_API_PORT || printf '%s' "${FOLIUM_API_PORT:-}")"
     FOLIUM_COMPOSE_PROJECT="$(config_env_get COMPOSE_PROJECT_NAME || printf '%s' "${FOLIUM_COMPOSE_PROJECT:-}")"
     FOLIUM_DOCS_PATH="$(config_env_get FOLIUM_DOCUMENTS_HOST || printf '%s' "${FOLIUM_DOCS_PATH:-}")"
     FOLIUM_CONSUME_PATH="$(config_env_get FOLIUM_CONSUME_HOST || printf '%s' "${FOLIUM_CONSUME_PATH:-}")"
@@ -184,21 +233,28 @@ load_existing_defaults() {
 }
 
 wizard_method() {
-  local choice
+  local choice=""
   choice="$(ui_menu "How should Folium be installed?
 
 Pre-built images pull ghcr.io/brocxftw/folium-* for the selected release (recommended).
-Build from source clones that release tag and builds images locally. Git is required." \
+Build from source clones that release tag and builds images locally. Git is required.
+
+Use Back to return to the previous screen. Ctrl+C exits." \
     image "Pre-built image (recommended)" \
-    source "Build from source")" || return 1
+    source "Build from source" \
+    back "Back")" || return "${UI_BACK}"
+  if [[ "${choice}" == "back" ]]; then
+    return "${UI_BACK}"
+  fi
   FOLIUM_METHOD="${choice}"
+  return "${UI_OK}"
 }
 
 wizard_version() {
-  local latest tags choice
+  local latest tags choice=""
   latest="$(github_latest_tag || true)"
   if [[ -z "${latest}" ]]; then
-    FOLIUM_VERSION_TAG="$(ui_input "Could not list GitHub Releases. Enter a version tag (for example v0.1.16):" "v0.1.16")" || return 1
+    FOLIUM_VERSION_TAG="$(ui_input "Could not list GitHub Releases. Enter a version tag (for example v0.1.17):" "${FOLIUM_VERSION_TAG:-v0.1.17}")" || return "${UI_BACK}"
   else
     tags="$(github_release_tags || printf '%s\n' "${latest}")"
     local -a menu_items=()
@@ -211,43 +267,57 @@ wizard_version() {
         menu_items+=("${tag}" "${tag}")
       fi
     done <<<"${tags}"
-    choice="$(ui_menu "Select a Folium release. The installer pins this version (never stores 'latest')." "${menu_items[@]}")" || return 1
+    choice="$(ui_menu "Select a Folium release. The installer pins this version (never stores 'latest')." "${menu_items[@]}")" || return "${UI_BACK}"
     FOLIUM_VERSION_TAG="${choice}"
   fi
   FOLIUM_VERSION="$(config_strip_v_prefix "${FOLIUM_VERSION_TAG}")"
   if [[ "${FOLIUM_VERSION}" == "latest" ]] || ! config_is_pinned_version "${FOLIUM_VERSION}"; then
-    abort "Refusing to install an unpinned version (${FOLIUM_VERSION_TAG}). Choose a vX.Y.Z release."
+    ui_msgbox "Refusing to install an unpinned version (${FOLIUM_VERSION_TAG}). Choose a vX.Y.Z release."
+    return 1
   fi
+  return "${UI_OK}"
 }
 
 wizard_directory() {
-  local dir
-  dir="$(ui_input "Install directory:" "${FOLIUM_INSTALL_DIR:-${FOLIUM_DEFAULT_INSTALL_DIR}}")" || return 1
+  local dir=""
+  dir="$(ui_input "Install directory:" "${FOLIUM_INSTALL_DIR:-${FOLIUM_DEFAULT_INSTALL_DIR}}")" || return "${UI_BACK}"
   dir="$(storage_normalize_path "${dir}")"
   if storage_is_forbidden_path "${dir}"; then
-    abort "Refusing to install into ${dir}."
+    ui_msgbox "Refusing to install into ${dir}. Choose another directory."
+    return 1
   fi
   FOLIUM_INSTALL_DIR="${dir}"
   FOLIUM_COMPOSE_PROJECT="${FOLIUM_COMPOSE_PROJECT:-${FOLIUM_DEFAULT_PROJECT}}"
+  return "${UI_OK}"
 }
 
-wizard_storage() {
-  local choice docs consume export_path extra
+wizard_storage_kind() {
+  local choice=""
   choice="$(ui_menu "Where should document files live?
 
 Managed directories are created under the install directory.
 Existing host paths are used as-is (including NFS/CIFS mounts already on this host). The installer will not edit /etc/fstab." \
     managed "Managed paths under the install directory" \
-    existing "Use existing host paths")" || return 1
-  if [[ "${choice}" == "managed" ]]; then
-    docs="${FOLIUM_INSTALL_DIR}/data/documents"
-    consume="${FOLIUM_INSTALL_DIR}/data/consume"
-    export_path="${FOLIUM_INSTALL_DIR}/data/export"
-  else
-    docs="$(ui_input "Documents host path:" "${FOLIUM_DOCS_PATH:-${FOLIUM_INSTALL_DIR}/data/documents}")" || return 1
-    consume="$(ui_input "Consume (drop folder) host path:" "${FOLIUM_CONSUME_PATH:-${FOLIUM_INSTALL_DIR}/data/consume}")" || return 1
-    export_path="$(ui_input "Export host path:" "${FOLIUM_EXPORT_PATH:-${FOLIUM_INSTALL_DIR}/data/export}")" || return 1
+    existing "Use existing host paths" \
+    back "Back")" || return "${UI_BACK}"
+  if [[ "${choice}" == "back" ]]; then
+    return "${UI_BACK}"
   fi
+  FOLIUM_STORAGE_KIND="${choice}"
+  if [[ "${choice}" == "managed" ]]; then
+    FOLIUM_DOCS_PATH="$(storage_normalize_path "${FOLIUM_INSTALL_DIR}/data/documents")"
+    FOLIUM_CONSUME_PATH="$(storage_normalize_path "${FOLIUM_INSTALL_DIR}/data/consume")"
+    FOLIUM_EXPORT_PATH="$(storage_normalize_path "${FOLIUM_INSTALL_DIR}/data/export")"
+  fi
+  FOLIUM_PADDLE_PATH="${FOLIUM_INSTALL_DIR}/data/paddleocr"
+  return "${UI_OK}"
+}
+
+wizard_storage_paths() {
+  local docs consume export_path
+  docs="$(ui_input "Documents host path:" "${FOLIUM_DOCS_PATH:-${FOLIUM_INSTALL_DIR}/data/documents}")" || return "${UI_BACK}"
+  consume="$(ui_input "Consume (drop folder) host path:" "${FOLIUM_CONSUME_PATH:-${FOLIUM_INSTALL_DIR}/data/consume}")" || return "${UI_BACK}"
+  export_path="$(ui_input "Export host path:" "${FOLIUM_EXPORT_PATH:-${FOLIUM_INSTALL_DIR}/data/export}")" || return "${UI_BACK}"
   FOLIUM_DOCS_PATH="$(storage_normalize_path "${docs}")"
   FOLIUM_CONSUME_PATH="$(storage_normalize_path "${consume}")"
   FOLIUM_EXPORT_PATH="$(storage_normalize_path "${export_path}")"
@@ -255,66 +325,156 @@ Existing host paths are used as-is (including NFS/CIFS mounts already on this ho
   local p
   for p in "${FOLIUM_DOCS_PATH}" "${FOLIUM_CONSUME_PATH}" "${FOLIUM_EXPORT_PATH}" "${FOLIUM_PADDLE_PATH}"; do
     if storage_is_forbidden_path "${p}"; then
-      abort "Refusing storage path ${p}."
+      ui_msgbox "Refusing storage path ${p}. Choose another path."
+      return 1
     fi
   done
-  extra="$(ui_input "Optional extra host GID for 0770 CIFS binds (leave empty for none):" "${FOLIUM_EXTRA_GID:-}")" || return 1
-  if [[ -n "${extra}" && ! "${extra}" =~ ^[0-9]+$ ]]; then
-    abort "Extra GID must be numeric."
-  fi
-  FOLIUM_EXTRA_GID="${extra}"
+  return "${UI_OK}"
 }
 
-wizard_network() {
-  local bind_choice port origin
+wizard_extra_gid() {
+  local gid_raw=""
+  gid_raw="$(ui_input "Optional extra host GID for 0770 CIFS binds (leave empty for none):" "${FOLIUM_EXTRA_GID:-}")" || return "${UI_BACK}"
+  if [[ -n "${gid_raw}" && ! "${gid_raw}" =~ ^[0-9]+$ ]]; then
+    ui_msgbox "Extra GID must be numeric (or empty)."
+    return 1
+  fi
+  FOLIUM_EXTRA_GID="${gid_raw}"
+  return "${UI_OK}"
+}
+
+wizard_bind() {
+  local bind_choice=""
   bind_choice="$(ui_menu "Who should be able to open the UI?
 
 LAN bind (0.0.0.0) listens on all interfaces.
 Localhost (127.0.0.1) is for this host or a reverse proxy on the same machine." \
     lan "LAN — bind 0.0.0.0" \
-    local "Localhost — bind 127.0.0.1")" || return 1
+    local "Localhost — bind 127.0.0.1" \
+    back "Back")" || return "${UI_BACK}"
+  if [[ "${bind_choice}" == "back" ]]; then
+    return "${UI_BACK}"
+  fi
   if [[ "${bind_choice}" == "local" ]]; then
     FOLIUM_BIND="127.0.0.1"
   else
     FOLIUM_BIND="0.0.0.0"
   fi
-  port="$(ui_input "HTTP port for the UI:" "${FOLIUM_HTTP_PORT:-${FOLIUM_DEFAULT_HTTP_PORT}}")" || return 1
-  if ! network_port_valid "${port}"; then
-    abort "Invalid port: ${port}"
-  fi
-  if network_port_in_use "${port}" && ! network_port_is_ours "${port}"; then
-    abort "Port ${port} is already in use:
+  return "${UI_OK}"
+}
 
-$(network_port_users "${port}")"
-  fi
-  FOLIUM_HTTP_PORT="${port}"
-  FOLIUM_EXPOSE_API=0
-  if ui_yesno "Publish the API/OpenAPI port 8000 on ${FOLIUM_BIND} as well?
+wizard_http_port() {
+  local port="${FOLIUM_HTTP_PORT:-${FOLIUM_DEFAULT_HTTP_PORT}}"
+  local users=""
+  while true; do
+    port="$(ui_input "HTTP port for the UI:" "${port}")" || return "${UI_BACK}"
+    if ! network_port_valid "${port}"; then
+      ui_msgbox "Invalid port: ${port}
 
-The UI already proxies /api and /health. Leave this off unless you need http://${FOLIUM_BIND}:8000/docs from other hosts."; then
-    if network_port_in_use 8000 && ! network_port_is_ours 8000; then
-      abort "Port 8000 is already in use."
+Enter a number from 1 to 65535."
+      continue
     fi
-    FOLIUM_EXPOSE_API=1
-  fi
-  origin=""
-  if ui_yesno "Will you reach Folium through a reverse proxy or public hostname?
+    if network_port_blocked "${port}"; then
+      users="$(network_port_users "${port}" || true)"
+      ui_msgbox "Port ${port} is already in use.
 
-If yes, you will enter the public URL (for example https://docs.example.com). This installer does not install Caddy or nginx on the host."; then
-    origin="$(ui_input "Public URL (FRONTEND_ORIGIN):" "https://docs.example.com")" || return 1
+${users}
+
+Enter a different HTTP port."
+      continue
+    fi
+    FOLIUM_HTTP_PORT="${port}"
+    return "${UI_OK}"
+  done
+}
+
+wizard_expose_api() {
+  local choice=""
+  FOLIUM_API_PORT="${FOLIUM_API_PORT:-8000}"
+  choice="$(ui_menu "Publish the API/OpenAPI port on ${FOLIUM_BIND} as well?
+
+The UI already proxies /api and /health. Leave this off unless you need OpenAPI from other hosts." \
+    no "No (recommended)" \
+    yes "Yes, publish OpenAPI" \
+    back "Back")" || return "${UI_BACK}"
+  if [[ "${choice}" == "back" ]]; then
+    return "${UI_BACK}"
   fi
-  FOLIUM_FRONTEND_ORIGIN="$(network_origin_for "${FOLIUM_BIND}" "${FOLIUM_HTTP_PORT}" "${origin}")"
-  FOLIUM_FRONTEND_ORIGIN="$(ui_input "Confirm the browser origin (must match the URL you open):" "${FOLIUM_FRONTEND_ORIGIN}")" || return 1
+  if [[ "${choice}" != "yes" ]]; then
+    FOLIUM_EXPOSE_API=0
+    return "${UI_OK}"
+  fi
+  FOLIUM_EXPOSE_API=1
+  local port="${FOLIUM_API_PORT:-8000}"
+  local users=""
+  while true; do
+    port="$(ui_input "Host port to publish for OpenAPI (container stays 8000):" "${port}")" || return "${UI_BACK}"
+    if ! network_port_valid "${port}"; then
+      ui_msgbox "Invalid port: ${port}
+
+Enter a number from 1 to 65535."
+      continue
+    fi
+    if [[ "${port}" == "${FOLIUM_HTTP_PORT}" ]]; then
+      ui_msgbox "Port ${port} is already chosen for the UI. Pick another port."
+      continue
+    fi
+    if network_port_blocked "${port}"; then
+      users="$(network_port_users "${port}" || true)"
+      ui_msgbox "Port ${port} is already in use.
+
+${users}
+
+Enter a different host port."
+      continue
+    fi
+    FOLIUM_API_PORT="${port}"
+    return "${UI_OK}"
+  done
+}
+
+wizard_reverse_proxy() {
+  local choice=""
+  choice="$(ui_menu "Will you reach Folium through a reverse proxy or public hostname?
+
+If yes, you will enter the public URL (for example https://docs.example.com). This installer does not install Caddy or nginx on the host." \
+    no "No — use the bind address" \
+    yes "Yes — I have a public URL" \
+    back "Back")" || return "${UI_BACK}"
+  if [[ "${choice}" == "back" ]]; then
+    return "${UI_BACK}"
+  fi
+  FOLIUM_USE_PROXY="${choice}"
+  return "${UI_OK}"
+}
+
+wizard_origin() {
+  local origin=""
+  if [[ "${FOLIUM_USE_PROXY:-no}" == "yes" ]]; then
+    origin="$(ui_input "Public URL (FRONTEND_ORIGIN):" "${FOLIUM_FRONTEND_ORIGIN:-https://docs.example.com}")" || return "${UI_BACK}"
+  else
+    origin="$(network_origin_for "${FOLIUM_BIND}" "${FOLIUM_HTTP_PORT}" "")"
+  fi
+  FOLIUM_FRONTEND_ORIGIN="$(ui_input "Confirm the browser origin (must match the URL you open):" "${origin}")" || return "${UI_BACK}"
+  return "${UI_OK}"
 }
 
 wizard_secrets() {
   FOLIUM_ADMIN_USERNAME="${FOLIUM_ADMIN_USERNAME:-admin}"
   if [[ "${FOLIUM_KEEP_SECRETS}" == "1" && -n "${FOLIUM_SECRET_KEY:-}" ]]; then
-    if [[ "${FOLIUM_NONINTERACTIVE}" == "1" ]] || ui_yesno "Keep existing secrets and admin password in .env?
+    local choice=""
+    choice="$(ui_menu "Keep existing secrets and admin password in .env?
 
-Choosing No generates new keys. That does not rotate an already-bootstrapped admin account."; then
+Choosing No generates new keys. That does not rotate an already-bootstrapped admin account." \
+      keep "Keep existing secrets" \
+      rotate "Generate new secrets" \
+      back "Back")" || return "${UI_BACK}"
+    if [[ "${choice}" == "back" ]]; then
+      return "${UI_BACK}"
+    fi
+    if [[ "${choice}" == "keep" ]]; then
       SHOW_ADMIN_PASSWORD=0
-      return 0
+      return "${UI_OK}"
     fi
   fi
   FOLIUM_SECRET_KEY="$(config_generate_secret 32)"
@@ -325,15 +485,100 @@ Choosing No generates new keys. That does not rotate an already-bootstrapped adm
     abort "Generated database password contained a reserved character. Re-run the installer."
   fi
   SHOW_ADMIN_PASSWORD=1
+  return "${UI_OK}"
 }
 
-collect_config() {
-  wizard_method
-  wizard_version
-  wizard_directory
-  wizard_storage
-  wizard_network
-  wizard_secrets
+wizard_summary() {
+  local summary_file go=""
+  summary_file="$(mktemp)"
+  config_render_summary >"${summary_file}"
+  ui_textbox_file "${summary_file}" || {
+    rm -f "${summary_file}"
+    return "${UI_BACK}"
+  }
+  rm -f "${summary_file}"
+  go="$(ui_menu "Proceed with installation?
+
+Back returns to the previous settings screen. Ctrl+C cancels." \
+    install "Install" \
+    back "Back")" || return "${UI_BACK}"
+  case "${go}" in
+    install) return "${UI_OK}" ;;
+    *) return "${UI_BACK}" ;;
+  esac
+}
+
+# Return 1 from a step to stay on that screen (validation failed).
+wizard_dispatch() {
+  local step="$1"
+  local rc=0
+  set +e
+  case "${step}" in
+    0) wizard_method ;;
+    1) wizard_version ;;
+    2) wizard_directory ;;
+    3) wizard_storage_kind ;;
+    4) wizard_storage_paths ;;
+    5) wizard_extra_gid ;;
+    6) wizard_bind ;;
+    7) wizard_http_port ;;
+    8) wizard_expose_api ;;
+    9) wizard_reverse_proxy ;;
+    10) wizard_origin ;;
+    11) wizard_secrets ;;
+    12) wizard_summary ;;
+    *) rc=0 ;;
+  esac
+  rc=$?
+  set -e
+  return "${rc}"
+}
+
+wizard_skip_paths() {
+  [[ "${FOLIUM_STORAGE_KIND:-managed}" == "managed" ]]
+}
+
+run_wizard() {
+  local step=0
+  local rc=0
+  FOLIUM_STORAGE_KIND="${FOLIUM_STORAGE_KIND:-managed}"
+  FOLIUM_USE_PROXY="${FOLIUM_USE_PROXY:-no}"
+  FOLIUM_UI_NOCANCEL=0
+  FOLIUM_UI_CANCEL_LABEL="Back"
+  FOLIUM_UI_OK_LABEL="OK"
+  while true; do
+    if [[ "${FOLIUM_INTERRUPTED}" == "1" ]]; then
+      exit 130
+    fi
+    rc=0
+    wizard_dispatch "${step}" || rc=$?
+    case "${rc}" in
+      0)
+        if [[ "${step}" -eq 12 ]]; then
+          return 0
+        fi
+        step=$((step + 1))
+        if [[ "${step}" -eq 4 ]] && wizard_skip_paths; then
+          step=5
+        fi
+        ;;
+      1)
+        # Stay on this screen after a validation msgbox.
+        ;;
+      2)
+        if [[ "${step}" -le 0 ]]; then
+          step=0
+        else
+          step=$((step - 1))
+          if [[ "${step}" -eq 4 ]] && wizard_skip_paths; then
+            step=3
+          fi
+        fi
+        ;;
+      130) exit 130 ;;
+      *) abort "Unexpected installer state (${rc})." ;;
+    esac
+  done
 }
 
 apply_storage() {
@@ -352,12 +597,22 @@ apply_storage() {
     chown_now=0
     if [[ "${FOLIUM_NONINTERACTIVE}" == "1" ]]; then
       chown_now=1
-    elif ui_yesno "${path} is not writable by UID ${FOLIUM_APP_UID} (the container user).
-
-Allow chown ${FOLIUM_APP_UID}:${FOLIUM_APP_GID} on this directory? Folium will not chmod 777."; then
-      chown_now=1
     else
-      abort "Storage path ${path} is not writable by UID ${FOLIUM_APP_UID}."
+      local choice=""
+      FOLIUM_UI_NOCANCEL=1
+      choice="$(ui_menu "${path} is not writable by UID ${FOLIUM_APP_UID} (the container user).
+
+Allow chown ${FOLIUM_APP_UID}:${FOLIUM_APP_GID} on this directory? Folium will not chmod 777.
+
+Ctrl+C cancels." \
+        chown "chown ${FOLIUM_APP_UID}:${FOLIUM_APP_GID}" \
+        abort "Abort install")"
+      FOLIUM_UI_NOCANCEL=0
+      if [[ "${choice}" == "chown" ]]; then
+        chown_now=1
+      else
+        abort "Storage path ${path} is not writable by UID ${FOLIUM_APP_UID}."
+      fi
     fi
     if [[ "${chown_now}" == "1" ]]; then
       run_root chown "${FOLIUM_APP_UID}:${FOLIUM_APP_GID}" "${path}"
@@ -380,15 +635,21 @@ fetch_compose() {
 }
 
 prepare_source() {
-  dep_install_git || abort "git is required to build from source."
+  if ! require_cmd git; then
+    ui_gauge_stop 2>/dev/null || true
+    dep_install_git >>"${FOLIUM_LOG_FILE}" 2>&1 || abort "git is required to build from source."
+  fi
   mkdir -p "${FOLIUM_INSTALL_DIR}"
   if [[ -d "${FOLIUM_INSTALL_DIR}/src/.git" ]]; then
-    git -C "${FOLIUM_INSTALL_DIR}/src" fetch --tags
-    git -C "${FOLIUM_INSTALL_DIR}/src" checkout "${FOLIUM_VERSION_TAG}"
+    git -C "${FOLIUM_INSTALL_DIR}/src" fetch --tags >>"${FOLIUM_LOG_FILE}" 2>&1 \
+      || abort "git fetch failed. See ${FOLIUM_LOG_FILE}."
+    git -C "${FOLIUM_INSTALL_DIR}/src" checkout "${FOLIUM_VERSION_TAG}" >>"${FOLIUM_LOG_FILE}" 2>&1 \
+      || abort "git checkout ${FOLIUM_VERSION_TAG} failed. See ${FOLIUM_LOG_FILE}."
   else
     rm -rf "${FOLIUM_INSTALL_DIR}/src"
     git clone --branch "${FOLIUM_VERSION_TAG}" --depth 1 \
-      "${FOLIUM_GITHUB_URL}.git" "${FOLIUM_INSTALL_DIR}/src"
+      "${FOLIUM_GITHUB_URL}.git" "${FOLIUM_INSTALL_DIR}/src" >>"${FOLIUM_LOG_FILE}" 2>&1 \
+      || abort "git clone failed. See ${FOLIUM_LOG_FILE}."
   fi
   config_write_source_overlay
 }
@@ -417,41 +678,83 @@ ensure_install_dir() {
   fi
 }
 
+run_install_cmd() {
+  log_cmd "$*"
+  if [[ "${FOLIUM_UI}" == "none" ]]; then
+    "$@"
+  else
+    "$@" >>"${FOLIUM_LOG_FILE}" 2>&1
+  fi
+}
+
+folium_health_progress() {
+  local i="$1"
+  local n="$2"
+  local pct=$((75 + (i * 20 / n)))
+  if [[ "${pct}" -gt 95 ]]; then
+    pct=95
+  fi
+  ui_gauge_update "${pct}" "Waiting for health (${i}/${n})..."
+}
+
 execute_install() {
   log_info "execute_install method=${FOLIUM_METHOD} version=${FOLIUM_VERSION}"
+  FOLIUM_API_PORT="${FOLIUM_API_PORT:-8000}"
   ensure_install_dir
   if [[ "${FOLIUM_MODE}" == "reconfigure" ]]; then
     config_backup_install_dir
   fi
   apply_storage
+
+  ui_gauge_start "Installing Folium ${FOLIUM_VERSION}..."
+  ui_gauge_update 10 "Writing Compose files..."
   fetch_compose
   config_write_override
   if [[ "${FOLIUM_METHOD}" == "source" ]]; then
+    ui_gauge_update 20 "Cloning source ${FOLIUM_VERSION_TAG}..."
     prepare_source
   else
     rm -f "${FOLIUM_INSTALL_DIR}/compose.source.yaml"
   fi
+  ui_gauge_update 30 "Writing .env..."
   config_write_env
   if ! config_compose_validate; then
+    ui_gauge_stop
     abort "docker compose config failed. See ${FOLIUM_LOG_FILE}."
   fi
-  ui_infobox "Starting Folium. This may take several minutes. Log: ${FOLIUM_LOG_FILE}"
   if [[ "${FOLIUM_METHOD}" == "source" ]]; then
+    ui_gauge_update 40 "Building images (this may take several minutes)..."
     log_info "building images from source"
-    folium_compose build
+    if ! run_install_cmd folium_compose build; then
+      ui_gauge_stop
+      abort "Image build failed. See ${FOLIUM_LOG_FILE}."
+    fi
   else
+    ui_gauge_update 40 "Pulling images (this may take several minutes)..."
     log_info "pulling images"
-    folium_compose pull
+    if ! run_install_cmd folium_compose pull; then
+      ui_gauge_stop
+      abort "Image pull failed. See ${FOLIUM_LOG_FILE}."
+    fi
   fi
-  folium_compose up -d
+  ui_gauge_update 70 "Starting services..."
+  if ! run_install_cmd folium_compose up -d; then
+    ui_gauge_stop
+    abort "docker compose up failed. See ${FOLIUM_LOG_FILE}."
+  fi
   local healthy=1
+  ui_gauge_update 75 "Waiting for health checks..."
   if ! health_wait; then
     healthy=0
   fi
+  ui_gauge_update 96 "Writing install state..."
   state_write
   if [[ "${FOLIUM_SKIP_CLI:-0}" != "1" ]]; then
+    ui_gauge_update 98 "Installing folium CLI..."
     install_cli
   fi
+  ui_gauge_update 100 "Done."
+  ui_gauge_stop
   FOLIUM_HEALTHY="${healthy}"
 }
 
@@ -459,13 +762,25 @@ repair_install() {
   load_existing_defaults
   [[ -n "${FOLIUM_INSTALL_DIR:-}" ]] || abort "No install directory found."
   [[ -f "${FOLIUM_INSTALL_DIR}/docker-compose.yml" ]] || abort "No docker-compose.yml in ${FOLIUM_INSTALL_DIR}."
-  ui_infobox "Repairing Folium in ${FOLIUM_INSTALL_DIR}"
-  folium_compose up -d
+  ui_gauge_start "Repairing Folium..."
+  ui_gauge_update 30 "Starting services..."
+  if ! run_install_cmd folium_compose up -d; then
+    ui_gauge_stop
+    abort "Repair failed to start services. See ${FOLIUM_LOG_FILE}."
+  fi
+  ui_gauge_update 60 "Waiting for health..."
+  local ok=0
   if health_wait; then
+    ok=1
+  fi
+  ui_gauge_update 100 "Done."
+  ui_gauge_stop
+  if [[ "${ok}" == "1" ]]; then
     ui_msgbox "Repair finished. Folium is healthy.
 
 UI: ${FOLIUM_FRONTEND_ORIGIN:-http://127.0.0.1:${FOLIUM_HTTP_PORT:-8080}}
-CLI: folium status"
+CLI: folium status
+Log: ${FOLIUM_LOG_FILE}"
   else
     ui_msgbox "Repair completed but Folium is not healthy yet.
 
@@ -474,36 +789,135 @@ Then: folium doctor"
   fi
 }
 
+update_install() {
+  load_existing_defaults
+  [[ -n "${FOLIUM_INSTALL_DIR:-}" ]] || abort "No install directory found."
+  [[ -f "${FOLIUM_INSTALL_DIR}/.env" ]] || abort "No .env in ${FOLIUM_INSTALL_DIR}."
+  [[ -f "${FOLIUM_INSTALL_DIR}/docker-compose.yml" ]] || abort "No docker-compose.yml in ${FOLIUM_INSTALL_DIR}."
+
+  FOLIUM_METHOD=image
+  SHOW_ADMIN_PASSWORD=0
+  FOLIUM_BIND="${FOLIUM_BIND:-0.0.0.0}"
+  FOLIUM_HTTP_PORT="${FOLIUM_HTTP_PORT:-${FOLIUM_DEFAULT_HTTP_PORT}}"
+  FOLIUM_API_PORT="${FOLIUM_API_PORT:-8000}"
+  FOLIUM_COMPOSE_PROJECT="${FOLIUM_COMPOSE_PROJECT:-${FOLIUM_DEFAULT_PROJECT}}"
+  FOLIUM_EXPOSE_API="${FOLIUM_EXPOSE_API:-0}"
+  FOLIUM_FRONTEND_ORIGIN="$(config_env_get FRONTEND_ORIGIN || printf '%s' "${FOLIUM_FRONTEND_ORIGIN:-http://127.0.0.1:${FOLIUM_HTTP_PORT}}")"
+  FOLIUM_DOCS_PATH="$(config_env_get FOLIUM_DOCUMENTS_HOST || printf '%s' "${FOLIUM_DOCS_PATH:-${FOLIUM_INSTALL_DIR}/data/documents}")"
+  FOLIUM_CONSUME_PATH="$(config_env_get FOLIUM_CONSUME_HOST || printf '%s' "${FOLIUM_CONSUME_PATH:-${FOLIUM_INSTALL_DIR}/data/consume}")"
+  FOLIUM_EXPORT_PATH="$(config_env_get FOLIUM_EXPORT_HOST || printf '%s' "${FOLIUM_EXPORT_PATH:-${FOLIUM_INSTALL_DIR}/data/export}")"
+  FOLIUM_PADDLE_PATH="$(config_env_get FOLIUM_PADDLE_CACHE_HOST || printf '%s' "${FOLIUM_PADDLE_PATH:-${FOLIUM_INSTALL_DIR}/data/paddleocr}")"
+  local rc=0
+  while true; do
+    rc=0
+    wizard_version || rc=$?
+    case "${rc}" in
+      0) break ;;
+      1) continue ;;
+      2)
+        prompt_existing "${FOLIUM_INSTALL_DIR}"
+        case "${FOLIUM_MODE}" in
+          update) continue ;;
+          repair) repair_install; return 0 ;;
+          reconfigure) return 2 ;;
+          *) return 0 ;;
+        esac
+        ;;
+      130) exit 130 ;;
+      *) abort "Unexpected update state (${rc})." ;;
+    esac
+  done
+
+  local go=""
+  go="$(ui_menu "Update Folium to ${FOLIUM_VERSION_TAG} (image tag ${FOLIUM_VERSION})?
+
+Install dir: ${FOLIUM_INSTALL_DIR}
+Secrets and document data are kept. Compose will pull release images and restart.
+
+Log file:
+${FOLIUM_LOG_FILE}" \
+    update "Update now" \
+    back "Back")" || return 2
+  if [[ "${go}" != "update" ]]; then
+    return 2
+  fi
+
+  config_backup_install_dir
+  config_env_set FOLIUM_VERSION "${FOLIUM_VERSION}"
+  rm -f "${FOLIUM_INSTALL_DIR}/compose.source.yaml"
+
+  ui_gauge_start "Updating Folium to ${FOLIUM_VERSION}..."
+  ui_gauge_update 15 "Downloading release Compose..."
+  fetch_compose
+  # Re-apply port/bind overlay from current settings (ports stay stripped on the base file).
+  config_write_override
+  if ! config_compose_validate; then
+    ui_gauge_stop
+    abort "docker compose config failed after update. See ${FOLIUM_LOG_FILE}."
+  fi
+  ui_gauge_update 40 "Pulling images..."
+  if ! run_install_cmd folium_compose pull; then
+    ui_gauge_stop
+    abort "Image pull failed. See ${FOLIUM_LOG_FILE}."
+  fi
+  ui_gauge_update 70 "Restarting services..."
+  if ! run_install_cmd folium_compose up -d; then
+    ui_gauge_stop
+    abort "docker compose up failed. See ${FOLIUM_LOG_FILE}."
+  fi
+  local healthy=1
+  ui_gauge_update 75 "Waiting for health checks..."
+  if ! health_wait; then
+    healthy=0
+  fi
+  ui_gauge_update 96 "Writing install state..."
+  state_write
+  if [[ "${FOLIUM_SKIP_CLI:-0}" != "1" ]]; then
+    ui_gauge_update 98 "Refreshing folium CLI..."
+    install_cli
+  fi
+  ui_gauge_update 100 "Done."
+  ui_gauge_stop
+  FOLIUM_HEALTHY="${healthy}"
+  FOLIUM_FRONTEND_ORIGIN="$(config_env_get FRONTEND_ORIGIN || printf '%s' "${FOLIUM_FRONTEND_ORIGIN:-}")"
+  success_screen
+  return 0
+}
+
 success_screen() {
-  local extra=""
+  local admin_note=""
   if [[ "${SHOW_ADMIN_PASSWORD}" == "1" ]]; then
-    extra="
+    admin_note="
 
 Admin username: ${FOLIUM_ADMIN_USERNAME:-admin}
 Admin password: ${FOLIUM_ADMIN_PASSWORD}
 
 Save this password now. It will not be shown again and is not written to the installer log."
   else
-    extra="
+    admin_note="
 
 Existing admin credentials were kept and are not displayed."
   fi
   if [[ "${FOLIUM_HEALTHY:-1}" == "1" ]]; then
-    ui_msgbox "Folium ${FOLIUM_VERSION} is installed and healthy.
+    local verb="installed"
+    [[ "${FOLIUM_MODE}" == "update" ]] && verb="updated"
+    ui_msgbox "Folium ${FOLIUM_VERSION} is ${verb} and healthy.
 
 Open: ${FOLIUM_FRONTEND_ORIGIN}
 Install dir: ${FOLIUM_INSTALL_DIR}
 CLI: folium status | start | stop | logs | doctor
-Log: ${FOLIUM_LOG_FILE}${extra}"
+Log: ${FOLIUM_LOG_FILE}${admin_note}"
   else
-    ui_msgbox "Install completed but Folium is not healthy yet.
+    local verb="Install"
+    [[ "${FOLIUM_MODE}" == "update" ]] && verb="Update"
+    ui_msgbox "${verb} completed but Folium is not healthy yet.
 
 Open: ${FOLIUM_FRONTEND_ORIGIN}
 Install dir: ${FOLIUM_INSTALL_DIR}
 Log: ${FOLIUM_LOG_FILE}
 Next: folium doctor
 
-Do not treat this as a successful install until health checks pass.${extra}"
+Do not treat this as a successful install until health checks pass.${admin_note}"
   fi
 }
 
@@ -514,13 +928,30 @@ main() {
   log_info "installer root=${INSTALLER_ROOT}"
 
   ensure_whiptail
+
+  local discovered=""
+  discovered="$(discover_existing_install || true)"
+
   if [[ "${FOLIUM_NONINTERACTIVE}" != "1" ]]; then
+    ui_session_start
+    local welcome_extra=""
+    if [[ -n "${discovered}" ]]; then
+      welcome_extra="
+
+Folium is already installed at:
+${discovered}"
+    fi
     ui_msgbox "Welcome to the Folium installer.
 
-This will install a Docker Compose stack (Postgres, API, worker, web).
+This will install or update a Docker Compose stack (Postgres, API, worker, web).
 AI providers are optional and are not configured here.
+${welcome_extra}
 
-A log is written to a temp file with secrets redacted."
+Installation log file:
+${FOLIUM_LOG_FILE}
+
+Use Back to return to the previous screen.
+Ctrl+C cancels; existing data is not deleted."
   fi
 
   SYSTEM_CHECK_WARNINGS=""
@@ -541,6 +972,7 @@ You can continue, but performance or disk space may be tight."
     FOLIUM_INSTALL_DIR="${FOLIUM_INSTALL_DIR:-${FOLIUM_DEFAULT_INSTALL_DIR}}"
     FOLIUM_BIND="${FOLIUM_BIND:-127.0.0.1}"
     FOLIUM_HTTP_PORT="${FOLIUM_HTTP_PORT:-${FOLIUM_DEFAULT_HTTP_PORT}}"
+    FOLIUM_API_PORT="${FOLIUM_API_PORT:-8000}"
     FOLIUM_EXPOSE_API="${FOLIUM_EXPOSE_API:-0}"
     FOLIUM_COMPOSE_PROJECT="${FOLIUM_COMPOSE_PROJECT:-${FOLIUM_DEFAULT_PROJECT}}"
     if [[ -z "${FOLIUM_VERSION_TAG:-}" ]]; then
@@ -565,39 +997,66 @@ You can continue, but performance or disk space may be tight."
     return 0
   fi
 
-  local discovered=""
-  discovered="$(state_discover_dir || true)"
-  if [[ -z "${discovered}" && -f "${FOLIUM_DEFAULT_INSTALL_DIR}/docker-compose.yml" ]]; then
-    discovered="${FOLIUM_DEFAULT_INSTALL_DIR}"
+  # Prefer the path discovered on the welcome screen; re-check after Docker is ready.
+  if [[ -z "${discovered}" ]]; then
+    discovered="$(discover_existing_install || true)"
   fi
+
   if [[ -n "${discovered}" ]]; then
     FOLIUM_INSTALL_DIR="${discovered}"
-    prompt_existing "${discovered}"
-    if [[ "${FOLIUM_MODE}" == "repair" ]]; then
-      repair_install
-      return 0
-    fi
-    load_existing_defaults
+    while true; do
+      prompt_existing "${discovered}"
+      case "${FOLIUM_MODE}" in
+        update)
+          local urc=0
+          update_install || urc=$?
+          case "${urc}" in
+            0)
+              ui_session_end
+              return 0
+              ;;
+            2)
+              # Nested Back may have switched mode via prompt_existing.
+              case "${FOLIUM_MODE}" in
+                reconfigure)
+                  load_existing_defaults
+                  break
+                  ;;
+                repair)
+                  repair_install
+                  ui_session_end
+                  return 0
+                  ;;
+                *)
+                  continue
+                  ;;
+              esac
+              ;;
+            130) exit 130 ;;
+            *) abort "Update failed." ;;
+          esac
+          ;;
+        repair)
+          repair_install
+          ui_session_end
+          return 0
+          ;;
+        reconfigure)
+          load_existing_defaults
+          break
+          ;;
+        *)
+          ui_session_end
+          return 0
+          ;;
+      esac
+    done
   fi
 
-  while true; do
-    collect_config
-    local summary_file
-    summary_file="$(mktemp)"
-    config_render_summary >"${summary_file}"
-    ui_textbox_file "${summary_file}" || true
-    rm -f "${summary_file}"
-    local go
-    go="$(ui_menu "Proceed with installation?" install "Install" back "Back" cancel "Cancel")" || exit 130
-    case "${go}" in
-      install) break ;;
-      back) continue ;;
-      *) exit 0 ;;
-    esac
-  done
-
+  run_wizard
   execute_install
   success_screen
+  ui_session_end
 }
 
 main "$@"

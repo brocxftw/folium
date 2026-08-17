@@ -35,6 +35,11 @@ network_port_is_ours() {
     --format '{{.Ports}}' 2>/dev/null | grep -Eq ":${port}->|:0\.0\.0\.0:${port}->|127\.0\.0\.1:${port}->"
 }
 
+network_port_blocked() {
+  local port="$1"
+  network_port_in_use "${port}" && ! network_port_is_ours "${port}"
+}
+
 network_port_users() {
   local port="$1"
   if command -v ss >/dev/null 2>&1; then

@@ -122,8 +122,11 @@ assert_ok "override has extra gid" grep -q '10000' "${TMP}/docker-compose.overri
 assert_fail "override omits api publish" grep -q '8000:8000' "${TMP}/docker-compose.override.yml"
 
 FOLIUM_EXPOSE_API="1"
+FOLIUM_API_PORT="8000"
 config_write_override
-assert_ok "override can publish api" grep -q '8000:8000' "${TMP}/docker-compose.override.yml"
+assert_ok "override can publish api" grep -q '\${FOLIUM_BIND}:\${FOLIUM_API_PORT}:8000' "${TMP}/docker-compose.override.yml"
+
+assert_ok "blocked invalid port" network_port_blocked "0"
 
 FOLIUM_VERSION="0.1.16"
 FOLIUM_SECRET_KEY="unit-test-secret"
@@ -142,6 +145,9 @@ mode="$(stat -c '%a' "${TMP}/.env")"
 assert_eq "env mode 600" "${mode}" "600"
 assert_ok "env pins version" grep -q '^FOLIUM_VERSION=0.1.16$' "${TMP}/.env"
 assert_fail "env not latest" grep -q '^FOLIUM_VERSION=latest$' "${TMP}/.env"
+config_env_set FOLIUM_VERSION "0.1.17"
+assert_ok "env set version" grep -q '^FOLIUM_VERSION=0.1.17$' "${TMP}/.env"
+config_env_set FOLIUM_VERSION "0.1.16"
 
 export FOLIUM_METHOD=image FOLIUM_VERSION_TAG=v0.1.16
 state_write

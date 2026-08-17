@@ -90,6 +90,7 @@ AI_WARN_BEFORE_REMOTE=true
 COMPOSE_PROJECT_NAME=${FOLIUM_COMPOSE_PROJECT:-folium}
 FOLIUM_BIND=${FOLIUM_BIND}
 FOLIUM_HTTP_PORT=${FOLIUM_HTTP_PORT}
+FOLIUM_API_PORT=${FOLIUM_API_PORT:-8000}
 EOF
   chmod 600 "${dest}"
   log_info "wrote .env (mode 600)"
@@ -113,6 +114,37 @@ for raw in open(path, encoding="utf-8"):
 else:
     sys.exit(1)
 PY
+}
+
+config_env_set() {
+  local key="$1"
+  local value="$2"
+  local file="${3:-${FOLIUM_INSTALL_DIR}/.env}"
+  [[ -f "${file}" ]] || return 1
+  python3 - "${file}" "${key}" "${value}" <<'PY'
+import sys
+path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
+lines = open(path, encoding="utf-8").read().splitlines(True)
+out = []
+found = False
+for line in lines:
+    raw = line.strip()
+    if raw and not raw.startswith("#") and "=" in raw:
+        k, _ = raw.split("=", 1)
+        if k == key:
+            out.append(f"{key}={value}\n")
+            found = True
+            continue
+    out.append(line)
+if not found:
+    if out and not out[-1].endswith("\n"):
+        out[-1] = out[-1] + "\n"
+    out.append(f"{key}={value}\n")
+with open(path, "w", encoding="utf-8") as fh:
+    fh.writelines(out)
+PY
+  chmod 600 "${file}"
+  log_info "updated .env key=${key}"
 }
 
 config_strip_compose_ports() {
@@ -164,7 +196,7 @@ if expose == "1":
     lines += [
         "  api:",
         "    ports:",
-        '      - "${FOLIUM_BIND}:8000:8000"',
+        '      - "${FOLIUM_BIND}:${FOLIUM_API_PORT}:8000"',
     ]
     if extra:
         lines += ["    group_add:", f'      - "{extra}"']
@@ -241,7 +273,7 @@ config_compose_validate() {
   local out
   if ! out="$(folium_compose config 2>&1)"; then
     log_error "docker compose config failed"
-    printf '%s\n' "${out}" | _folium_redact >&2
+    printf '%s\n' "${out}" | _folium_redact >>"${FOLIUM_LOG_FILE:-/dev/null}"
     return 1
   fi
   log_info "docker compose config ok"
@@ -255,7 +287,7 @@ Version:         ${FOLIUM_VERSION_TAG} (image tag ${FOLIUM_VERSION})
 Directory:       ${FOLIUM_INSTALL_DIR}
 Project name:    ${FOLIUM_COMPOSE_PROJECT}
 Bind / port:     ${FOLIUM_BIND}:${FOLIUM_HTTP_PORT}
-Expose OpenAPI:  ${FOLIUM_EXPOSE_API}
+Expose OpenAPI:  ${FOLIUM_EXPOSE_API}${FOLIUM_EXPOSE_API:+ (host ${FOLIUM_API_PORT:-8000})}
 FRONTEND_ORIGIN: ${FOLIUM_FRONTEND_ORIGIN}
 Documents:       ${FOLIUM_DOCS_PATH}
 Consume:         ${FOLIUM_CONSUME_PATH}
