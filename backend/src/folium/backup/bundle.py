@@ -24,6 +24,21 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def copy_file(src: Path, dest: Path) -> None:
+    """Copy file bytes; preserve metadata when the destination filesystem allows it.
+
+    CIFS/SMB bind mounts often reject ``utime`` (``PermissionError: Operation not
+    permitted``), which breaks ``shutil.copy2``. Content is always copied; metadata
+    preservation is best-effort.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dest)
+    try:
+        shutil.copystat(src, dest, follow_symlinks=True)
+    except OSError:
+        pass
+
+
 def write_checksums(root: Path, members: Iterable[Path]) -> None:
     lines: list[str] = []
     for member in sorted(members, key=lambda p: str(p.relative_to(root))):
