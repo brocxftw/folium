@@ -18,9 +18,10 @@ folium/
 ├── frontend/                Vite + React SPA
 │   └── src/                 routes, workspaces, domain UI, API client
 ├── docker/                  Backend/frontend Dockerfiles, nginx, entrypoint
+├── installer/               Whiptail TUI installer, bootstrap, management CLI
 ├── docs/                    Engineering documentation (this corpus)
 ├── data/                    Local bind-mount placeholders (not source)
-├── .github/workflows/       CI only (no image publish)
+├── .github/workflows/       CI + GHCR/Release publish
 ├── docker-compose.yml       Runtime stack
 ├── docker-compose.debug.yml Optional source-mount overlay
 ├── .env.example             Documented env template

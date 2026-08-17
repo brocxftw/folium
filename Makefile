@@ -1,4 +1,4 @@
-.PHONY: up down build test backend-test frontend-test migrate logs
+.PHONY: up down build test backend-test frontend-test installer-test migrate logs
 
 COMPOSE_DEV := docker compose -f docker-compose.yml -f compose.dev.yaml
 
@@ -23,4 +23,9 @@ backend-test:
 frontend-test:
 	cd frontend && npm test && npm run build
 
-test: backend-test frontend-test
+installer-test:
+	bash installer/tests/run.sh
+	bash installer/pack.sh /tmp/install-folium.sh
+	bash -n /tmp/install-folium.sh
+
+test: backend-test frontend-test installer-test

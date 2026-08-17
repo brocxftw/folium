@@ -6,7 +6,7 @@ Intended experience:
 
 ```text
 download docker-compose.yml
-download .env.example
+download env.example
 configure
 docker compose up -d
 ```
@@ -19,7 +19,7 @@ docker compose up -d
 Ready with caveats
 ```
 
-**Justification:** Operators can install from GitHub Release Compose + `.env.example` and pull `ghcr.io/brocxftw/folium-backend` / `folium-web` without cloning or building Folium. API and worker share one backend image. Secrets are not shipped as usable production passwords. Postgres is not published on the host. Registration defaults off in the example. AI-down does not fail `/health`. Remaining caveats: **linux/amd64 only**, GHCR packages must be set **public** after first publish, first OCR downloads models, no browser e2e suite, Alembic is forward-only, and anonymous GHCR pull is unverified until the first tagged publish on `main`.
+**Justification:** Operators can install with the interactive installer, or from GitHub Release Compose + `env.example`, and pull `ghcr.io/brocxftw/folium-backend` / `folium-web` without cloning or building Folium. API and worker share one backend image. Secrets are not shipped as usable production passwords. Postgres is not published on the host. Registration defaults off in the example. AI-down does not fail `/health`. Remaining caveats: **linux/amd64 only**, GHCR packages must be set **public** after first publish, first OCR downloads models, no browser e2e suite, Alembic is forward-only, and anonymous GHCR pull is unverified until the first tagged publish on `main`.
 
 Until the first `v*` tag after merge succeeds, packages may not exist yet — the **workflow is present**; images are not automatically backfilled for older tags.
 

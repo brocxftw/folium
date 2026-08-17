@@ -184,14 +184,24 @@ jobs:
           sed "s/\${FOLIUM_VERSION:-latest}/\${FOLIUM_VERSION:-${VERSION}}/g" docker-compose.yml \
             > dist/docker-compose.yml
           sed "s/^FOLIUM_VERSION=.*/FOLIUM_VERSION=${VERSION}/" .env.example \
-            > dist/.env.example
-          (cd dist && sha256sum docker-compose.yml .env.example > checksums.txt)
+            > dist/env.example
+          cp dist/env.example dist/default.env.example
+          bash installer/pack.sh dist/install-folium.sh
+          (cd dist && sha256sum \
+            docker-compose.yml env.example default.env.example \
+            install-folium.sh > checksums.txt)
+          assets=(
+            dist/docker-compose.yml
+            dist/env.example
+            dist/default.env.example
+            dist/install-folium.sh
+            dist/checksums.txt
+          )
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" \
-              dist/docker-compose.yml dist/.env.example dist/checksums.txt --clobber
+            gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" --clobber
           else
             gh release create "${GITHUB_REF_NAME}" \
               --title "Folium v${VERSION}" \
               --generate-notes \
-              dist/docker-compose.yml dist/.env.example dist/checksums.txt
+              "${assets[@]}"
           fi

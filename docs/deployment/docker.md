@@ -47,4 +47,4 @@ Only the **api** entrypoint runs Alembic. Failures abort startup (`set -e`). Wor
 
 ## Publishing
 
-`.github/workflows/publish-images.yml` runs on `v*` tags: tests, amd64 build, compose smoke (`GET /health`), push to GHCR, upload Release assets (`docker-compose.yml`, `.env.example`, `checksums.txt`). Packages must be made **public** once (see [install](install.md)).
+`.github/workflows/publish-images.yml` runs on `v*` tags: tests, amd64 build, compose smoke (`GET /health`), push to GHCR, upload Release assets (`docker-compose.yml`, `env.example`, `default.env.example`, standalone `install-folium.sh`, `checksums.txt`). Packages must be made **public** once (see [install](install.md)).

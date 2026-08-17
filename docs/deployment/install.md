@@ -1,6 +1,6 @@
 # Install Folium (images)
 
-Primary install path: pull versioned images from GitHub Container Registry. You do **not** clone this repository or build Folium locally.
+**Primary path:** the [interactive installer](installer.md). This page is the manual Compose alternative.
 
 Requirements: Docker and Docker Compose on **linux/amd64**. ARM is unsupported.
 
@@ -23,10 +23,10 @@ cd folium
 
 curl -fsSL -o docker-compose.yml \
   https://github.com/brocxftw/folium/releases/latest/download/docker-compose.yml
-curl -fsSL -o .env.example \
-  https://github.com/brocxftw/folium/releases/latest/download/.env.example
+curl -fsSL -o env.example \
+  https://github.com/brocxftw/folium/releases/latest/download/env.example
 
-cp .env.example .env
+cp env.example .env
 ```
 
 Edit `.env`:
@@ -46,8 +46,8 @@ docker compose up -d
 ```
 
 UI: http://localhost:8080  
-API health: http://localhost:8000/health  
-OpenAPI: http://localhost:8000/docs
+Health (via nginx): http://localhost:8080/health  
+OpenAPI: http://localhost:8080/docs (or http://localhost:8000/docs if you publish port 8000)
 
 Bootstrap admin is created **only** when the users table is empty.
 

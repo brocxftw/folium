@@ -2,16 +2,16 @@
 
 ## Supported model
 
-Operators install **pre-built images** from GHCR. They download `docker-compose.yml` and `.env.example` from a GitHub Release — no git clone and no Folium image build.
+Operators typically run the [interactive installer](installer.md). The equivalent manual path is GitHub Release Compose + `env.example` — no git clone and no Folium image build.
 
 ```text
 download docker-compose.yml
-download .env.example
+download env.example
 configure .env
 docker compose up -d
 ```
 
-Step-by-step: [Install](install.md).
+Step-by-step: [Installer](installer.md) or [manual install](install.md).
 
 Postgres is pulled from Docker Hub (`pgvector/pgvector:pg17`). Folium `api`/`worker`/`web` are pulled from GHCR.
 
@@ -20,8 +20,8 @@ Postgres is pulled from Docker Hub (`pgvector/pgvector:pg17`). Folium `api`/`wor
 | URL | Service |
 |-----|---------|
 | http://localhost:8080 | UI |
-| http://localhost:8000/docs | OpenAPI |
-| http://localhost:8000/health | API liveness + version |
+| http://localhost:8080/health | API liveness + version (nginx proxy) |
+| http://localhost:8000/docs | OpenAPI (published by public Compose; installer leaves 8000 unpublished unless opted in) |
 
 First boot creates the bootstrap admin from `FOLIUM_ADMIN_USERNAME` / `FOLIUM_ADMIN_PASSWORD` if no users exist.
 
@@ -37,6 +37,7 @@ See [local development](../development/local-development.md).
 
 ## Further reading
 
+- [Installer](installer.md)
 - [Install](install.md)
 - [Upgrades](upgrades.md)
 - [Backup](backup.md)

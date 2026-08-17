@@ -4,6 +4,7 @@
 backend/          FastAPI application, Alembic, pytest
 frontend/         Vite React SPA
 docker/           Dockerfiles, nginx, backend entrypoint
+installer/        Whiptail TUI installer, bootstrap, `folium` CLI
 docs/             Engineering documentation (this tree)
 .github/          CI workflow only
 data/             Local bind-mount placeholders (gitignored content)
