@@ -89,25 +89,34 @@ Details: [`docs/backend/ai-and-rag.md`](docs/backend/ai-and-rag.md)
 
 ## Installation
 
-**Primary path:** pull images from GHCR. Do not clone the repository.
+**Primary path:** interactive installer (whiptail). Review the script, then run it:
+
+```bash
+curl -fsSL -o install-folium.sh \
+  https://github.com/brocxftw/folium/releases/latest/download/install-folium.sh
+less install-folium.sh
+bash install-folium.sh
+```
+
+This writes `/opt/folium`, pulls GHCR images, and installs `folium` (`status` / `start` / `stop` / `logs` / `doctor`). Guide: [`docs/deployment/installer.md`](docs/deployment/installer.md).
+
+Manual Compose (no TUI): [`docs/deployment/install.md`](docs/deployment/install.md)
 
 ```bash
 mkdir folium && cd folium
 curl -fsSL -o docker-compose.yml \
   https://github.com/brocxftw/folium/releases/latest/download/docker-compose.yml
-curl -fsSL -o .env.example \
-  https://github.com/brocxftw/folium/releases/latest/download/.env.example
-cp .env.example .env
+curl -fsSL -o env.example \
+  https://github.com/brocxftw/folium/releases/latest/download/env.example
+cp env.example .env
 # set FOLIUM_SECRET_KEY, FOLIUM_ENCRYPTION_KEY, POSTGRES_PASSWORD, FOLIUM_ADMIN_PASSWORD
 mkdir -p data/documents data/consume data/export data/paddleocr
 sudo chown -R 1000:1000 data/documents data/consume data/export data/paddleocr
 docker compose up -d
 ```
 
-Full guide: [`docs/deployment/install.md`](docs/deployment/install.md)
-
 UI: http://localhost:8080 — bootstrap admin from `.env` **on first start only**.  
-OpenAPI: http://localhost:8000/docs
+OpenAPI is proxied at http://localhost:8080/docs (port 8000 is unpublished unless you opt in).
 
 Locked out of every admin: `docker compose exec -it api folium reset-admin-password`
 
@@ -139,7 +148,7 @@ Vocabulary: [`ubiquitous-language.md`](ubiquitous-language.md)
 Host API + Vite, or Compose. See [`docs/development/local-development.md`](docs/development/local-development.md).
 
 ```bash
-make test          # backend pytest + frontend vitest/build
+make test          # backend pytest + frontend vitest/build + installer helpers
 ```
 
 ## Repository structure
@@ -148,6 +157,7 @@ make test          # backend pytest + frontend vitest/build
 backend/     FastAPI, worker, Alembic, tests
 frontend/    React SPA
 docker/      Dockerfiles, nginx
+installer/   Whiptail TUI, bootstrap, management CLI
 docs/        Architecture and operations
 ```
 

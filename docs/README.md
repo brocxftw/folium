@@ -49,7 +49,8 @@ CODE  →  docs/  →  README.md
 | Document | Description |
 |----------|-------------|
 | [Overview](deployment/overview.md) | Image-based Compose model |
-| [Install](deployment/install.md) | GHCR pull; no git clone |
+| [Installer](deployment/installer.md) | Whiptail TUI; GHCR pull or source build |
+| [Install](deployment/install.md) | Manual GHCR pull; no git clone |
 | [Upgrades](deployment/upgrades.md) | `compose pull` / rollback limits |
 | [Backup](deployment/backup.md) | Postgres volume, documents, `.env` |
 | [Docker](deployment/docker.md) | Services, images, entrypoints |

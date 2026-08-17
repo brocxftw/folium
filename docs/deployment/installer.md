@@ -1,0 +1,121 @@
+# Interactive installer
+
+Primary install path for operators. A [manual Compose install](install.md) remains supported.
+
+## Quick start
+
+Review the bootstrap script, then run it:
+
+```bash
+curl -fsSL -o install-folium.sh \
+  https://github.com/brocxftw/folium/releases/latest/download/install-folium.sh
+less install-folium.sh
+bash install-folium.sh
+```
+
+Do not treat `| bash` as the only option. Pin a release with `--version vX.Y.Z` if you do not want `releases/latest`.
+
+The bootstrap downloads `folium-installer.tar.gz` from the same GitHub Release, extracts it, and starts a **whiptail** TUI (`install.sh`).
+
+From a git checkout (contributors):
+
+```bash
+bash installer/install.sh
+```
+
+## What the installer does
+
+1. Checks linux/amd64, Docker, disk, and memory. ARM is a hard failure.
+2. Offers to install Docker Engine via `get.docker.com` only after confirmation.
+3. Detects an existing install and offers Reconfigure, Repair, or Exit. It never silently rewrites `.env`.
+4. Chooses **pre-built GHCR images** (default) or **build from source** (clones the selected tag into `INSTALL_DIR/src`).
+5. Pins a real `vX.Y.Z` release. It never stores `latest` as the installed version.
+6. Writes `/opt/folium` by default: Release `docker-compose.yml`, a small overlay (bind/port/`group_add` only), and `.env` (`chmod 600`).
+7. Publishes **only the UI port** (default 8080). Port 8000 is unpublished unless you opt in. Nginx already proxies `/api` and `/health`.
+8. Waits for `GET /health`, `/health/database`, `/health/storage`, and `/health/worker`. AI health is ignored.
+9. Installs `/usr/local/bin/folium` (`status`, `start`, `stop`, `restart`, `logs`, `doctor`). `update` and `uninstall` are stubs in v1.
+
+Secrets are generated with `openssl rand`. The bootstrap admin password is shown **once** on the success screen and is not written to the installer log (`/tmp/folium-install-*.log`).
+
+There is no timezone prompt. Folium timestamps are UTC.
+
+## Layout
+
+```text
+/opt/folium/
+  docker-compose.yml
+  docker-compose.override.yml
+  .env                    # mode 600
+  install-state.json      # no secrets
+  backups/
+  data/paddleocr/         # always local, even if documents are on NAS
+  installer/              # copy used by `folium doctor`
+```
+
+Paddle OCR cache is always under the install directory. Document/consume/export binds may be existing host paths, including NFS/CIFS mounts **already present**. The installer does not edit `/etc/fstab` and does not install NAS client packages.
+
+`FRONTEND_ORIGIN` must match the URL you open in a browser. If you use a reverse proxy, enter that public URL. The installer does not install Caddy or nginx on the host.
+
+## Management CLI
+
+```bash
+folium status
+folium start
+folium stop
+folium restart
+folium logs
+folium doctor
+```
+
+Override the install directory with `FOLIUM_INSTALL_DIR`. The CLI also reads `/etc/folium/install-dir`.
+
+## Non-interactive (automation / smoke)
+
+```bash
+FOLIUM_UI=none FOLIUM_NONINTERACTIVE=1 \
+  FOLIUM_VERSION=0.1.16 FOLIUM_VERSION_TAG=v0.1.16 \
+  FOLIUM_INSTALL_DIR=/tmp/folium-installer-smoke \
+  FOLIUM_BIND=127.0.0.1 FOLIUM_HTTP_PORT=18080 \
+  FOLIUM_COMPOSE_PROJECT=folium-installer-smoke \
+  FOLIUM_SKIP_CLI=1 \
+  FOLIUM_RELEASE_COMPOSE_FILE=/path/to/docker-compose.yml \
+  bash installer/install.sh --noninteractive
+```
+
+## Tests
+
+```bash
+bash installer/tests/run.sh
+# optional live smoke (throwaway project, non-8080 port):
+bash installer/tests/smoke.sh
+```
+
+CI runs ShellCheck and `installer/tests/run.sh`.
+
+### Manual matrix (not fully automated)
+
+| Case | Coverage |
+|------|----------|
+| Happy path, pre-built images, localhost:18080 | `smoke.sh` / operator TUI |
+| Existing install: Reconfigure / Repair / Exit | TUI on a host with `/opt/folium` |
+| Source build (`git clone` + `compose.source.yaml`) | Manual |
+| LAN bind `0.0.0.0` + detected IPv4 origin | Manual |
+| Reverse-proxy `FRONTEND_ORIGIN` only | Manual |
+| Existing NFS/CIFS binds + extra GID | Manual (no fstab edits) |
+| Occupied HTTP port | Installer aborts with `ss` / `docker` output |
+| Non-amd64 | Hard-fail in `system_check` (needs an ARM host) |
+| Docker missing → get.docker.com | Manual / VM |
+| Ctrl+C during TUI | Restores tty; does not delete data |
+
+A development host that already runs Folium on 8080/8000 must use another Compose project name and HTTP port for installer smokes.
+
+## Release assets
+
+Each `v*` GitHub Release includes:
+
+- `install-folium.sh` (bootstrap, copy of `installer/get.sh`)
+- `folium-installer.tar.gz`
+- `docker-compose.yml`
+- `env.example` (canonical env template)
+- `default.env.example` (compatibility alias; GitHub rejects a leading-dot `.env.example` asset name)
+- `checksums.txt`

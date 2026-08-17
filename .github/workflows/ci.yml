@@ -89,3 +89,17 @@ jobs:
           docker compose -f docker-compose.yml config
       - name: Validate development overlay
         run: docker compose -f docker-compose.yml -f compose.dev.yaml config
+
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck -x -P installer installer/install.sh installer/get.sh \
+            installer/folium-ctl.sh installer/lib/*.sh \
+            installer/tests/run.sh installer/tests/smoke.sh
+      - name: Installer helper tests
+        run: bash installer/tests/run.sh

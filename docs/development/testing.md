@@ -36,7 +36,17 @@ docker compose -f docker-compose.yml config
 docker compose -f docker-compose.yml -f compose.dev.yaml config
 ```
 
-CI validates Compose interpolation. Image publish workflow builds amd64 images and smokes `GET /health`.
+CI validates Compose interpolation and installer helpers (ShellCheck + `installer/tests/run.sh`). Image publish workflow builds amd64 images and smokes `GET /health`.
+
+## Installer
+
+```bash
+bash installer/tests/run.sh
+# optional throwaway Compose smoke (non-8080 port, dedicated project):
+bash installer/tests/smoke.sh
+```
+
+See [installer](../deployment/installer.md) for the manual matrix that is not fully automated.
 
 ## Gaps (Confirmed)
 

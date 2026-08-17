@@ -66,7 +66,7 @@ Public Compose uses `image:` tags on GHCR (`ghcr.io/brocxftw/folium-backend` and
 - Backend image copies `backend/src` at **build** time. Public Compose does **not** bind-mount source. `docker-compose.debug.yml` **does** mount `./backend/src` for live API/worker code.
 - Bind mounts for **data** (`./data/documents` etc.) are runtime, not source.
 
-Operators: download Release Compose + `.env.example` → `docker compose up -d`. Contributors: `docker compose -f docker-compose.yml -f compose.dev.yaml up --build -d`.
+Operators: [interactive installer](../deployment/installer.md), or download Release Compose + `env.example` → `docker compose up -d`. Contributors: `docker compose -f docker-compose.yml -f compose.dev.yaml up --build -d`.
 
 ---
 
