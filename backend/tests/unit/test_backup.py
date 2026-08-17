@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -205,6 +206,28 @@ def test_older_schema_is_compatible(monkeypatch: pytest.MonkeyPatch) -> None:
     ok, messages = check_version_compatibility(manifest)
     assert ok is True
     assert any("migrated" in msg for msg in messages)
+
+
+def test_copy_file_tolerates_utime_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from folium.backup.bundle import copy_file
+
+    src = tmp_path / "src.txt"
+    dest = tmp_path / "nested" / "dest.txt"
+    src.write_text("payload", encoding="utf-8")
+
+    real_copystat = shutil.copystat
+
+    def boom(source: str | Path, destination: str | Path, *, follow_symlinks: bool = True) -> None:
+        raise PermissionError(1, "Operation not permitted", str(destination))
+
+    monkeypatch.setattr(shutil, "copystat", boom)
+    copy_file(src, dest)
+    assert dest.read_text(encoding="utf-8") == "payload"
+
+    monkeypatch.setattr(shutil, "copystat", real_copystat)
+    dest2 = tmp_path / "nested" / "dest2.txt"
+    copy_file(src, dest2)
+    assert dest2.read_text(encoding="utf-8") == "payload"
 
 
 def test_corrupt_dump_rejected(tmp_path: Path) -> None:

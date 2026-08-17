@@ -15,6 +15,7 @@ from folium import __version__
 from folium.backup.bundle import (
     cleanup_staging,
     cleanup_temp_glob,
+    copy_file,
     create_bundle_archive,
     verify_checksums,
     write_checksums,
@@ -34,7 +35,6 @@ from folium.backup.verify import inspect_bundle_file
 from folium.core.config import get_settings
 from folium.core.exceptions import ValidationError
 from folium.core.logging import get_logger
-from folium.db.session import session_scope
 from folium.models import (
     BackupRecord,
     BackupRecordStatus,
@@ -176,16 +176,14 @@ async def run_backup_job(session: AsyncSession, job: Job) -> dict[str, Any]:
             if not src.is_file():
                 missing.append(key)
                 continue
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
+            copy_file(src, dest)
         for key in avatar_keys:
             src = settings.avatars_path / key
             dest = staging / "documents" / "avatars" / key
             if not src.is_file():
                 missing.append(key)
                 continue
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
+            copy_file(src, dest)
         if missing:
             raise RuntimeError(f"Missing {len(missing)} file(s) referenced by database")
         await touch_job_lock(session, job.id)
@@ -243,12 +241,12 @@ async def run_backup_job(session: AsyncSession, job: Job) -> dict[str, Any]:
         return {"filename": record.filename, "size_bytes": size}
     except Exception as exc:
         logger.exception("Backup failed for %s", record.filename)
-        async with session_scope() as fail_session:
-            failed = await fail_session.get(BackupRecord, record_id)
-            if failed is not None:
-                failed.status = BackupRecordStatus.FAILED
-                failed.error_message = str(exc)[:2000]
-                failed.progress_stage = "Failed"
+        # Commit failure on this session before re-raising. A nested session_scope
+        # deadlocks here: the outer transaction still holds the backup_records row.
+        record.status = BackupRecordStatus.FAILED
+        record.error_message = str(exc)[:2000]
+        record.progress_stage = "Failed"
+        await session.commit()
         raise
     finally:
         cleanup_staging(staging)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
 import subprocess
 import uuid
 from dataclasses import asdict, dataclass
@@ -14,7 +13,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from folium.backup.bundle import cleanup_staging, extract_bundle
+from folium.backup.bundle import cleanup_staging, copy_file, extract_bundle
 from folium.backup.dump import (
     _parse_sync_url,
     run_pg_dump,
@@ -176,16 +175,14 @@ async def execute_restore(
                     if src.is_file():
                         rel = src.relative_to(originals_root)
                         dest = settings.originals_path / rel
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dest)
+                        copy_file(src, dest)
             avatars_root = staging / "documents" / "avatars"
             if avatars_root.exists():
                 for src in avatars_root.rglob("*"):
                     if src.is_file():
                         rel = src.relative_to(avatars_root)
                         dest = settings.avatars_path / rel
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dest)
+                        copy_file(src, dest)
             _current.stage = RESTORE_STAGES[5]
             _write_state_file(_current)
             await _run_alembic_upgrade()
