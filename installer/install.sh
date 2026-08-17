@@ -37,10 +37,16 @@ FOLIUM_MODE="${FOLIUM_MODE:-install}"
 SHOW_ADMIN_PASSWORD=0
 
 on_interrupt() {
-  ui_gauge_stop 2>/dev/null || true
+  # Set the flag first so any UI retry loop stops immediately.
+  FOLIUM_INTERRUPTED=1
+  export FOLIUM_INTERRUPTED
+  # Avoid re-entering cleanup if a nested signal arrives.
+  trap '' INT TERM
+  ui_kill_whiptail_children 2>/dev/null || true
   ui_session_end 2>/dev/null || true
-  stty sane 2>/dev/null || true
-  printf '\nInstall cancelled. Existing data was not deleted.\n' >&2
+  stty sane </dev/tty 2>/dev/null || stty sane 2>/dev/null || true
+  printf '\nInstall cancelled. Existing data was not deleted.\n' >/dev/tty 2>/dev/null \
+    || printf '\nInstall cancelled. Existing data was not deleted.\n' >&2
   log_info "interrupted by signal"
   exit 130
 }
@@ -496,6 +502,9 @@ run_wizard() {
   FOLIUM_UI_CANCEL_LABEL="Back"
   FOLIUM_UI_OK_LABEL="OK"
   while true; do
+    if [[ "${FOLIUM_INTERRUPTED}" == "1" ]]; then
+      exit 130
+    fi
     rc=0
     wizard_dispatch "${step}" || rc=$?
     case "${rc}" in

@@ -44,7 +44,7 @@ bash installer/pack.sh /tmp/install-folium.sh
 
 Secrets are generated with `openssl rand`. The bootstrap admin password is shown **once** on the success screen and is not written to the installer log (`/tmp/folium-install-*.log`). The welcome screen shows the exact log path for that run.
 
-The TUI keeps a blue background between screens. Cancel is labeled **Back** and returns to the previous step. Ctrl+C is the only way to abort a dialog. Install progress (pull/build/start/health) is shown with a gauge; Compose output goes to the log file.
+The TUI keeps a blue screen behind a **grey** dialog card. Cancel is labeled **Back** and returns to the previous step. Ctrl+C cancels immediately (restores the terminal; existing data is not deleted). Install progress (pull/build/start/health) is shown with a gauge; Compose output goes to the log file.
 
 There is no timezone prompt. Folium timestamps are UTC.
 

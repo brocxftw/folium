@@ -11,6 +11,7 @@ FOLIUM_UI_OK_LABEL="OK"
 FOLIUM_UI_CANCEL_LABEL="Back"
 FOLIUM_GAUGE_FD=""
 FOLIUM_GAUGE_PID=""
+FOLIUM_INTERRUPTED=0
 
 # Wizard: 0 = next/ok, 2 = previous screen. Ctrl+C is the only abort from a dialog.
 UI_OK=0
@@ -52,13 +53,67 @@ ui_paint_bg() {
 ui_session_start() {
   ui_is_tui || return 0
   FOLIUM_UI_ACTIVE=1
-  export NEWT_COLORS="${NEWT_COLORS:-root=white,blue;border=white,blue;window=white,blue;title=white,blue;textbox=white,blue;entry=white,blue;listbox=white,blue;actlistbox=black,cyan;button=black,cyan;actbutton=white,blue;compactbutton=white,blue}"
+  FOLIUM_INTERRUPTED=0
+  # Root screen stays blue; the dialog card itself is grey.
+  export NEWT_COLORS="${NEWT_COLORS:-
+root=white,blue
+roottext=white,blue
+border=black,lightgray
+window=black,lightgray
+shadow=black,gray
+title=black,lightgray
+textbox=black,lightgray
+entry=black,lightgray
+listbox=black,lightgray
+actsellistbox=white,blue
+actlistbox=black,cyan
+label=black,lightgray
+button=black,cyan
+actbutton=white,blue
+compactbutton=black,lightgray
+helpline=white,blue
+emptyscale=,gray
+fullscale=,cyan
+}"
   ui_paint_bg
 }
 
+ui_kill_whiptail_children() {
+  local pid
+  if [[ -n "${FOLIUM_GAUGE_PID:-}" ]]; then
+    kill -TERM "${FOLIUM_GAUGE_PID}" 2>/dev/null || true
+    kill -KILL "${FOLIUM_GAUGE_PID}" 2>/dev/null || true
+  fi
+  for pid in $(pgrep -P "$$" -x whiptail 2>/dev/null || true); do
+    kill -TERM "${pid}" 2>/dev/null || true
+    kill -KILL "${pid}" 2>/dev/null || true
+  done
+}
+
+ui_check_interrupted() {
+  if [[ "${FOLIUM_INTERRUPTED}" == "1" ]]; then
+    return 130
+  fi
+  return 0
+}
+
 ui_session_end() {
-  [[ "${FOLIUM_UI_ACTIVE}" == "1" ]] || return 0
-  ui_gauge_stop || true
+  [[ "${FOLIUM_UI_ACTIVE}" == "1" || -n "${FOLIUM_GAUGE_PID:-}" || -n "${FOLIUM_GAUGE_FD:-}" ]] || return 0
+  ui_kill_whiptail_children
+  if [[ -n "${FOLIUM_GAUGE_FD}" ]]; then
+    exec {FOLIUM_GAUGE_FD}>&- 2>/dev/null || true
+    FOLIUM_GAUGE_FD=""
+  fi
+  if [[ -n "${FOLIUM_GAUGE_PID}" ]]; then
+    local _
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      kill -0 "${FOLIUM_GAUGE_PID}" 2>/dev/null || break
+      sleep 0.05
+    done
+    kill -KILL "${FOLIUM_GAUGE_PID}" 2>/dev/null || true
+    wait "${FOLIUM_GAUGE_PID}" 2>/dev/null || true
+    FOLIUM_GAUGE_PID=""
+  fi
   FOLIUM_UI_ACTIVE=0
   ui_is_tui || return 0
   {
@@ -70,11 +125,13 @@ ui_session_end() {
       printf '\033[0m\033[?25h\033[2J\033[H'
     fi
   } >/dev/tty 2>/dev/null || true
+  stty sane </dev/tty 2>/dev/null || stty sane 2>/dev/null || true
 }
 
 _ui_whiptail() {
   local -a extra=()
   local rc=0
+  ui_check_interrupted || return 130
   ui_paint_bg
   if [[ "${FOLIUM_UI_NOCANCEL}" == "1" ]]; then
     extra+=(--nocancel --ok-button "${FOLIUM_UI_OK_LABEL}")
@@ -86,6 +143,9 @@ _ui_whiptail() {
   rc=$?
   set -e
   ui_paint_bg
+  if [[ "${FOLIUM_INTERRUPTED}" == "1" ]]; then
+    return 130
+  fi
   return "${rc}"
 }
 
@@ -98,23 +158,30 @@ _ui_run() {
     return 0
   fi
   while true; do
+    ui_check_interrupted || return 130
     set +e
     "$@"
     rc=$?
     set -e
+    if [[ "${FOLIUM_INTERRUPTED}" == "1" || "${rc}" -eq 130 ]]; then
+      return 130
+    fi
     case "${rc}" in
       0) return "${UI_OK}" ;;
       1)
         if [[ "${allow_back}" == "1" ]]; then
           return "${UI_BACK}"
         fi
+        # --nocancel: ESC re-shows; Ctrl+C is handled via FOLIUM_INTERRUPTED.
         ;;
-      130) return 130 ;;
-      *)
-        # Reject ESC/unknown codes on --nocancel screens by re-displaying.
-        if [[ "${allow_back}" == "1" && "${rc}" -eq 255 ]]; then
+      255)
+        if [[ "${allow_back}" == "1" ]]; then
           return "${UI_BACK}"
         fi
+        ;;
+      *)
+        # Unknown status: do not spin forever.
+        return 130
         ;;
     esac
   done
@@ -131,7 +198,10 @@ ui_msgbox() {
   FOLIUM_UI_NOCANCEL=1
   FOLIUM_UI_OK_LABEL="OK"
   _ui_run 0 _ui_whiptail --msgbox "${text}" "${FOLIUM_UI_HEIGHT}" "${FOLIUM_UI_WIDTH}"
+  local rc=$?
   FOLIUM_UI_NOCANCEL="${saved}"
+  [[ "${rc}" -eq 130 ]] && return 130
+  return 0
 }
 
 ui_yesno() {
@@ -151,6 +221,9 @@ ui_yesno() {
   FOLIUM_UI_NOCANCEL="${saved}"
   FOLIUM_UI_OK_LABEL="OK"
   ui_paint_bg
+  if [[ "${FOLIUM_INTERRUPTED}" == "1" || "${rc}" -eq 130 ]]; then
+    return 130
+  fi
   [[ "${rc}" -eq 0 ]]
 }
 
@@ -171,11 +244,15 @@ ui_menu() {
     allow_back=0
   fi
   while true; do
+    ui_check_interrupted || return 130
     set +e
     result="$(_ui_whiptail --menu "${text}" "${FOLIUM_UI_HEIGHT}" "${FOLIUM_UI_WIDTH}" 8 "$@" 3>&1 1>&2 2>&3)"
     rc=$?
     set -e
     ui_paint_bg
+    if [[ "${FOLIUM_INTERRUPTED}" == "1" || "${rc}" -eq 130 ]]; then
+      return 130
+    fi
     case "${rc}" in
       0)
         printf '%s' "${result}"
@@ -186,7 +263,9 @@ ui_menu() {
           return "${UI_BACK}"
         fi
         ;;
-      130) return 130 ;;
+      *)
+        return 130
+        ;;
     esac
   done
 }
@@ -208,11 +287,15 @@ ui_input() {
     allow_back=0
   fi
   while true; do
+    ui_check_interrupted || return 130
     set +e
     result="$(_ui_whiptail --inputbox "${text}" "${FOLIUM_UI_HEIGHT}" "${FOLIUM_UI_WIDTH}" "${default}" 3>&1 1>&2 2>&3)"
     rc=$?
     set -e
     ui_paint_bg
+    if [[ "${FOLIUM_INTERRUPTED}" == "1" || "${rc}" -eq 130 ]]; then
+      return 130
+    fi
     case "${rc}" in
       0)
         printf '%s' "${result}"
@@ -223,7 +306,9 @@ ui_input() {
           return "${UI_BACK}"
         fi
         ;;
-      130) return 130 ;;
+      *)
+        return 130
+        ;;
     esac
   done
 }
@@ -237,18 +322,22 @@ ui_password() {
     return "${UI_OK}"
   fi
   while true; do
+    ui_check_interrupted || return 130
     set +e
     result="$(_ui_whiptail --passwordbox "${text}" 10 "${FOLIUM_UI_WIDTH}" 3>&1 1>&2 2>&3)"
     rc=$?
     set -e
     ui_paint_bg
+    if [[ "${FOLIUM_INTERRUPTED}" == "1" || "${rc}" -eq 130 ]]; then
+      return 130
+    fi
     case "${rc}" in
       0)
         printf '%s' "${result}"
         return "${UI_OK}"
         ;;
       1|255) return "${UI_BACK}" ;;
-      130) return 130 ;;
+      *) return 130 ;;
     esac
   done
 }
@@ -272,10 +361,12 @@ ui_textbox_file() {
   rc=$?
   set -e
   ui_paint_bg
+  if [[ "${FOLIUM_INTERRUPTED}" == "1" || "${rc}" -eq 130 ]]; then
+    return 130
+  fi
   case "${rc}" in
     0) return "${UI_OK}" ;;
     1|255) return "${UI_BACK}" ;;
-    130) return 130 ;;
     *) return "${UI_OK}" ;;
   esac
 }
@@ -305,8 +396,7 @@ ui_gauge_start() {
   fifo="$(mktemp -u /tmp/folium-gauge-XXXXXX)"
   mkfifo "${fifo}"
   ui_paint_bg
-  # Do not use _ui_whiptail here: button flags break --gauge, and FOLIUM_UI_GAUGE
-  # would race if cleared in the parent before the background function runs.
+  # Do not use _ui_whiptail here: button flags break --gauge.
   whiptail --backtitle "Folium" --title "${FOLIUM_UI_TITLE}" \
     --gauge "${text}" 8 "${FOLIUM_UI_WIDTH}" 0 <"${fifo}" &
   FOLIUM_GAUGE_PID=$!
@@ -327,10 +417,21 @@ ui_gauge_update() {
 
 ui_gauge_stop() {
   if [[ -n "${FOLIUM_GAUGE_FD}" ]]; then
-    exec {FOLIUM_GAUGE_FD}>&- || true
+    exec {FOLIUM_GAUGE_FD}>&- 2>/dev/null || true
     FOLIUM_GAUGE_FD=""
   fi
   if [[ -n "${FOLIUM_GAUGE_PID}" ]]; then
+    local _
+    # Prefer a clean exit; never block forever on Ctrl+C paths.
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      kill -0 "${FOLIUM_GAUGE_PID}" 2>/dev/null || break
+      sleep 0.05
+    done
+    if kill -0 "${FOLIUM_GAUGE_PID}" 2>/dev/null; then
+      kill -TERM "${FOLIUM_GAUGE_PID}" 2>/dev/null || true
+      sleep 0.05
+      kill -KILL "${FOLIUM_GAUGE_PID}" 2>/dev/null || true
+    fi
     wait "${FOLIUM_GAUGE_PID}" 2>/dev/null || true
     FOLIUM_GAUGE_PID=""
   fi
