@@ -37,7 +37,7 @@ bash installer/pack.sh /tmp/install-folium.sh
 3. Detects an existing install and offers **Update** (pull a pinned release image), Reconfigure, Repair, or Exit. It never silently rewrites `.env` secrets.
 4. Chooses **pre-built GHCR images** (default) or **build from source** (clones the selected tag into `INSTALL_DIR/src`).
 5. Pins a real `vX.Y.Z` release. It never stores `latest` as the installed version.
-6. Writes `/opt/folium` by default: Release `docker-compose.yml`, a small overlay (bind/port/`group_add` only), and `.env` (`chmod 600`).
+6. Writes `/opt/folium` by default: Release `docker-compose.yml`, a small overlay (bind/port/`group_add` only), and `.env` (`chmod 600`). Backup files go to `$INSTALL_DIR/data/backups` (not the installer config snapshot folder).
 7. Publishes **only the UI port** (default 8080). Port 8000 is unpublished unless you opt in. Nginx already proxies `/api` and `/health`.
 8. Waits for `GET /health`, `/health/database`, `/health/storage`, and `/health/worker`. AI health is ignored.
 9. Installs `/usr/local/bin/folium` (`status`, `start`, `stop`, `restart`, `logs`, `doctor`). `update` and `uninstall` are stubs in v1.
@@ -56,7 +56,8 @@ There is no timezone prompt. Folium timestamps are UTC.
   docker-compose.override.yml
   .env                    # mode 600
   install-state.json      # no secrets
-  backups/
+  backups/                # installer config snapshots only — not Folium bundles
+  data/backups/           # default host bind for /backups (.folium bundles)
   data/paddleocr/         # always local, even if documents are on NAS
   installer/              # packed `folium` CLI (or modular copy from a git install)
 ```

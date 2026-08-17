@@ -10,7 +10,7 @@ Global chrome: dark **top navbar** (72px), white main canvas, account/settings, 
 | `/documents` | Library |
 | `/trash` | Trash |
 
-Settings is a gear icon on the right of the navbar → `/settings`, not a primary nav item. Version string shows under the wordmark when health returns `version`.
+Settings is a gear icon on the right of the navbar → `/settings`, not a primary nav item. Admin Settings includes **Backup & Restore**. Version string shows under the wordmark when health returns `version`.
 
 **Not present as primary nav:** Ask, Search, Jobs (routes still exist for deep links and in-page actions). Shared with me, Activity feed, Starred (**planned** in ubiquitous language only).
 

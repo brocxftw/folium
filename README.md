@@ -166,6 +166,7 @@ docs/        Architecture and operations
 - GHCR images are **linux/amd64**; ARM is untested ([`production-readiness.md`](docs/deployment/production-readiness.md))
 - Packages must be **public** on GHCR after the first publish (one-time maintainer step)
 - `/export` is mounted but unused for document export
+- Backup V1 is full local `.folium` bundles only (no incremental/cloud/browser upload)
 - No SMTP; password reset is admin-approved
 - No browser end-to-end test suite
 - `classification` job type exists without a handler

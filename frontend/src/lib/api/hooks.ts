@@ -64,6 +64,12 @@ import type {
   UserUsage,
   Invite,
   PasswordResetRequest,
+  BackupSettings,
+  BackupSettingsUpdate,
+  BackupRecord,
+  BackupInspect,
+  BackupRestoreStatus,
+  BootstrapStatus,
 } from "./types";
 
 // ---- Query keys ----
@@ -99,6 +105,11 @@ export const queryKeys = {
   inboxOverview: ["inbox-overview"] as const,
   inboxActivity: (params: InboxActivityParams) => ["inbox-activity", params] as const,
   libraryOverview: ["library-overview"] as const,
+  backupSettings: ["backups", "settings"] as const,
+  backups: ["backups"] as const,
+  backupRestoreStatus: ["backups", "restore-status"] as const,
+  bootstrapStatus: ["bootstrap", "status"] as const,
+  bootstrapBackups: ["bootstrap", "backups"] as const,
 };
 
 // ---- Auth ----
@@ -1222,5 +1233,131 @@ export function useInboxCount() {
       return result.total;
     },
     staleTime: 30_000,
+  });
+}
+
+export function useBootstrapStatus() {
+  return useQuery({
+    queryKey: queryKeys.bootstrapStatus,
+    queryFn: () => api.get<BootstrapStatus>("/api/bootstrap/status"),
+    retry: 1,
+    staleTime: 5_000,
+    refetchInterval: (query) => {
+      const state = query.state.data?.instance_state;
+      return state && state !== "ready" ? 2000 : false;
+    },
+  });
+}
+
+export function useBootstrapBackups(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.bootstrapBackups,
+    queryFn: () => api.get<BackupRecord[]>("/api/bootstrap/backups"),
+    enabled,
+  });
+}
+
+export function useBootstrapSetup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<BootstrapStatus>("/api/bootstrap/setup"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.bootstrapStatus }),
+  });
+}
+
+export function useBootstrapInspect() {
+  return useMutation({
+    mutationFn: (filename: string) =>
+      api.post<BackupInspect>("/api/bootstrap/backups/inspect", { filename }),
+  });
+}
+
+export function useBootstrapRestore() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (filename: string) =>
+      api.post<{ status: string; stage: string }>("/api/bootstrap/restore", {
+        filename,
+        confirm: true,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.bootstrapStatus }),
+  });
+}
+
+export function useBackupSettings() {
+  return useQuery({
+    queryKey: queryKeys.backupSettings,
+    queryFn: () => api.get<BackupSettings>("/api/backups/settings"),
+  });
+}
+
+export function useUpdateBackupSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: BackupSettingsUpdate) =>
+      api.patch<BackupSettings>("/api/backups/settings", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.backupSettings }),
+  });
+}
+
+export function useBackups(options?: { refetchInterval?: number | false }) {
+  return useQuery({
+    queryKey: queryKeys.backups,
+    queryFn: () => api.get<BackupRecord[]>("/api/backups"),
+    refetchInterval: options?.refetchInterval,
+  });
+}
+
+export function useCreateBackup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<BackupRecord>("/api/backups"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.backups });
+      qc.invalidateQueries({ queryKey: queryKeys.backupSettings });
+    },
+  });
+}
+
+export function useVerifyBackup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<BackupRecord>(`/api/backups/${id}/verify`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.backups }),
+  });
+}
+
+export function useDeleteBackup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/api/backups/${id}`, { confirm: true }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.backups }),
+  });
+}
+
+export function useInspectBackup() {
+  return useMutation({
+    mutationFn: (id: string) => api.get<BackupInspect>(`/api/backups/${id}/inspect`),
+  });
+}
+
+export function useRestoreBackup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<BackupRestoreStatus>(`/api/backups/${id}/restore`, { confirm: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.backupRestoreStatus });
+      qc.invalidateQueries({ queryKey: queryKeys.backups });
+    },
+  });
+}
+
+export function useBackupRestoreStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.backupRestoreStatus,
+    queryFn: () => api.get<BackupRestoreStatus>("/api/backups/restore/status"),
+    enabled,
+    refetchInterval: enabled ? 2000 : false,
   });
 }

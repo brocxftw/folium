@@ -866,6 +866,7 @@ export interface Suggestion {
 export interface Health {
   status: string;
   version: string;
+  instance_state?: string;
 }
 
 export interface StorageHealth {
@@ -889,4 +890,78 @@ export interface TestConnectionResult {
   latency_ms: number;
   model_count: number | null;
   tested_at: string;
+}
+
+export interface BackupRepositoryHealth {
+  configured: boolean;
+  exists: boolean;
+  readable: boolean;
+  writable: boolean;
+  path: string;
+  free_bytes: number | null;
+  message: string;
+}
+
+export interface BackupSettings {
+  enabled: boolean;
+  schedule_type: "daily" | "weekly" | "interval_hours";
+  backup_time: string;
+  weekday: number | null;
+  interval_hours: number | null;
+  repository_subdir: string;
+  retention_count: number;
+  verify_after_backup: boolean;
+  last_success_at: string | null;
+  next_run_at: string | null;
+  repository: BackupRepositoryHealth;
+}
+
+export interface BackupSettingsUpdate {
+  enabled?: boolean;
+  schedule_type?: "daily" | "weekly" | "interval_hours";
+  backup_time?: string;
+  weekday?: number | null;
+  interval_hours?: number | null;
+  repository_subdir?: string;
+  retention_count?: number;
+  verify_after_backup?: boolean;
+}
+
+export interface BackupRecord {
+  id: UUID | null;
+  filename: string;
+  relative_key: string;
+  created_at: string | null;
+  completed_at: string | null;
+  size_bytes: number | null;
+  document_count: number | null;
+  folium_version: string | null;
+  schema_version: string | null;
+  format_version: number | null;
+  status: string;
+  verification_status: string;
+  verified_at: string | null;
+  error_message: string | null;
+  progress_stage: string | null;
+}
+
+export interface BackupInspect {
+  manifest: Record<string, unknown>;
+  verification_status: string;
+  compatible: boolean;
+  messages: string[];
+}
+
+export interface BackupRestoreStatus {
+  active: boolean;
+  stage: string;
+  filename: string | null;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface BootstrapStatus {
+  instance_state: string;
+  ready: boolean;
 }

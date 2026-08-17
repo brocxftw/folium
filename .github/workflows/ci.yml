@@ -49,9 +49,12 @@ jobs:
           DOCUMENTS_PATH: /tmp/folium-ci/documents
           CONSUME_PATH: /tmp/folium-ci/consume
           EXPORT_PATH: /tmp/folium-ci/export
+          BACKUPS_PATH: /tmp/folium-ci/backups
           FRONTEND_ORIGIN: http://test
         run: |
-          mkdir -p /tmp/folium-ci/{documents,consume,export}
+          mkdir -p /tmp/folium-ci/{documents,consume,export,backups}
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17 || sudo apt-get install -y --no-install-recommends postgresql-client
           docker run --rm --network host -e PGPASSWORD=folium pgvector/pgvector:pg17 \
             bash -c "psql -h localhost -p 5433 -U folium -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='folium_test'\" | grep -q 1 || psql -h localhost -p 5433 -U folium -d postgres -c \"CREATE DATABASE folium_test OWNER folium;\""
           .venv/bin/alembic upgrade head

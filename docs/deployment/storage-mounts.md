@@ -9,6 +9,7 @@ Folium does **not** mount NFS. Mount on the host, then bind-mount.
 | `${FOLIUM_DOCUMENTS_HOST:-./data/documents}` | `/documents` | Originals, thumbnails, previews, avatars | Local disk or **host-mounted** NFS |
 | `${FOLIUM_CONSUME_HOST:-./data/consume}` | `/consume` | Watched ingest | Same as documents or dedicated share |
 | `${FOLIUM_EXPORT_HOST:-./data/export}` | `/export` | Reserved export dir (health only today) | Same family as documents |
+| `${FOLIUM_BACKUPS_HOST:-./data/backups}` | `/backups` | Folium backup bundles (`.folium`) | Local disk or **host-mounted** NFS/CIFS |
 | `${FOLIUM_PADDLE_CACHE_HOST:-./data/paddleocr}` | `/app/.paddleocr` | OCR model cache | Local disk (not required on NFS) |
 | `folium_pgdata` | `/var/lib/postgresql/data` | Database | **Local Docker volume only — not NFS** |
 

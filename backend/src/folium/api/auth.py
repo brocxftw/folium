@@ -30,7 +30,8 @@ from folium.auth.deps import CurrentSession, CurrentUser, SafeSession
 from folium.core.config import get_settings
 from folium.core.exceptions import AuthError, NotFoundError
 from folium.db.session import get_db
-from folium.models import Session, User
+from folium.models import InstanceState, Session, User
+from folium.services import instance_state as instance_state_service
 from folium.services import users as user_service
 from folium.storage.service import StorageService
 
@@ -115,6 +116,9 @@ async def register(
     response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SessionOut:
+    state = await instance_state_service.get_instance_state(db)
+    if state == InstanceState.UNINITIALISED:
+        raise AuthError("Registration is unavailable until Folium setup completes")
     user = await user_service.register_user(
         db,
         username=body.username,

@@ -64,6 +64,7 @@ class StorageService:
             self.settings.avatars_path,
             self.settings.consume_path,
             self.settings.export_path,
+            self.settings.backups_path,
         ):
             try:
                 self._ensure_writable(path)

@@ -68,6 +68,8 @@ CRUD under `/api/folders`, `/api/tags`, `/api/document-types`, `/api/corresponde
 - Logs: `/api/logs`, `/export`, `DELETE`
 - Library stats: `/api/library/overview`, reset
 - About: `/api/about`
+- Backup & restore (admin): `/api/backups*`
+- First-run bootstrap (uninitialised only): `/api/bootstrap*`
 - Health (unauthenticated): `/health`, `/health/database`, `/health/storage`
 
 ---

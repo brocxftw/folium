@@ -788,6 +788,94 @@ class SuggestionOut(ORMModel):
 class HealthOut(BaseModel):
     status: str
     version: str = "0.1.0"
+    instance_state: str = "ready"
+
+
+class BackupRepositoryHealthOut(BaseModel):
+    configured: bool
+    exists: bool
+    readable: bool
+    writable: bool
+    path: str
+    free_bytes: int | None
+    message: str
+
+
+class BackupSettingsOut(BaseModel):
+    enabled: bool
+    schedule_type: str
+    backup_time: str
+    weekday: int | None
+    interval_hours: int | None
+    repository_subdir: str
+    retention_count: int
+    verify_after_backup: bool
+    last_success_at: datetime | None
+    next_run_at: datetime | None
+    repository: BackupRepositoryHealthOut
+
+
+class BackupSettingsUpdate(BaseModel):
+    enabled: bool | None = None
+    schedule_type: str | None = None
+    backup_time: str | None = None
+    weekday: int | None = None
+    interval_hours: int | None = None
+    repository_subdir: str | None = None
+    retention_count: int | None = Field(default=None, ge=1, le=365)
+    verify_after_backup: bool | None = None
+
+
+class BackupRecordOut(BaseModel):
+    id: UUID | None = None
+    filename: str
+    relative_key: str
+    created_at: datetime | None = None
+    completed_at: datetime | None = None
+    size_bytes: int | None = None
+    document_count: int | None = None
+    folium_version: str | None = None
+    schema_version: str | None = None
+    format_version: int | None = None
+    status: str
+    verification_status: str
+    verified_at: datetime | None = None
+    error_message: str | None = None
+    progress_stage: str | None = None
+
+
+class BackupInspectOut(BaseModel):
+    manifest: dict[str, Any]
+    verification_status: str
+    compatible: bool
+    messages: list[str]
+
+
+class BackupConfirmIn(BaseModel):
+    confirm: bool = False
+
+
+class BackupRestoreStatusOut(BaseModel):
+    active: bool
+    stage: str
+    filename: str | None
+    error: str | None
+    started_at: str | None
+    completed_at: str | None
+
+
+class BootstrapStatusOut(BaseModel):
+    instance_state: str
+    ready: bool
+
+
+class BootstrapRestoreIn(BaseModel):
+    filename: str
+    confirm: bool = False
+
+
+class BootstrapInspectIn(BaseModel):
+    filename: str
 
 
 class WorkerHealthOut(BaseModel):

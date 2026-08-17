@@ -12,7 +12,9 @@ from folium.ai.health import HEALTH_PROBE_INTERVAL_SECONDS, probe_assigned_provi
 from folium.core.config import get_settings
 from folium.core.logging import get_logger, setup_logging
 from folium.db.session import session_scope
-from folium.models import AppSetting
+from folium.models import AppSetting, InstanceState
+from folium.services import backup as backup_service
+from folium.services import instance_state as instance_state_service
 from folium.services import jobs as job_service
 from folium.storage.service import StorageService
 from folium.workers.healthcheck import WORKER_HEARTBEAT_KEY
@@ -25,7 +27,15 @@ def worker_id() -> str:
     return f"{socket.gethostname()}-{os.getpid()}"
 
 
+async def _instance_is_ready() -> bool:
+    async with session_scope() as session:
+        state = await instance_state_service.get_instance_state(session)
+        return state == InstanceState.READY
+
+
 async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
+    if not await _instance_is_ready():
+        return
     settings = get_settings()
     async with session_scope() as session:
         await job_service.requeue_stale_running(
@@ -157,6 +167,8 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
 
 
 async def _poll_consume(stability_wait: float) -> None:
+    if not await _instance_is_ready():
+        return
     storage = StorageService()
     files = storage.list_consume_files()
     if not files:
@@ -180,6 +192,8 @@ async def _poll_consume(stability_wait: float) -> None:
 
 async def _poll_trash_purge(last_run: list[float]) -> None:
     """Periodically purge trash older than the retention window."""
+    if not await _instance_is_ready():
+        return
     import time as time_mod
 
     settings = get_settings()
@@ -205,6 +219,34 @@ async def _poll_trash_purge(last_run: list[float]) -> None:
             )
     except Exception as exc:
         logger.exception("Trash purge failed: %s", exc)
+
+
+async def _poll_backup_schedule(last_run: list[float]) -> None:
+    import time as time_mod
+
+    if not await _instance_is_ready():
+        return
+    now_mono = time_mod.monotonic()
+    if last_run[0] and now_mono - last_run[0] < 30.0:
+        return
+    last_run[0] = now_mono
+    try:
+        from folium.backup.schedule import next_run_after
+
+        async with session_scope() as session:
+            policy = await backup_service.get_or_create_settings(session)
+            if not policy.enabled or policy.next_run_at is None:
+                return
+            now = datetime.now(UTC)
+            if now < policy.next_run_at:
+                return
+            if await backup_service.has_active_backup_job(session):
+                policy.next_run_at = next_run_after(policy, now)
+                return
+            await backup_service.create_backup_record(session, manual=False)
+            policy.next_run_at = next_run_after(policy, now)
+    except Exception as exc:
+        logger.exception("Backup schedule failed: %s", exc)
 
 
 async def _poll_ai_health(last_run: list[float], in_flight: list[asyncio.Task | None]) -> None:
@@ -265,6 +307,7 @@ async def worker_loop() -> None:
     wid = worker_id()
     sem = asyncio.Semaphore(settings.job_concurrency)
     last_purge: list[float] = [0.0]
+    last_backup: list[float] = [0.0]
     last_ai_health: list[float] = [0.0]
     ai_health_task: list[asyncio.Task | None] = [None]
     logger.info("Worker %s started (concurrency=%s)", wid, settings.job_concurrency)
@@ -280,6 +323,7 @@ async def worker_loop() -> None:
         logger.info(
             "Cancelled %s job(s) for trashed documents on startup", cancelled_trashed
         )
+    backup_service.startup_cleanup()
 
     stop_liveness = asyncio.Event()
     liveness_task = asyncio.create_task(_liveness_heartbeat(wid, stop_liveness))
@@ -291,6 +335,7 @@ async def worker_loop() -> None:
                 _poll_jobs(wid, sem),
                 _poll_consume(settings.consume_poll_interval_seconds),
                 _poll_trash_purge(last_purge),
+                _poll_backup_schedule(last_backup),
             ]
             await asyncio.gather(*tasks)
             await asyncio.sleep(settings.job_poll_interval_seconds)

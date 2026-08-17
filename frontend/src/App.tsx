@@ -22,8 +22,10 @@ import { SystemPage } from "@/features/settings/SystemPage";
 import { LogsPage } from "@/features/settings/LogsPage";
 import { LibraryPage } from "@/features/settings/LibraryPage";
 import { AboutPage } from "@/features/settings/AboutPage";
+import { BackupRestorePage } from "@/features/settings/BackupRestorePage";
 import { TrashPage } from "@/features/trash/TrashPage";
 import { NotFoundPage } from "@/features/not-found/NotFoundPage";
+import { SetupPage } from "@/features/auth/SetupPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +42,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<GuestGuard />}>
+            <Route path="/setup" element={<SetupPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -72,6 +75,7 @@ export default function App() {
               <Route path="profile/users" element={<UsersSettingsPage />} />
               <Route path="artificial-intelligence" element={<AdminSettingsGuard><ArtificialIntelligencePage /></AdminSettingsGuard>} />
               <Route path="library" element={<LibraryPage />} />
+              <Route path="backup" element={<AdminSettingsGuard><BackupRestorePage /></AdminSettingsGuard>} />
               <Route path="system" element={<AdminSettingsGuard><SystemPage /></AdminSettingsGuard>} />
               <Route path="logs" element={<AdminSettingsGuard><LogsPage /></AdminSettingsGuard>} />
               <Route path="about" element={<AboutPage />} />

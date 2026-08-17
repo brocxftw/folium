@@ -10,7 +10,7 @@ User-facing surfaces by purpose. Routes from `App.tsx`.
 | **Ask** `/ask` | Standalone Ask entry | Opens AI drawer (library or search scope from `q`) | `POST /api/ask` | Local drawer; **no** conversation persistence |
 | **Jobs** `/jobs` | Background work visibility | List, cancel | `/api/jobs*` | Status filter |
 | **Trash** `/trash` | Soft-deleted items | Restore, purge, empty | `/api/trash*`, document restore/delete | Retention copy from settings |
-| **Settings** `/settings/*` | Profile, AI, library stats, system, logs, about | See below | `/api/auth/me`, `/api/ai/*`, `/api/library/*`, `/api/system/*`, `/api/logs*`, `/api/users*`, `/api/about` | Nested nav; admin guards |
+| **Settings** `/settings/*` | Profile, AI, library stats, backup, system, logs, about | See below | `/api/auth/me`, `/api/ai/*`, `/api/library/*`, `/api/backups*`, `/api/system/*`, `/api/logs*`, `/api/users*`, `/api/about` | Nested nav; admin guards |
 
 ## Settings sections
 
@@ -19,6 +19,7 @@ User-facing surfaces by purpose. Routes from `App.tsx`.
 | Profile | All | Password, avatar, sessions; Users nested at `profile/users` (admin) |
 | Artificial Intelligence | Admin | Providers, policy, profiles/advanced |
 | Library | All | Stats / health-ish metrics; reset counters |
+| Backup & Restore | Admin | Manual/scheduled backups, history, restore |
 | System | Admin | Process/container-visible facts, storage paths |
 | Logs | Admin | Filter, CSV export, clear |
 | About | All | Version and optional repo links |

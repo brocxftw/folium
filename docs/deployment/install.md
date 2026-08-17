@@ -38,9 +38,9 @@ Edit `.env`:
 5. Host bind paths if you do not want `./data/...`
 
 ```bash
-mkdir -p data/documents data/consume data/export data/paddleocr
+mkdir -p data/documents data/consume data/export data/backups data/paddleocr
 # containers run as UID 1000
-sudo chown -R 1000:1000 data/documents data/consume data/export data/paddleocr
+sudo chown -R 1000:1000 data/documents data/consume data/export data/backups data/paddleocr
 
 docker compose up -d
 ```

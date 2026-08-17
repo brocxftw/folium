@@ -544,6 +544,18 @@ Terms marked *planned* are intentionally absent from the product until schema/AP
 **Also:** `/export`  
 **Means:** Export destination mount.
 
+### Backup
+**Also:** `.folium` bundle  
+**Means:** A versioned recoverable snapshot of Folium canonical state (database dump + referenced originals + avatars).
+
+### Backup repository
+**Also:** `/backups`  
+**Means:** Mounted filesystem directory where Folium writes backup bundles. Folium does not mount NFS/CIFS itself.
+
+### Restore
+**Means:** Replacement of Folium canonical state from a verified compatible backup.  
+**Not:** Document import, or Trash restore of a single document.
+
 ### Storage key
 **Means:** Relative key of the stored original blob under content-addressed originals.
 
