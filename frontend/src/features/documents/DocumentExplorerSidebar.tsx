@@ -44,11 +44,11 @@ export function DocumentExplorerSidebar({
   return (
     <aside
       className={cn(
-        "flex w-[220px] shrink-0 flex-col border-r border-surface-border bg-surface overflow-hidden",
+        "flex w-[248px] shrink-0 flex-col border-r border-surface-border bg-surface overflow-hidden",
         className,
       )}
     >
-      <div className="px-3 py-2">
+      <div className="px-5 py-5">
         <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
           Quick access
         </p>
@@ -97,7 +97,7 @@ export function DocumentExplorerSidebar({
           variant="surface"
         />
 
-        <div className="mt-2 px-3 py-1">
+        <div className="mt-2 px-5 py-1">
           <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
             Tags
           </span>
