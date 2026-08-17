@@ -49,6 +49,7 @@ from folium.models import (
     Correspondent,
     Document,
     DocumentType,
+    FolderKind,
     PrivacyMode,
     ProviderKind,
     SuggestionStatus,
@@ -57,6 +58,12 @@ from folium.models import (
 from folium.services import documents as doc_service
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+def _document_has_manual_destination(doc: Document) -> bool:
+    pending = doc_service.get_pending_folder_path(doc)
+    in_system_inbox = doc.folder is not None and doc.folder.kind == FolderKind.INBOX
+    return bool(pending) or (doc.folder is not None and not in_system_inbox)
 
 
 def _provider_out(provider: AIProvider) -> AIProviderOut:
@@ -863,6 +870,8 @@ async def _apply_suggestion(
     if field == "title" and "title" in value:
         doc.title = str(value["title"])
     elif field == "folder":
+        if _document_has_manual_destination(doc):
+            return
         # Intent only while in Inbox — never create folders here.
         if "folder_id" in value and value["folder_id"]:
             folder_id = uuid.UUID(str(value["folder_id"]))

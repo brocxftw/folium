@@ -94,7 +94,19 @@ def test_page_span_preserved() -> None:
     assert any(c.page_end and c.page_end >= (c.page_number or 0) for c in chunks)
 
 
-def test_content_hash_stable() -> None:
+def test_docx_table_rows_do_not_produce_oversized_sections() -> None:
+    """DOCX table extraction can emit long pipe-separated rows; sections must fit DB."""
+    table_row = (
+        "5. | Pengambilan | Pengambilan | Pengambilan | Pengambilan | Pengambilan | "
+        "Pengambilan | : | : | : | GRADUAN (PEGAWAI KADET LUAR NEGARA) - TUGAS AM | "
+        "GRADUAN (PEGAWAI KADET LUAR NEGARA) - TUGAS AM | GRADUAN (PEGAWAI KADET LUAR NEGARA) - TUGAS AM"
+    )
+    text = f"{table_row}\n\nSome body paragraph with enough words to form a chunk."
+    chunks = chunk_pages([PageInput(page_number=1, text=text)])
+    assert chunks
+    for chunk in chunks:
+        assert chunk.section is None or len(chunk.section) <= 512
+
     assert content_hash("hello   world") == content_hash("hello world")
     assert content_hash("a") != content_hash("b")
 

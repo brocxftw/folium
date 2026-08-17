@@ -14,6 +14,7 @@ except Exception:  # pragma: no cover - optional dependency path
     _ENCODER = None
 
 CHUNKING_VERSION = "v2-token-safe"
+SECTION_MAX_LENGTH = 512
 
 # Defaults used when no provider capability override is supplied.
 TARGET_MIN_TOKENS = 400
@@ -74,6 +75,27 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
 
 
+def _truncate_section(section: str | None) -> str | None:
+    if section is None:
+        return None
+    trimmed = section.strip()
+    if not trimmed:
+        return None
+    if len(trimmed) <= SECTION_MAX_LENGTH:
+        return trimmed
+    return trimmed[:SECTION_MAX_LENGTH]
+
+
+def _is_heading_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    # DOCX table rows are pipe-separated cells; not section headings.
+    if stripped.count(" | ") >= 2:
+        return False
+    return bool(_HEADING_RE.match(stripped))
+
+
 def chunk_pages(
     pages: list[PageInput | dict[str, object]],
     *,
@@ -117,7 +139,7 @@ def chunk_pages(
                     ChunkDraft(
                         page_number=page_start,
                         page_end=page_end,
-                        section=current_section,
+                        section=_truncate_section(current_section),
                         text=part,
                         token_count=part_tokens,
                         chunk_index=chunk_index,
@@ -134,7 +156,7 @@ def chunk_pages(
             ChunkDraft(
                 page_number=page_start,
                 page_end=page_end,
-                section=current_section,
+                section=_truncate_section(current_section),
                 text=text,
                 token_count=token_count,
                 chunk_index=chunk_index,
@@ -150,7 +172,7 @@ def chunk_pages(
         if block.is_heading:
             if current and current_tokens >= cfg.min_tokens:
                 flush()
-            current_section = block.text.strip("# ").strip()
+            current_section = _truncate_section(block.text.strip("# ").strip())
             if current and current[-1].page_number != block.page_number:
                 flush()
 
@@ -168,7 +190,7 @@ def chunk_pages(
                     ChunkDraft(
                         page_number=block.page_number,
                         page_end=block.page_number,
-                        section=current_section,
+                        section=_truncate_section(current_section),
                         text=part,
                         token_count=part_tokens,
                         chunk_index=chunk_index,
@@ -195,7 +217,7 @@ def chunk_pages(
                 chunks[-1] = ChunkDraft(
                     page_number=chunks[-1].page_number,
                     page_end=page_end,
-                    section=chunks[-1].section or current_section,
+                    section=_truncate_section(chunks[-1].section or current_section),
                     text=merged_text.strip(),
                     token_count=merged_tokens,
                     chunk_index=chunks[-1].chunk_index,
@@ -226,7 +248,7 @@ def split_oversized_text(
             ChunkDraft(
                 page_number=page_number,
                 page_end=page_end if page_end is not None else page_number,
-                section=section,
+                section=_truncate_section(section),
                 text=part,
                 token_count=estimate_tokens(part),
                 chunk_index=start_index + offset,
@@ -262,13 +284,13 @@ def _split_page_blocks(page_number: int, text: str, max_tokens: int) -> list[_Bl
         if not lines:
             continue
         if len(lines) == 1:
-            is_heading = bool(_HEADING_RE.match(lines[0]))
+            is_heading = _is_heading_line(lines[0])
             blocks.extend(
                 _blocks_from_text(page_number, lines[0], is_heading=is_heading, max_tokens=max_tokens)
             )
             continue
         for line in lines:
-            is_heading = bool(_HEADING_RE.match(line))
+            is_heading = _is_heading_line(line)
             blocks.extend(
                 _blocks_from_text(page_number, line, is_heading=is_heading, max_tokens=max_tokens)
             )

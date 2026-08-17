@@ -179,6 +179,10 @@ export function InboxWorkView({
 
   const documents = docList?.items ?? [];
   const documentIds = documents.map((d) => d.id);
+  const documentsById = useMemo(
+    () => new Map(documents.map((d) => [d.id, d])),
+    [documents],
+  );
 
   const suggestionsByDoc = useMemo(() => {
     const map: Record<string, Suggestion[]> = {};
@@ -329,9 +333,10 @@ export function InboxWorkView({
     if (pendingInScope.length === 0) return;
     setAcceptAllBusy(true);
     try {
-      const { accepted, failed } = await acceptAllSuggestions(
+      const { accepted, failed, skipped } = await acceptAllSuggestions(
         pendingSuggestions,
         acceptScopeIds,
+        documentsById,
       );
       await queryClient.invalidateQueries({ queryKey: ["ai", "suggestions"] });
       await queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -339,6 +344,7 @@ export function InboxWorkView({
       await queryClient.invalidateQueries({ queryKey: ["tags"] });
       const parts = [
         accepted ? `Accepted ${accepted} suggestion${accepted === 1 ? "" : "s"}` : null,
+        skipped ? `${skipped} skipped (already edited)` : null,
         failed ? `${failed} failed` : null,
       ].filter(Boolean);
       setResultMsg(parts.join(" · ") || "No suggestions accepted");
@@ -380,13 +386,18 @@ export function InboxWorkView({
     if (pending.length === 0) return;
     setAcceptAllBusy(true);
     try {
-      const { accepted, failed } = await acceptAllSuggestions(pending, [documentId]);
+      const { accepted, failed, skipped } = await acceptAllSuggestions(
+        pending,
+        [documentId],
+        documentsById,
+      );
       await queryClient.invalidateQueries({ queryKey: ["ai", "suggestions"] });
       await queryClient.invalidateQueries({ queryKey: ["documents"] });
       await queryClient.invalidateQueries({ queryKey: ["folders"] });
       await queryClient.invalidateQueries({ queryKey: ["tags"] });
       const parts = [
         accepted ? `Accepted ${accepted} suggestion${accepted === 1 ? "" : "s"}` : null,
+        skipped ? `${skipped} skipped (already edited)` : null,
         failed ? `${failed} failed` : null,
       ].filter(Boolean);
       setResultMsg(parts.join(" · ") || "No suggestions accepted");

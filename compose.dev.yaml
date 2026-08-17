@@ -1,6 +1,9 @@
 # Local source-build overlay. Not used by GitHub Release installs.
 #
-#   docker compose -f docker-compose.yml -f compose.dev.yaml up --build -d
+#   docker compose -f docker-compose.yml -f compose.dev.yaml -f docker-compose.override.yml up --build -d
+#
+# If document storage is on a CIFS/NFS bind (0770 host group), include docker-compose.override.yml
+# (group_add) — omitting it causes "Document storage unavailable".
 #
 # Publishes Postgres on localhost:5433 for host-run pytest / uvicorn.
 
