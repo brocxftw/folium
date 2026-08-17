@@ -116,6 +116,37 @@ else:
 PY
 }
 
+config_env_set() {
+  local key="$1"
+  local value="$2"
+  local file="${3:-${FOLIUM_INSTALL_DIR}/.env}"
+  [[ -f "${file}" ]] || return 1
+  python3 - "${file}" "${key}" "${value}" <<'PY'
+import sys
+path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
+lines = open(path, encoding="utf-8").read().splitlines(True)
+out = []
+found = False
+for line in lines:
+    raw = line.strip()
+    if raw and not raw.startswith("#") and "=" in raw:
+        k, _ = raw.split("=", 1)
+        if k == key:
+            out.append(f"{key}={value}\n")
+            found = True
+            continue
+    out.append(line)
+if not found:
+    if out and not out[-1].endswith("\n"):
+        out[-1] = out[-1] + "\n"
+    out.append(f"{key}={value}\n")
+with open(path, "w", encoding="utf-8") as fh:
+    fh.writelines(out)
+PY
+  chmod 600 "${file}"
+  log_info "updated .env key=${key}"
+}
+
 config_strip_compose_ports() {
   local file="$1"
   python3 - "${file}" <<'PY'

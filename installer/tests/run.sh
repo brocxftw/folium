@@ -145,6 +145,9 @@ mode="$(stat -c '%a' "${TMP}/.env")"
 assert_eq "env mode 600" "${mode}" "600"
 assert_ok "env pins version" grep -q '^FOLIUM_VERSION=0.1.16$' "${TMP}/.env"
 assert_fail "env not latest" grep -q '^FOLIUM_VERSION=latest$' "${TMP}/.env"
+config_env_set FOLIUM_VERSION "0.1.17"
+assert_ok "env set version" grep -q '^FOLIUM_VERSION=0.1.17$' "${TMP}/.env"
+config_env_set FOLIUM_VERSION "0.1.16"
 
 export FOLIUM_METHOD=image FOLIUM_VERSION_TAG=v0.1.16
 state_write

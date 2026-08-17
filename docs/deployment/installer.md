@@ -34,7 +34,7 @@ bash installer/pack.sh /tmp/install-folium.sh
 
 1. Checks linux/amd64, Docker, disk, and memory. ARM is a hard failure.
 2. Offers to install Docker Engine via `get.docker.com` only after confirmation.
-3. Detects an existing install and offers Reconfigure, Repair, or Exit. It never silently rewrites `.env`.
+3. Detects an existing install and offers **Update** (pull a pinned release image), Reconfigure, Repair, or Exit. It never silently rewrites `.env` secrets.
 4. Chooses **pre-built GHCR images** (default) or **build from source** (clones the selected tag into `INSTALL_DIR/src`).
 5. Pins a real `vX.Y.Z` release. It never stores `latest` as the installed version.
 6. Writes `/opt/folium` by default: Release `docker-compose.yml`, a small overlay (bind/port/`group_add` only), and `.env` (`chmod 600`).
@@ -42,9 +42,9 @@ bash installer/pack.sh /tmp/install-folium.sh
 8. Waits for `GET /health`, `/health/database`, `/health/storage`, and `/health/worker`. AI health is ignored.
 9. Installs `/usr/local/bin/folium` (`status`, `start`, `stop`, `restart`, `logs`, `doctor`). `update` and `uninstall` are stubs in v1.
 
-Secrets are generated with `openssl rand`. The bootstrap admin password is shown **once** on the success screen and is not written to the installer log (`/tmp/folium-install-*.log`). The welcome screen shows the exact log path for that run.
+Secrets are generated with `openssl rand`. The bootstrap admin password is shown **once** on the success screen and is not written to the installer log. The welcome screen shows the exact log file path for that run (for example `/tmp/folium-install-20260817-123456.log`).
 
-The TUI keeps a blue screen behind a **grey** dialog card. Cancel is labeled **Back** and returns to the previous step. Ctrl+C cancels immediately (restores the terminal; existing data is not deleted). Install progress (pull/build/start/health) is shown with a gauge; Compose output goes to the log file.
+The TUI keeps a blue screen behind a **grey** dialog card. Cancel is labeled **Back**, and menus also include an explicit **Back** item where useful. Ctrl+C cancels immediately (restores the terminal; existing data is not deleted). Install progress (pull/build/start/health) is shown with a gauge; Compose output goes to the log file.
 
 There is no timezone prompt. Folium timestamps are UTC.
 
@@ -106,7 +106,7 @@ CI runs ShellCheck and `installer/tests/run.sh`.
 | Case | Coverage |
 |------|----------|
 | Happy path, pre-built images, localhost:18080 | `smoke.sh` / operator TUI |
-| Existing install: Reconfigure / Repair / Exit | TUI on a host with `/opt/folium` |
+| Existing install: Update / Reconfigure / Repair / Exit | TUI on a host with `/opt/folium` |
 | Source build (`git clone` + `compose.source.yaml`) | Manual |
 | LAN bind `0.0.0.0` + detected IPv4 origin | Manual |
 | Reverse-proxy `FRONTEND_ORIGIN` only | Manual |
