@@ -4,7 +4,7 @@ Primary install path for operators. A [manual Compose install](install.md) remai
 
 ## Quick start
 
-Review the bootstrap script, then run it:
+Review the installer script, then run it. It is a single file (no tarball):
 
 ```bash
 curl -fsSL -o install-folium.sh \
@@ -13,14 +13,21 @@ less install-folium.sh
 bash install-folium.sh
 ```
 
-Do not treat `| bash` as the only option. Pin a release with `--version vX.Y.Z` if you do not want `releases/latest`.
+Do not treat `| bash` as the only option. Pin a release by downloading that tag’s asset:
 
-The bootstrap downloads `folium-installer.tar.gz` from the same GitHub Release, extracts it, and starts a **whiptail** TUI (`install.sh`).
+```bash
+curl -fsSL -o install-folium.sh \
+  https://github.com/brocxftw/folium/releases/download/v0.1.16/install-folium.sh
+```
 
-From a git checkout (contributors):
+The script is a packed copy of `installer/install.sh` plus its libraries. It starts a **whiptail** TUI and then downloads that release’s `docker-compose.yml`.
+
+From a git checkout (contributors; modular sources):
 
 ```bash
 bash installer/install.sh
+# rebuild the curl-able file:
+bash installer/pack.sh /tmp/install-folium.sh
 ```
 
 ## What the installer does
@@ -49,7 +56,7 @@ There is no timezone prompt. Folium timestamps are UTC.
   install-state.json      # no secrets
   backups/
   data/paddleocr/         # always local, even if documents are on NAS
-  installer/              # copy used by `folium doctor`
+  installer/              # packed `folium` CLI (or modular copy from a git install)
 ```
 
 Paddle OCR cache is always under the install directory. Document/consume/export binds may be existing host paths, including NFS/CIFS mounts **already present**. The installer does not edit `/etc/fstab` and does not install NAS client packages.
@@ -113,8 +120,7 @@ A development host that already runs Folium on 8080/8000 must use another Compos
 
 Each `v*` GitHub Release includes:
 
-- `install-folium.sh` (bootstrap, copy of `installer/get.sh`)
-- `folium-installer.tar.gz`
+- `install-folium.sh` (standalone installer; the only file operators need to curl)
 - `docker-compose.yml`
 - `env.example` (canonical env template)
 - `default.env.example` (compatibility alias; GitHub rejects a leading-dot `.env.example` asset name)

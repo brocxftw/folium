@@ -98,8 +98,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          shellcheck -x -P installer installer/install.sh installer/get.sh \
+          shellcheck -x -P installer installer/install.sh installer/pack.sh \
             installer/folium-ctl.sh installer/lib/*.sh \
             installer/tests/run.sh installer/tests/smoke.sh
       - name: Installer helper tests
         run: bash installer/tests/run.sh
+      - name: Packed single-file installer
+        run: |
+          bash installer/pack.sh /tmp/install-folium.sh
+          bash -n /tmp/install-folium.sh
+          test -x /tmp/install-folium.sh

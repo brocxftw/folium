@@ -1,6 +1,6 @@
 # Public Folium Compose — pull pre-built images. No repository source required.
 #
-# Preferred: GitHub Release bootstrap (install-folium.sh). Manual:
+# Preferred: curl the standalone GitHub Release asset install-folium.sh. Manual:
 #   copy this file and env.example from a GitHub Release, then:
 #   cp env.example .env
 #   # set secrets and POSTGRES_PASSWORD

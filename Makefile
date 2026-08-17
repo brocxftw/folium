@@ -25,5 +25,7 @@ frontend-test:
 
 installer-test:
 	bash installer/tests/run.sh
+	bash installer/pack.sh /tmp/install-folium.sh
+	bash -n /tmp/install-folium.sh
 
 test: backend-test frontend-test installer-test

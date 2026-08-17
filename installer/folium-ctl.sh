@@ -40,6 +40,10 @@ discover_install_dir() {
 }
 
 load_libs() {
+  if [[ "${FOLIUM_PACKED:-0}" == "1" ]]; then
+    FOLIUM_LOG_FILE="${FOLIUM_LOG_FILE:-/dev/null}"
+    return 0
+  fi
   local root=""
   if [[ -f "${FOLIUM_INSTALL_DIR}/installer/lib/common.sh" ]]; then
     root="${FOLIUM_INSTALL_DIR}/installer"

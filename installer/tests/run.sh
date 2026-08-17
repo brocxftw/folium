@@ -165,5 +165,24 @@ else
   printf 'skip docker compose config (docker not available)\n'
 fi
 
+PACK="$(mktemp)"
+if bash "${ROOT}/pack.sh" "${PACK}" && bash -n "${PACK}"; then
+  PASSED=$((PASSED + 1))
+  printf 'ok  pack.sh bash -n\n'
+else
+  FAILED=$((FAILED + 1))
+  printf 'FAIL pack.sh\n'
+fi
+if grep -q '^FOLIUM_PACKED=1$' "${PACK}" \
+  && grep -q 'folium_install_packed_ctl' "${PACK}" \
+  && grep -q 'Folium interactive installer' "${PACK}"; then
+  PASSED=$((PASSED + 1))
+  printf 'ok  packed installer is standalone\n'
+else
+  FAILED=$((FAILED + 1))
+  printf 'FAIL packed installer missing expected markers\n'
+fi
+rm -f "${PACK}"
+
 printf '\n%d passed, %d failed\n' "${PASSED}" "${FAILED}"
 [[ "${FAILED}" -eq 0 ]]

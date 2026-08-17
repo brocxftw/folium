@@ -89,7 +89,7 @@ Details: [`docs/backend/ai-and-rag.md`](docs/backend/ai-and-rag.md)
 
 ## Installation
 
-**Primary path:** interactive installer (whiptail). Review the script, then run it:
+**Primary path:** interactive installer (one file). Review it, then run it:
 
 ```bash
 curl -fsSL -o install-folium.sh \

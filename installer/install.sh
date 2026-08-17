@@ -6,28 +6,30 @@ set -euo pipefail
 INSTALLER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export INSTALLER_ROOT
 
-# shellcheck source=lib/common.sh
-source "${INSTALLER_ROOT}/lib/common.sh"
-# shellcheck source=lib/logging.sh
-source "${INSTALLER_ROOT}/lib/logging.sh"
-# shellcheck source=lib/ui.sh
-source "${INSTALLER_ROOT}/lib/ui.sh"
-# shellcheck source=lib/state.sh
-source "${INSTALLER_ROOT}/lib/state.sh"
-# shellcheck source=lib/system.sh
-source "${INSTALLER_ROOT}/lib/system.sh"
-# shellcheck source=lib/docker.sh
-source "${INSTALLER_ROOT}/lib/docker.sh"
-# shellcheck source=lib/dependencies.sh
-source "${INSTALLER_ROOT}/lib/dependencies.sh"
-# shellcheck source=lib/storage.sh
-source "${INSTALLER_ROOT}/lib/storage.sh"
-# shellcheck source=lib/network.sh
-source "${INSTALLER_ROOT}/lib/network.sh"
-# shellcheck source=lib/config.sh
-source "${INSTALLER_ROOT}/lib/config.sh"
-# shellcheck source=lib/health.sh
-source "${INSTALLER_ROOT}/lib/health.sh"
+if [[ "${FOLIUM_PACKED:-0}" != "1" ]]; then
+  # shellcheck source=lib/common.sh
+  source "${INSTALLER_ROOT}/lib/common.sh"
+  # shellcheck source=lib/logging.sh
+  source "${INSTALLER_ROOT}/lib/logging.sh"
+  # shellcheck source=lib/ui.sh
+  source "${INSTALLER_ROOT}/lib/ui.sh"
+  # shellcheck source=lib/state.sh
+  source "${INSTALLER_ROOT}/lib/state.sh"
+  # shellcheck source=lib/system.sh
+  source "${INSTALLER_ROOT}/lib/system.sh"
+  # shellcheck source=lib/docker.sh
+  source "${INSTALLER_ROOT}/lib/docker.sh"
+  # shellcheck source=lib/dependencies.sh
+  source "${INSTALLER_ROOT}/lib/dependencies.sh"
+  # shellcheck source=lib/storage.sh
+  source "${INSTALLER_ROOT}/lib/storage.sh"
+  # shellcheck source=lib/network.sh
+  source "${INSTALLER_ROOT}/lib/network.sh"
+  # shellcheck source=lib/config.sh
+  source "${INSTALLER_ROOT}/lib/config.sh"
+  # shellcheck source=lib/health.sh
+  source "${INSTALLER_ROOT}/lib/health.sh"
+fi
 
 FOLIUM_NONINTERACTIVE="${FOLIUM_NONINTERACTIVE:-0}"
 FOLIUM_KEEP_SECRETS="${FOLIUM_KEEP_SECRETS:-0}"
@@ -393,12 +395,18 @@ prepare_source() {
 
 install_cli() {
   mkdir -p "${FOLIUM_INSTALL_DIR}/installer"
-  cp -a "${INSTALLER_ROOT}/install.sh" "${FOLIUM_INSTALL_DIR}/installer/"
-  cp -a "${INSTALLER_ROOT}/get.sh" "${FOLIUM_INSTALL_DIR}/installer/"
-  cp -a "${INSTALLER_ROOT}/folium-ctl.sh" "${FOLIUM_INSTALL_DIR}/installer/"
-  cp -a "${INSTALLER_ROOT}/lib" "${FOLIUM_INSTALL_DIR}/installer/"
-  cp -a "${INSTALLER_ROOT}/templates" "${FOLIUM_INSTALL_DIR}/installer/"
-  run_root install -m 755 "${INSTALLER_ROOT}/folium-ctl.sh" /usr/local/bin/folium
+  if [[ "${FOLIUM_PACKED:-0}" == "1" ]]; then
+    folium_install_packed_ctl
+  else
+    cp -a "${INSTALLER_ROOT}/install.sh" "${FOLIUM_INSTALL_DIR}/installer/"
+    cp -a "${INSTALLER_ROOT}/folium-ctl.sh" "${FOLIUM_INSTALL_DIR}/installer/"
+    cp -a "${INSTALLER_ROOT}/lib" "${FOLIUM_INSTALL_DIR}/installer/"
+    cp -a "${INSTALLER_ROOT}/templates" "${FOLIUM_INSTALL_DIR}/installer/"
+    if [[ -f "${INSTALLER_ROOT}/pack.sh" ]]; then
+      cp -a "${INSTALLER_ROOT}/pack.sh" "${FOLIUM_INSTALL_DIR}/installer/"
+    fi
+    run_root install -m 755 "${INSTALLER_ROOT}/folium-ctl.sh" /usr/local/bin/folium
+  fi
   state_write_pointer
 }
 
