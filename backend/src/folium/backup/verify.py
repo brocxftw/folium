@@ -55,7 +55,8 @@ def check_version_compatibility(manifest: BackupManifest) -> tuple[bool, list[st
     app_version = __version__
     backup_ver = _parse_version(manifest.folium_version)
     current_ver = _parse_version(app_version)
-    if backup_ver > current_ver:
+    # Skip semver gate when either side is non-semver (e.g. git SHA from describe --always).
+    if backup_ver is not None and current_ver is not None and backup_ver > current_ver:
         return False, [
             f"Backup Folium version {manifest.folium_version} is newer than this installation ({app_version})"
         ]
@@ -70,15 +71,18 @@ def check_version_compatibility(manifest: BackupManifest) -> tuple[bool, list[st
     return True, messages
 
 
-def _parse_version(version: str) -> tuple[int, ...]:
+def _parse_version(version: str) -> tuple[int, ...] | None:
     parts: list[int] = []
     normalized = version.strip().lstrip("vV").split("-")[0].split("+")[0]
+    # Reject bare non-dotted tokens (git SHAs) — they must not collapse to a fake (0,) semver.
+    if "." not in normalized and not normalized.isdigit():
+        return None
     for piece in normalized.split("."):
         if piece.isdigit():
             parts.append(int(piece))
         else:
             break
-    return tuple(parts) if parts else (0,)
+    return tuple(parts) if parts else None
 
 
 def inspect_bundle_file(bundle_path: Path, *, verify_checksums_flag: bool = True) -> InspectResult:

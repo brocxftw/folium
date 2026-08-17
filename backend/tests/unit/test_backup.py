@@ -74,6 +74,27 @@ def test_newer_backup_version_rejected() -> None:
     assert any("newer" in msg for msg in messages)
 
 
+def test_non_semver_app_version_does_not_reject_backup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CI shallow checkouts often resolve __version__ to a git SHA via describe --always."""
+    import folium.backup.verify as verify_mod
+
+    monkeypatch.setattr(verify_mod, "__version__", "76c5f13")
+    manifest = BackupManifest(
+        format_version=1,
+        folium_version="0.1.0",
+        created_at="2026-08-01T00:00:00+00:00",
+        database_schema_version="011_ask_conversations",
+        backup_type="full",
+        document_count=0,
+        original_bytes=0,
+        checksum_algorithm="sha256",
+        verification_state="healthy",
+    )
+    ok, messages = check_version_compatibility(manifest)
+    assert ok is True
+    assert any("migrated" in msg for msg in messages)
+
+
 def test_path_traversal_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from folium.core.config import get_settings
 

@@ -33,6 +33,30 @@ let mockRepoWritable = true;
 let mockBootstrapState = "uninitialised";
 let mockBootstrapBackups: Array<Record<string, unknown>> = [];
 
+vi.mock("@/components/ui/DropdownMenu", () => ({
+  DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <div role="menu">{children}</div>,
+  DropdownMenuItem: ({
+    children,
+    onSelect,
+    disabled,
+  }: {
+    children: React.ReactNode;
+    onSelect?: (event: Event) => void;
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={() => onSelect?.(new Event("select"))}
+    >
+      {children}
+    </button>
+  ),
+}));
+
 vi.mock("@/lib/api/hooks", () => ({
   useBackupSettings: () => ({
     data: { ...backupSettings, repository: { ...backupSettings.repository, writable: mockRepoWritable, message: mockRepoWritable ? "ok" : "not writable" } },
@@ -59,6 +83,7 @@ describe("Backup & Restore settings", () => {
     mockBackups = [];
     mockRepoWritable = true;
     mutateAsync.mockReset();
+    mutateAsync.mockResolvedValue(undefined);
   });
 
   it("renders settings and back up now", () => {
@@ -115,8 +140,9 @@ describe("Backup & Restore settings", () => {
       progress_stage: null,
     }];
     render(<MemoryRouter><BackupRestorePage /></MemoryRouter>);
-    fireEvent.click(screen.getByRole("button", { name: /Actions for/ }));
-    fireEvent.click(screen.getByText("Restore"));
+    expect(screen.getByRole("button", { name: /Actions for/ })).toBeInTheDocument();
+    const restoreItem = screen.getByRole("menuitem", { name: "Restore" });
+    fireEvent.click(restoreItem);
     expect(screen.getByText("Restore this backup?")).toBeInTheDocument();
   });
 });
@@ -126,6 +152,7 @@ describe("First-run setup", () => {
     mockBootstrapState = "uninitialised";
     mockBootstrapBackups = [];
     mutateAsync.mockReset();
+    mutateAsync.mockResolvedValue(undefined);
   });
 
   it("offers new install and restore", () => {

@@ -226,7 +226,7 @@ export function BackupRestorePage() {
           </p>
         )}
         <Button
-          onClick={() => void createBackup.mutateAsync().catch((err) => setError(err instanceof ApiError ? err.message : "Backup failed"))}
+          onClick={() => void Promise.resolve(createBackup.mutateAsync()).catch((err) => setError(err instanceof ApiError ? err.message : "Backup failed"))}
           disabled={createBackup.isPending || !!running || repoUnavailable}
         >
           {createBackup.isPending ? "Queuing…" : "Back up now"}
