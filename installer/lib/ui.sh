@@ -13,9 +13,10 @@ FOLIUM_GAUGE_FD=""
 FOLIUM_GAUGE_PID=""
 FOLIUM_INTERRUPTED=0
 
-# Wizard: 0 = next/ok, 2 = previous screen. Ctrl+C is the only abort from a dialog.
+# Wizard: 0 = next/ok, 2 = previous screen, 3 = cancel installer. Ctrl+C exits too.
 UI_OK=0
 UI_BACK=2
+UI_CANCEL=3
 
 ui_available() {
   command -v whiptail >/dev/null 2>&1
@@ -130,7 +131,7 @@ ui_session_end() {
 
 _ui_whiptail() {
   local -a extra=()
-  local rc=0
+  local rc=0 wp=""
   ui_check_interrupted || return 130
   ui_paint_bg
   if [[ "${FOLIUM_UI_NOCANCEL}" == "1" ]]; then
@@ -139,7 +140,10 @@ _ui_whiptail() {
     extra+=(--ok-button "${FOLIUM_UI_OK_LABEL}" --cancel-button "${FOLIUM_UI_CANCEL_LABEL}")
   fi
   set +e
-  whiptail --backtitle "Folium" --title "${FOLIUM_UI_TITLE}" "${extra[@]}" "$@"
+  # Run whiptail in the background so Ctrl+C reaches this shell (trap/on_interrupt).
+  whiptail --backtitle "Folium" --title "${FOLIUM_UI_TITLE}" "${extra[@]}" "$@" &
+  wp=$!
+  wait "${wp}"
   rc=$?
   set -e
   ui_paint_bg
@@ -367,7 +371,29 @@ ui_textbox_file() {
   case "${rc}" in
     0) return "${UI_OK}" ;;
     1|255) return "${UI_BACK}" ;;
-    *) return "${UI_OK}" ;;
+    *) return 130 ;;
+  esac
+}
+
+# Final confirmation: summary plus Install, Back, and Cancel installer.
+ui_confirm_summary_file() {
+  local file="$1"
+  local text="" go=""
+  if [[ "${FOLIUM_UI}" == "none" ]]; then
+    cat "${file}"
+    return "${UI_OK}"
+  fi
+  text="$(cat "${file}")"
+  go="$(ui_menu "${text}
+
+Choose an action:" \
+    install "Install" \
+    back "Back" \
+    cancel "Cancel installer")" || return "${UI_BACK}"
+  case "${go}" in
+    install) return "${UI_OK}" ;;
+    cancel) return "${UI_CANCEL}" ;;
+    *) return "${UI_BACK}" ;;
   esac
 }
 

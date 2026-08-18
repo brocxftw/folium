@@ -5,6 +5,7 @@ set -euo pipefail
 
 INSTALLER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export INSTALLER_ROOT
+FOLIUM_DEFAULT_INSTALL_DIR="${FOLIUM_DEFAULT_INSTALL_DIR:-${INSTALLER_ROOT}}"
 
 if [[ "${FOLIUM_PACKED:-0}" != "1" ]]; then
   # shellcheck source=lib/common.sh
@@ -489,21 +490,17 @@ Choosing No generates new keys. That does not rotate an already-bootstrapped adm
 }
 
 wizard_summary() {
-  local summary_file go=""
+  local summary_file rc=0
   summary_file="$(mktemp)"
   config_render_summary >"${summary_file}"
-  ui_textbox_file "${summary_file}" || {
-    rm -f "${summary_file}"
-    return "${UI_BACK}"
-  }
+  ui_confirm_summary_file "${summary_file}" || rc=$?
   rm -f "${summary_file}"
-  go="$(ui_menu "Proceed with installation?
-
-Back returns to the previous settings screen. Ctrl+C cancels." \
-    install "Install" \
-    back "Back")" || return "${UI_BACK}"
-  case "${go}" in
-    install) return "${UI_OK}" ;;
+  case "${rc}" in
+    0) return "${UI_OK}" ;;
+    "${UI_CANCEL}")
+      ui_session_end
+      exit 0
+      ;;
     *) return "${UI_BACK}" ;;
   esac
 }
@@ -574,6 +571,10 @@ run_wizard() {
             step=3
           fi
         fi
+        ;;
+      "${UI_CANCEL}")
+        ui_session_end
+        exit 0
         ;;
       130) exit 130 ;;
       *) abort "Unexpected installer state (${rc})." ;;
@@ -924,7 +925,6 @@ Do not treat this as a successful install until health checks pass.${admin_note}
 main() {
   parse_args "$@"
   log_init
-  trap on_interrupt INT TERM
   log_info "installer root=${INSTALLER_ROOT}"
 
   ensure_whiptail
@@ -1059,4 +1059,5 @@ You can continue, but performance or disk space may be tight."
   ui_session_end
 }
 
+trap on_interrupt INT TERM
 main "$@"
