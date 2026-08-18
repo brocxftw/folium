@@ -104,6 +104,9 @@ temp/
 notes.md
 *.plan.md
 
+# ---- Openspec ----
+openspec/
+
 # ---- Test / CI artifacts ----
 test-results/
 playwright-report/
