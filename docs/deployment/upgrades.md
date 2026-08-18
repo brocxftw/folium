@@ -1,6 +1,21 @@
 # Upgrades and rollback
 
-## Update to a newer release (pinned)
+Operators pull published GHCR images. `git pull` and `docker compose build` are for contributors, not production installs.
+
+## Update with the installer (primary)
+
+Re-run `install-folium.sh`. When it detects an existing install, choose **Update**. That keeps `.env` secrets and document data, pulls the pinned release images, and restarts the stack.
+
+The `folium update` CLI command is still a stub. Use the installer TUI.
+
+```bash
+curl -fsSL -o install-folium.sh \
+  https://github.com/brocxftw/folium/releases/latest/download/install-folium.sh
+less install-folium.sh
+bash install-folium.sh
+```
+
+## Update to a newer release (manual Compose)
 
 Edit `.env`:
 
