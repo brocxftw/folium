@@ -133,3 +133,5 @@ Each `v*` GitHub Release includes:
 - `env.example` (canonical env template)
 - `default.env.example` (compatibility alias; GitHub rejects a leading-dot `.env.example` asset name)
 - `checksums.txt`
+
+`releases/latest` and the installer version picker skip **prereleases** (`vX.Y.Z-beta.N`). Those are for testing; they do not replace the current stable GitHub latest release.

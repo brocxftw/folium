@@ -29,10 +29,19 @@ jobs:
             raw="0.0.0-dev"
           fi
           version="${raw#v}"
+          if [[ "$version" == *-* ]]; then
+            stable=false
+            channel=beta
+          else
+            stable=true
+            channel=stable
+          fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "revision=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           echo "is_tag=${{ github.ref_type == 'tag' }}" >> "$GITHUB_OUTPUT"
+          echo "stable=${stable}" >> "$GITHUB_OUTPUT"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -46,22 +55,28 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/brocxftw/folium-backend
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.meta.outputs.stable == 'true' }}
             type=raw,value=${{ steps.meta.outputs.version }}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && steps.meta.outputs.stable == 'true' }}
+            type=raw,value=beta,enable=${{ github.ref_type == 'tag' && steps.meta.outputs.stable != 'true' }}
             type=sha,prefix=sha-
 
       - id: web_tags
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/brocxftw/folium-web
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.meta.outputs.stable == 'true' }}
             type=raw,value=${{ steps.meta.outputs.version }}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && steps.meta.outputs.stable == 'true' }}
+            type=raw,value=beta,enable=${{ github.ref_type == 'tag' && steps.meta.outputs.stable != 'true' }}
             type=sha,prefix=sha-
 
       - name: Build backend image
@@ -178,6 +193,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.meta.outputs.version }}
+          STABLE: ${{ steps.meta.outputs.stable }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -197,11 +213,19 @@ jobs:
             dist/install-folium.sh
             dist/checksums.txt
           )
+          if [[ "$STABLE" == "true" ]]; then
+            title="Folium v${VERSION}"
+            channel_args=(--latest)
+          else
+            title="Folium v${VERSION} (beta)"
+            channel_args=(--prerelease --latest=false)
+          fi
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" --clobber
           else
             gh release create "${GITHUB_REF_NAME}" \
-              --title "Folium v${VERSION}" \
+              --title "${title}" \
               --generate-notes \
+              "${channel_args[@]}" \
               "${assets[@]}"
           fi
