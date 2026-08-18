@@ -93,7 +93,7 @@ system_check() {
 
   if ! system_has_sudo; then
     log_error "sudo/root is required"
-    SYSTEM_CHECK_ERROR="Installing to /opt/folium and managing Docker requires root or sudo."
+    SYSTEM_CHECK_ERROR="Installing Folium and managing Docker requires root or sudo."
     return 1
   fi
 
