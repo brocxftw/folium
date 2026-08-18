@@ -110,7 +110,7 @@ storage_prepare_dir() {
 storage_confirm_risky_install_path() {
   local path="$1"
   local choice=""
-  FOLIUM_UI_NOCANCEL=1
+  export FOLIUM_UI_NOCANCEL=1
   choice="$(ui_menu "${path} is under /root or /tmp.
 
 Installing here is at your own risk (permissions, backups, and upgrades are your responsibility).
@@ -118,7 +118,7 @@ Installing here is at your own risk (permissions, backups, and upgrades are your
 Continue with this install directory?" \
     yes "Continue at my own risk" \
     abort "Choose another directory")"
-  FOLIUM_UI_NOCANCEL=0
+  export FOLIUM_UI_NOCANCEL=0
   [[ "${choice}" == "yes" ]]
 }
 
