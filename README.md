@@ -51,6 +51,7 @@ Engineering detail lives in [`docs/`](docs/README.md). This README is the front 
 - Jobs view and cancel
 - Application logs in PostgreSQL
 - Health: `/health`, `/health/database`, `/health/storage`
+- **MCP** at `/mcp` (Bearer API token from Settings → Profile): search evidence, search documents, read a document, browse folders. Read-only; Ask Folium is not an MCP tool.
 
 ## How it works
 

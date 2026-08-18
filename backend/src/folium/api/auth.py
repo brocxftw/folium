@@ -11,6 +11,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.api.schemas import (
+    ApiTokenCreate,
+    ApiTokenCreatedOut,
+    ApiTokenOut,
     ForgotPasswordOut,
     ForgotPasswordRequest,
     LoginRequest,
@@ -25,6 +28,7 @@ from folium.api.schemas import (
     UserSessionOut,
     UserUsageOut,
 )
+from folium.auth import api_tokens as token_service
 from folium.auth import service as auth_service
 from folium.auth.deps import CurrentSession, CurrentUser, SafeSession
 from folium.core.config import get_settings
@@ -171,7 +175,8 @@ async def login(
 @router.post("/logout")
 async def logout(
     response: Response,
-    sess: SafeSession,
+    sess: CurrentSession,
+    _csrf: SafeSession,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     await auth_service.revoke_session(db, sess.id)
@@ -181,11 +186,59 @@ async def logout(
 
 
 @router.get("/me", response_model=SessionOut)
-async def me(sess: CurrentSession) -> SessionOut:
+async def me(request: Request, user: CurrentUser) -> SessionOut:
+    sess = getattr(request.state, "auth_session", None)
     return SessionOut(
-        user=user_out(sess.user),
-        csrf_token=sess.csrf_token,
+        user=user_out(user),
+        csrf_token=sess.csrf_token if sess is not None else "",
     )
+
+
+@router.post("/tokens", response_model=ApiTokenCreatedOut)
+async def create_api_token(
+    body: ApiTokenCreate,
+    _sess: SafeSession,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ApiTokenCreatedOut:
+    row, raw = await token_service.create_token(db, user, name=body.name)
+    return ApiTokenCreatedOut(
+        id=row.id,
+        name=row.name,
+        prefix=row.prefix,
+        created_at=row.created_at,
+        last_used_at=row.last_used_at,
+        token=raw,
+    )
+
+
+@router.get("/tokens", response_model=list[ApiTokenOut])
+async def list_api_tokens(
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[ApiTokenOut]:
+    rows = await token_service.list_tokens(db, user.id)
+    return [
+        ApiTokenOut(
+            id=row.id,
+            name=row.name,
+            prefix=row.prefix,
+            created_at=row.created_at,
+            last_used_at=row.last_used_at,
+        )
+        for row in rows
+    ]
+
+
+@router.delete("/tokens/{token_id}", response_model=ForgotPasswordOut)
+async def revoke_api_token(
+    token_id: uuid.UUID,
+    _sess: SafeSession,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ForgotPasswordOut:
+    await token_service.delete_token(db, token_id, user_id=user.id)
+    return ForgotPasswordOut(message="Token revoked")
 
 
 @router.get("/me/sessions", response_model=list[UserSessionOut])
@@ -223,7 +276,8 @@ async def list_my_sessions(
 async def revoke_my_session(
     session_id: uuid.UUID,
     response: Response,
-    sess: SafeSession,
+    sess: CurrentSession,
+    _csrf: SafeSession,
     user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ForgotPasswordOut:
@@ -238,7 +292,8 @@ async def revoke_my_session(
 
 @router.post("/me/sessions/sign-out-others", response_model=ForgotPasswordOut)
 async def sign_out_other_sessions(
-    sess: SafeSession,
+    sess: CurrentSession,
+    _csrf: SafeSession,
     user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ForgotPasswordOut:

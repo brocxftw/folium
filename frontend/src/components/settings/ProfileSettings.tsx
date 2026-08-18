@@ -10,6 +10,9 @@ import {
   useSession,
   useUpdateProfile,
   useUploadAvatar,
+  useApiTokens,
+  useCreateApiToken,
+  useRevokeApiToken,
 } from "@/lib/api/hooks";
 import { api } from "@/lib/api/client";
 import { formatBytes, getInitials } from "@/lib/utils";
@@ -28,6 +31,9 @@ export function ProfileSettings() {
   const changePassword = useChangePassword();
   const uploadAvatar = useUploadAvatar();
   const deleteAvatar = useDeleteAvatar();
+  const { data: apiTokens = [], isLoading: tokensLoading } = useApiTokens();
+  const createApiToken = useCreateApiToken();
+  const revokeApiToken = useRevokeApiToken();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [username, setUsername] = useState("");
@@ -38,6 +44,9 @@ export function ProfileSettings() {
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
   const [passwordMsg, setPasswordMsg] = useState<string | null>(null);
   const [avatarBust, setAvatarBust] = useState(() => Date.now());
+  const [tokenName, setTokenName] = useState("");
+  const [newTokenSecret, setNewTokenSecret] = useState<string | null>(null);
+  const [tokenMsg, setTokenMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (session?.user) {
@@ -310,6 +319,90 @@ export function ProfileSettings() {
                     Revoke
                   </Button>
                 )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-3 border-t border-surface-border pt-6">
+        <div>
+          <h3 className="text-sm font-medium text-text-primary">API tokens</h3>
+          <p className="text-xs text-text-muted">
+            Bearer tokens for MCP and other non-browser clients. The secret is shown only once.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <Input
+            aria-label="Token name"
+            value={tokenName}
+            onChange={(e) => setTokenName(e.target.value)}
+            placeholder="Cursor"
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={createApiToken.isPending || !tokenName.trim()}
+            onClick={() => {
+              void (async () => {
+                setTokenMsg(null);
+                try {
+                  const created = await createApiToken.mutateAsync(tokenName.trim());
+                  setNewTokenSecret(created.token);
+                  setTokenName("");
+                } catch (err) {
+                  setTokenMsg(err instanceof Error ? err.message : "Could not create token");
+                }
+              })();
+            }}
+          >
+            Create token
+          </Button>
+        </div>
+        {newTokenSecret && (
+          <div className="rounded-md border border-accent/30 bg-accent-muted p-3 text-sm">
+            <p className="mb-2 text-xs text-text-muted">Copy this secret now. It will not be shown again.</p>
+            <code className="block break-all text-text-primary">{newTokenSecret}</code>
+            <div className="mt-2 flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => void navigator.clipboard.writeText(newTokenSecret)}
+              >
+                Copy
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setNewTokenSecret(null)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        )}
+        {tokenMsg && <p className="text-xs text-danger">{tokenMsg}</p>}
+        {tokensLoading ? (
+          <p className="text-sm text-text-muted">Loading tokens…</p>
+        ) : apiTokens.length === 0 ? (
+          <p className="text-sm text-text-muted">No API tokens yet.</p>
+        ) : (
+          <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
+            {apiTokens.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-text-primary">
+                    {item.name} <span className="text-text-muted">({item.prefix}…)</span>
+                  </p>
+                  <p className="text-xs text-text-muted">
+                    Created {new Date(item.created_at).toLocaleString()}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => revokeApiToken.mutate(item.id)}
+                  disabled={revokeApiToken.isPending}
+                >
+                  Revoke
+                </Button>
               </li>
             ))}
           </ul>

@@ -28,6 +28,18 @@ export interface UserSession {
   current: boolean;
 }
 
+export interface ApiToken {
+  id: UUID;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface ApiTokenCreated extends ApiToken {
+  token: string;
+}
+
 export interface LoginRequest {
   username: string;
   password: string;
