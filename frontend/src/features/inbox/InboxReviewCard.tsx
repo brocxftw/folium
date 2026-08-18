@@ -23,6 +23,7 @@ import { inboxRowProgress } from "./inboxPreparingPhases";
 import type { SuggestionJobStatus } from "./suggestionJobStatus";
 import { showSuggestionFailure } from "./suggestionJobStatus";
 import { documentSecondaryMeta } from "./formatMeta";
+import type { InboxAiFilingState } from "./inboxAiFiling";
 
 function FileIcon({ doc }: { doc: Document }) {
   const mime = doc.mime_type;
@@ -45,6 +46,7 @@ interface InboxReviewCardProps {
   reviewReady?: boolean;
   /** When false, expanded review shows Manual filing instead of AI Suggestions. */
   aiSuggestionsAvailable?: boolean;
+  filingUnavailableReason?: InboxAiFilingState["reason"];
   suggestionJobStatus?: SuggestionJobStatus;
   onRetrySuggestions?: () => void;
   retrySuggestionsBusy?: boolean;
@@ -65,6 +67,7 @@ export function InboxReviewCard({
   expanded,
   reviewReady = true,
   aiSuggestionsAvailable = false,
+  filingUnavailableReason,
   suggestionJobStatus = "none",
   onRetrySuggestions,
   retrySuggestionsBusy = false,
@@ -147,7 +150,10 @@ export function InboxReviewCard({
             suggestionJobStatus={suggestionJobStatus}
           />
         ) : (
-          <InboxManualFilingPanel document={doc} />
+          <InboxManualFilingPanel
+            document={doc}
+            filingUnavailableReason={filingUnavailableReason}
+          />
         ))}
 
       <div

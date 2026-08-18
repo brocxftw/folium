@@ -38,7 +38,7 @@ from folium.bootstrap import ensure_ai_settings
 from folium.core.exceptions import ConflictError, NotFoundError, ValidationError
 from folium.core.redaction import redact_text
 from folium.core.security import decrypt_secret, encrypt_secret, mask_secret
-from folium.db.session import get_db
+from folium.db.session import get_db, session_scope
 from folium.models import (
     AIModelAssignment,
     AIProfileName,
@@ -324,15 +324,44 @@ async def _discover_models(provider: AIProvider) -> list[str] | None:
     )
 
 
+async def _load_provider_detached(provider_id: uuid.UUID) -> AIProvider:
+    async with session_scope() as session:
+        provider = await session.get(AIProvider, provider_id)
+        if provider is None:
+            raise NotFoundError("Provider not found")
+        session.expunge(provider)
+        return provider
+
+
+async def _persist_manual_probe(
+    provider_id: uuid.UUID,
+    *,
+    status: str,
+    error: str | None,
+    latency_ms: int,
+    tested_at: datetime,
+    model_count: int | None = None,
+    success: bool = False,
+) -> None:
+    async with session_scope() as session:
+        row = await session.get(AIProvider, provider_id)
+        if row is None:
+            return
+        row.last_probe_status = status
+        row.last_probe_error = error
+        row.last_probe_latency_ms = latency_ms
+        row.last_probe_model_count = model_count
+        row.last_probed_at = tested_at
+        if success:
+            row.last_success_at = tested_at
+
+
 @router.get("/providers/{provider_id}/models", response_model=AIProviderModelsOut)
 async def discover_provider_models(
     provider_id: uuid.UUID,
     _admin: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AIProviderModelsOut:
-    provider = await db.get(AIProvider, provider_id)
-    if provider is None:
-        raise NotFoundError("Provider not found")
+    provider = await _load_provider_detached(provider_id)
     try:
         models = await _discover_models(provider)
     except Exception as exc:
@@ -351,11 +380,8 @@ async def test_provider_connection(
     provider_id: uuid.UUID,
     _sess: SafeSession,
     _admin: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AIProviderProbeOut:
-    provider = await db.get(AIProvider, provider_id)
-    if provider is None:
-        raise NotFoundError("Provider not found")
+    provider = await _load_provider_detached(provider_id)
     adapter = get_adapter(provider)
     started = time.perf_counter()
     tested_at = datetime.now(UTC)
@@ -364,47 +390,55 @@ async def test_provider_connection(
         models = await _discover_models(provider)
     except Exception as exc:
         latency = round((time.perf_counter() - started) * 1000)
-        provider.last_probe_status = "offline"
-        provider.last_probe_error = redact_text(str(exc))[:512]
-        provider.last_probe_latency_ms = latency
-        provider.last_probed_at = tested_at
-        await db.flush()
+        error = redact_text(str(exc))[:512]
+        await _persist_manual_probe(
+            provider_id,
+            status="offline",
+            error=error,
+            latency_ms=latency,
+            tested_at=tested_at,
+        )
         return AIProviderProbeOut(
             status="offline",
             latency_ms=latency,
             model_count=None,
             tested_at=tested_at,
-            message=f"Provider connection failed: {provider.last_probe_error}",
+            message=f"Provider connection failed: {error}",
         )
     finally:
         await adapter.aclose()
     if not ok:
         latency = round((time.perf_counter() - started) * 1000)
-        provider.last_probe_status = "offline"
-        provider.last_probe_error = "Provider connection test failed"
-        provider.last_probe_latency_ms = latency
-        provider.last_probe_model_count = None
-        provider.last_probed_at = tested_at
-        await db.flush()
+        error = "Provider connection test failed"
+        await _persist_manual_probe(
+            provider_id,
+            status="offline",
+            error=error,
+            latency_ms=latency,
+            tested_at=tested_at,
+        )
         return AIProviderProbeOut(
             status="offline",
             latency_ms=latency,
             model_count=None,
             tested_at=tested_at,
-            message=provider.last_probe_error,
+            message=error,
         )
     latency = round((time.perf_counter() - started) * 1000)
-    provider.last_probe_status = "available"
-    provider.last_probe_error = None
-    provider.last_probe_latency_ms = latency
-    provider.last_probe_model_count = len(models) if models is not None else None
-    provider.last_probed_at = tested_at
-    provider.last_success_at = tested_at
-    await db.flush()
+    model_count = len(models) if models is not None else None
+    await _persist_manual_probe(
+        provider_id,
+        status="available",
+        error=None,
+        latency_ms=latency,
+        tested_at=tested_at,
+        model_count=model_count,
+        success=True,
+    )
     return AIProviderProbeOut(
         status="available",
         latency_ms=latency,
-        model_count=provider.last_probe_model_count,
+        model_count=model_count,
         tested_at=tested_at,
         message="Connection successful",
     )
@@ -470,8 +504,6 @@ async def update_assignment(
     model = body.model.strip() if body.model else None
     if provider and not model:
         raise ValidationError("A model ID is required")
-    if role == AIWorkloadRole.EMBEDDING and provider and not provider.supports_embeddings:
-        raise ValidationError("Selected provider does not support embeddings")
     settings_row = await ensure_ai_settings(db)
     if provider and not provider.is_local:
         remote_allowed = {
@@ -489,10 +521,15 @@ async def update_assignment(
     changed = row.provider_id != (provider.id if provider else None) or row.model != model
     row.provider_id = provider.id if provider else None
     row.model = model
+    if role == AIWorkloadRole.EMBEDDING and provider and model:
+        provider.supports_embeddings = True
+        provider.embedding_model = model
     if role == AIWorkloadRole.EMBEDDING and changed:
         settings_row.active_embedding_provider = None
         settings_row.active_embedding_model = None
         settings_row.active_embedding_dimension = None
+    if role == AIWorkloadRole.INDEXING and provider and model:
+        settings_row.auto_tagging = True
     await db.flush()
     return _assignment_out(role, await resolve_assignment(db, role), settings_row)
 

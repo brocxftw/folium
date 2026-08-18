@@ -9,7 +9,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from folium.ai.assignments import ResolvedAssignment
-from folium.ai.health import derive_ocr_capability, derive_role_capability
+from folium.ai.health import (
+    HEALTH_PROBE_INTERVAL_SECONDS,
+    derive_ocr_capability,
+    derive_role_capability,
+    probe_assigned_providers,
+)
 from folium.models import AIWorkloadRole
 from folium.workers.processor import _provider_reachable_for_jobs
 
@@ -197,3 +202,66 @@ def test_provider_reachable_for_jobs(
         )
         is expected
     )
+
+
+def test_health_probe_interval_matches_documented_cadence() -> None:
+    assert HEALTH_PROBE_INTERVAL_SECONDS == 10.0
+
+
+@pytest.mark.asyncio
+async def test_probe_assigned_providers_releases_session_before_http() -> None:
+    import asyncio
+    import uuid
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    open_sessions = {"count": 0}
+    provider_id = uuid.uuid4()
+    provider = SimpleNamespace(
+        id=provider_id,
+        name="local-llm",
+        enabled=True,
+        last_probe_status=None,
+        last_probe_error=None,
+        last_probe_latency_ms=None,
+        last_probed_at=None,
+        last_success_at=None,
+    )
+
+    @asynccontextmanager
+    async def fake_scope():
+        open_sessions["count"] += 1
+        session = MagicMock()
+
+        async def get(_model, _id):
+            return provider
+
+        session.get = get
+        session.expunge = MagicMock()
+        try:
+            yield session
+        finally:
+            open_sessions["count"] -= 1
+
+    async def list_ids(_session):
+        return [provider_id]
+
+    async def slow_test_connection():
+        await asyncio.sleep(0.02)
+        assert open_sessions["count"] == 0
+        return True
+
+    adapter = MagicMock()
+    adapter.test_connection = slow_test_connection
+    adapter.aclose = AsyncMock()
+
+    with (
+        patch("folium.ai.health.session_scope", fake_scope),
+        patch("folium.ai.health._list_assigned_provider_ids", list_ids),
+        patch("folium.ai.health.get_adapter", return_value=adapter),
+        patch("folium.ai.health.is_provider_busy", return_value=False),
+    ):
+        count = await probe_assigned_providers()
+
+    assert count == 1
+    assert provider.last_probe_status == "available"
