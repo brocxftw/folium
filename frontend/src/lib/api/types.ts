@@ -790,7 +790,12 @@ export interface AIUsageSummary {
     input_tokens: number | null;
     output_tokens: number | null;
   }>;
-  by_workload: Array<{ key: string; label: string; requests: number }>;
+  by_workload: Array<{
+    key: string;
+    label: string;
+    requests: number;
+    duration_ms?: number | null;
+  }>;
 }
 
 export interface SystemSummary {

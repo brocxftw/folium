@@ -1,0 +1,1 @@
+export { ArtificialIntelligenceSettingsPage } from "./ArtificialIntelligenceSettingsPage";
