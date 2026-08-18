@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useBulkAction,
@@ -63,8 +63,6 @@ export function DocumentsPage() {
     evidenceRequest,
   } = useDocumentsLibraryState();
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [aiOpen, setAiOpen] = useState(false);
   const [aiScope, setAiScope] = useState<AIDrawerScope>({ kind: "library" });
@@ -117,15 +115,6 @@ export function DocumentsPage() {
     return folders.find((f) => f.id === state.folderId)?.name;
   }, [folders, state.folderId]);
 
-  const title = folderName ?? "Documents";
-  const subtitle = isEvidenceSearch
-    ? "Evidence search across your library"
-    : state.view === "unprocessed"
-      ? "Documents still preparing, awaiting review, or indexing for retrieval"
-      : state.view === "recent"
-        ? "Recently added to your library"
-        : "Find and organise your library";
-
   const filterChips = useMemo(() => {
     const chips: Array<{ id: string; label: string; onClear: () => void }> = [];
     if (state.q.trim()) {
@@ -153,15 +142,6 @@ export function DocumentsPage() {
     }
     return chips;
   }, [state.q, state.tagIds, state.folderId, tags, folderName, patch]);
-
-  const handleUploadFiles = useCallback(
-    async (files: FileList) => {
-      // Always land in Inbox for processing; ignore current library folder.
-      await uploader.uploadFileList(files);
-      navigate("/inbox?view=work");
-    },
-    [uploader, navigate],
-  );
 
   const handleEntries = useCallback(
     async (entries: UploadEntry[]) => {
@@ -226,56 +206,6 @@ export function DocumentsPage() {
     [],
   );
 
-  const openAskDefault = useCallback(() => {
-    const snapshot = libraryStateToSearchSnapshot(state);
-    if (snapshot) {
-      openAsk({
-        kind: "search",
-        search: snapshot,
-        previewDocuments: searchDocuments,
-        label: `Search: ${snapshot.query}`,
-      });
-      return;
-    }
-    if (selectedIds.size > 0) {
-      openAsk({
-        kind: "documents",
-        documentIds: Array.from(selectedIds),
-        previewDocuments: documents.filter((d) => selectedIds.has(d.id)),
-        label: `${selectedIds.size} selected`,
-      });
-      return;
-    }
-    if (state.docId) {
-      const current = documents.find((d) => d.id === state.docId);
-      openAsk({
-        kind: "document",
-        documentId: state.docId,
-        previewDocuments: current ? [current] : undefined,
-        label: current?.title ?? "Current document",
-      });
-      return;
-    }
-    if (state.folderId) {
-      openAsk({
-        kind: "folder_tree",
-        folderId: state.folderId,
-        previewDocuments: browseDocuments,
-        label: folderName ? `Folder: ${folderName}` : "Folder",
-      });
-      return;
-    }
-    openAsk({ kind: "library" });
-  }, [
-    state,
-    searchDocuments,
-    selectedIds,
-    documents,
-    browseDocuments,
-    folderName,
-    openAsk,
-  ]);
-
   const handleCitation = useCallback(
     (citation: Citation) => {
       openDocument(
@@ -292,24 +222,6 @@ export function DocumentsPage() {
       className="h-full"
       disabled={uploader.busy}
     >
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(e) => e.target.files && void handleUploadFiles(e.target.files)}
-      />
-      <input
-        ref={folderInputRef}
-        type="file"
-        className="hidden"
-        // @ts-expect-error webkitdirectory is non-standard but widely supported
-        webkitdirectory=""
-        directory=""
-        multiple
-        onChange={(e) => e.target.files && void handleUploadFiles(e.target.files)}
-      />
-
       <div className="flex h-full min-h-0">
         <DocumentExplorerSidebar
           folders={folders}
@@ -328,20 +240,8 @@ export function DocumentsPage() {
 
         <div className="flex min-w-0 flex-1 flex-col bg-surface">
           <DocumentsHeader
-            title={title}
-            subtitle={subtitle}
-            searchQuery={state.q}
-            searchMode={state.searchMode}
-            evidenceActive={isEvidenceSearch}
-            semanticAvailable={searchResponse?.semantic_available ?? true}
             view={state.view}
             onViewChange={(view) => patch({ view })}
-            onSearchCommit={(q) => patch({ q })}
-            onSearchModeChange={(searchMode) => patch({ searchMode })}
-            onAsk={openAskDefault}
-            onUploadFiles={() => fileInputRef.current?.click()}
-            onUploadFolder={() => folderInputRef.current?.click()}
-            uploadBusy={uploader.busy}
           />
 
           <UploadStatusBar

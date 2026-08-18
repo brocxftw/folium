@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Send, Sparkles } from "lucide-react";
+import { ChevronDown, Send, Sparkles } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
 import { useAICapabilities, useAIHealth, useAsk, useFolders } from "@/lib/api/hooks";
 import type {
@@ -8,6 +8,7 @@ import type {
   AskScope,
   Citation,
   Document,
+  Folder,
   SearchScopeSnapshot,
 } from "@/lib/api/types";
 import { Button } from "@/components/ui/Button";
@@ -19,6 +20,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/Select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/DropdownMenu";
 import { CitationList } from "./CitationList";
 import {
   summarizeScopeReadiness,
@@ -56,6 +63,8 @@ export interface AIChatPanelProps {
   /** Compact header for embedded layouts (e.g. preview modal). */
   title?: string;
   description?: string;
+  /** Composer with in-field context pills and an inner Send control (Ask dock). */
+  compactComposer?: boolean;
 }
 
 function scopeToRequest(
@@ -107,6 +116,77 @@ function defaultLabel(scope: AIDrawerScope): string {
   }
 }
 
+function contextPillClass(active: boolean): string {
+  return cn(
+    "inline-flex max-w-[220px] items-center rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+    active
+      ? "border-accent/40 bg-accent/15 text-accent"
+      : "border-surface-border bg-surface-muted text-text-secondary hover:bg-surface-hover",
+  );
+}
+
+function ScopeContextPills({
+  scope,
+  folders,
+  onChange,
+}: {
+  scope: AIDrawerScope;
+  folders: Folder[];
+  onChange: (next: AIDrawerScope) => void;
+}) {
+  const normalFolders = folders.filter((folder) => folder.kind === "normal");
+  const selectedFolder =
+    scope.kind === "folder" || scope.kind === "folder_tree"
+      ? normalFolders.find((folder) => folder.id === scope.folderId)
+      : undefined;
+  const selectedLabel = selectedFolder?.path_cache
+    ?? (scope.kind === "library" ? "Library" : scope.label ?? "Library");
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(contextPillClass(true), "gap-1 pr-1.5")}
+          aria-label="Select ask context"
+        >
+          <span className="truncate">{selectedLabel}</span>
+          <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="flex w-[min(360px,calc(100vw-4rem))] flex-wrap gap-1.5 p-2"
+      >
+        <DropdownMenuItem
+          className={contextPillClass(scope.kind === "library")}
+          onSelect={() => onChange({ kind: "library" })}
+        >
+          Library
+        </DropdownMenuItem>
+        {normalFolders.map((folder) => (
+          <DropdownMenuItem
+            key={folder.id}
+            title={folder.path_cache}
+            className={contextPillClass(
+              Boolean(selectedFolder && selectedFolder.id === folder.id),
+            )}
+            onSelect={() =>
+              onChange({
+                kind: "folder_tree",
+                folderId: folder.id,
+                label: folder.path_cache,
+              })
+            }
+          >
+            <span className="truncate">{folder.path_cache}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function AIChatPanel({
   active = true,
   initialScope,
@@ -115,6 +195,7 @@ export function AIChatPanel({
   className,
   title = "Ask Folium",
   description = "Single-turn answers with citations from the selected scope.",
+  compactComposer = false,
 }: AIChatPanelProps) {
   const [question, setQuestion] = useState("");
   const [scope, setScope] = useState<AIDrawerScope>(
@@ -218,7 +299,7 @@ export function AIChatPanel({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        {showScopeSelector ? (
+        {showScopeSelector && !compactComposer ? (
           <div className="space-y-3 border-b border-surface-border px-4 py-3">
             <div>
               <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">
@@ -324,7 +405,7 @@ export function AIChatPanel({
               )}
             </div>
           </div>
-        ) : (
+        ) : compactComposer ? null : (
           <div className="border-b border-surface-border px-4 py-2">
             <div className="rounded-md bg-surface-muted px-2.5 py-2 text-[12px] text-text-secondary">
               <p className="font-medium text-text-primary">{defaultLabel(scope)}</p>
@@ -400,17 +481,58 @@ export function AIChatPanel({
             void submit(false);
           }}
         >
-          <Textarea
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder={
-              chatAvailable
-                ? "What would you like to know?"
-                : "Chat unavailable"
-            }
-            className="min-h-[72px] resize-none"
-            disabled={ask.isPending || !chatAvailable}
-          />
+          {compactComposer ? (
+            <div className="relative rounded-md border border-surface-border bg-surface focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-1">
+              <div className="flex items-center px-2 pt-2">
+                <ScopeContextPills
+                  scope={scope}
+                  folders={folders}
+                  onChange={(next) => {
+                    setScope(next);
+                    setResponse(null);
+                  }}
+                />
+              </div>
+              <Textarea
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder={
+                  chatAvailable
+                    ? "What would you like to know?"
+                    : "Chat unavailable"
+                }
+                className="min-h-[72px] resize-none border-0 bg-transparent pr-12 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                disabled={ask.isPending || !chatAvailable}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void submit(false);
+                  }
+                }}
+              />
+              <Button
+                type="submit"
+                size="icon"
+                className="absolute bottom-2 right-2 h-8 w-8 rounded-lg"
+                disabled={!chatAvailable || !question.trim() || ask.isPending}
+                aria-label="Send"
+              >
+                <Send className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <Textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder={
+                chatAvailable
+                  ? "What would you like to know?"
+                  : "Chat unavailable"
+              }
+              className="min-h-[72px] resize-none"
+              disabled={ask.isPending || !chatAvailable}
+            />
+          )}
           {error && <p className="text-xs text-danger">{error}</p>}
           {pendingRemote && policy?.warn_before_remote_chat && (
             <Button
@@ -423,17 +545,21 @@ export function AIChatPanel({
               Confirm remote AI and ask
             </Button>
           )}
-          <Button
-            type="submit"
-            className="w-full gap-1"
-            disabled={!chatAvailable || !question.trim() || ask.isPending}
-          >
-            <Send className="h-3.5 w-3.5" />
-            {ask.isPending ? "Thinking…" : "Ask"}
-          </Button>
-          <p className="text-[11px] text-text-muted">
-            AI responses can be inaccurate. Verify important information.
-          </p>
+          {!compactComposer && (
+            <>
+              <Button
+                type="submit"
+                className="w-full gap-1"
+                disabled={!chatAvailable || !question.trim() || ask.isPending}
+              >
+                <Send className="h-3.5 w-3.5" />
+                {ask.isPending ? "Thinking…" : "Ask"}
+              </Button>
+              <p className="text-[11px] text-text-muted">
+                AI responses can be inaccurate. Verify important information.
+              </p>
+            </>
+          )}
         </form>
       </div>
     </div>

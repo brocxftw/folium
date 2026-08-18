@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown } from "lucide-react";
 import { useAIHealth, useJobs, useSession } from "@/lib/api/hooks";
 import type { AICapabilityHealth, AICapabilityStatus } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
@@ -40,13 +39,6 @@ function capabilityLabel(cap: AICapabilityHealth | undefined): string {
   return cap.model?.trim() || cap.provider || "Available";
 }
 
-function overallLabel(working: boolean, ready: boolean, partial: boolean): string {
-  if (working) return "WORKING";
-  if (ready) return "READY";
-  if (partial) return "PARTIAL";
-  return "OFFLINE";
-}
-
 function StatusDot({
   working,
   ready,
@@ -66,7 +58,7 @@ function StatusDot({
         working || checking
           ? "animate-pulse bg-amber-400"
           : ready
-            ? "bg-emerald-400"
+            ? "bg-[#14B8A6] shadow-[0_0_8px_rgba(20,184,166,0.30)]"
             : "bg-navbar-muted",
       )}
     />
@@ -114,32 +106,22 @@ export function AiStatusPill() {
   }, [runningJobs, queuedJobs]);
 
   const configuredRows = pipelineRows.filter((r) => !r.notConfigured);
-  const anyAvailable = configuredRows.some((r) => r.ready);
   const allConfiguredReady =
     configuredRows.length > 0 && configuredRows.every((r) => r.ready);
-  const partial = anyAvailable && !allConfiguredReady;
   const settingsPath = isAdmin
     ? "/settings/artificial-intelligence"
     : "/settings/about";
 
-  const tooltipRows = [
-    {
-      key: "ai",
-      label: "AI",
-      value: overallLabel(aiWorking, allConfiguredReady, partial),
-      working: aiWorking,
-      ready: allConfiguredReady && !aiWorking,
-      checking: false,
-    },
-    ...pipelineRows.map((row) => ({
+  const tooltipRows = pipelineRows
+    .filter((row) => row.key !== "ocr")
+    .map((row) => ({
       key: row.key,
       label: row.label,
       value: row.detail,
       working: roleWorking[row.key],
       ready: row.ready,
       checking: row.checking,
-    })),
-  ];
+    }));
 
   return (
     <Tooltip delayDuration={200}>
@@ -147,10 +129,8 @@ export function AiStatusPill() {
         <button
           type="button"
           className={cn(
-            "inline-flex h-10 min-w-[84px] items-center gap-2.5 rounded-xl px-3.5",
-            "bg-navbar-accent/10 text-navbar-text",
-            "border border-navbar-accent/35",
-            "transition-colors hover:bg-navbar-accent/16",
+            "inline-flex h-[41px] items-center gap-2 rounded-md px-1.5",
+            "text-[#F8FAFC] transition-opacity duration-150 ease-out hover:opacity-80",
           )}
           aria-label="Open AI settings"
           onClick={() => navigate(settingsPath)}
@@ -162,7 +142,6 @@ export function AiStatusPill() {
             size="md"
           />
           <span className="text-sm font-semibold">AI</span>
-          <ChevronDown className="h-3.5 w-3.5 opacity-80" />
         </button>
       </TooltipTrigger>
       <TooltipContent

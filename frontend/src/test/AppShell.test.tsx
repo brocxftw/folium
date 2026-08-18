@@ -1,7 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import { AppShell } from "@/components/layout/AppShell";
+import foliumMark from "@/assets/brand/folium-mark.png";
+import type { SearchHit } from "@/lib/api/types";
+
+const { searchHits } = vi.hoisted(() => ({ searchHits: [] as SearchHit[] }));
 
 vi.mock("@/lib/api/hooks", () => ({
   useSession: () => ({
@@ -31,30 +35,88 @@ vi.mock("@/lib/api/hooks", () => ({
     },
   }),
   useJobs: () => ({ data: [] }),
+  useSearch: (_request: unknown, enabled = true) => ({
+    data:
+      enabled && searchHits.length > 0
+        ? {
+            items: searchHits,
+            total: searchHits.length,
+            mode: "keyword",
+            semantic_available: true,
+          }
+        : undefined,
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+  }),
+  useAsk: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useAICapabilities: () => ({ data: undefined }),
+  useFolders: () => ({
+    data: [
+      {
+        id: "folder-legal",
+        name: "Legal",
+        parent_id: null,
+        kind: "normal",
+        sort_order: 0,
+        path_cache: "/Legal",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+        children_count: 0,
+        document_count: 0,
+      },
+    ],
+  }),
 }));
 
-function renderShell() {
+vi.mock("@/lib/api/upload", () => ({
+  useDocumentUploader: () => ({
+    busy: false,
+    progress: null,
+    lastSummary: null,
+    clearSummary: vi.fn(),
+    uploadFileList: vi.fn(),
+    uploadEntries: vi.fn(),
+    uploadDataTransfer: vi.fn(),
+  }),
+}));
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{`${location.pathname}${location.search}`}</div>;
+}
+
+function renderShell(initialEntry = "/documents") {
   return render(
-    <MemoryRouter initialEntries={["/documents"]}>
-      <AppShell>
-        <p>Workspace</p>
-      </AppShell>
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Routes>
+        <Route
+          path="*"
+          element={
+            <AppShell>
+              <LocationProbe />
+            </AppShell>
+          }
+        />
+      </Routes>
     </MemoryRouter>,
   );
 }
 
 describe("AppShell top navbar", () => {
-  it("renders Inbox, Library, and Trash as primary navigation", () => {
+  afterEach(() => {
+    searchHits.splice(0, searchHits.length);
+  });
+  it("renders Inbox, Library, Trash, and Settings as primary navigation", () => {
     renderShell();
     const navigation = screen.getByRole("navigation", { name: "Primary" });
     const links = within(navigation).getAllByRole("link");
-    expect(links).toHaveLength(3);
-    expect(within(navigation).getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox");
-    expect(within(navigation).getByRole("link", { name: "Library" })).toHaveAttribute(
-      "href",
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/inbox",
       "/documents",
-    );
-    expect(within(navigation).getByRole("link", { name: "Trash" })).toHaveAttribute("href", "/trash");
+      "/trash",
+      "/settings",
+    ]);
   });
 
   it("does not show Ask, Search, or Jobs as primary nav items", () => {
@@ -65,21 +127,129 @@ describe("AppShell top navbar", () => {
     expect(within(navigation).queryByRole("link", { name: "Jobs" })).not.toBeInTheDocument();
   });
 
-  it("places Settings as an icon-only control outside the primary nav", () => {
+  it("uses text-only primary navigation without menu icons", () => {
     renderShell();
     const navigation = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(navigation).queryByRole("link", { name: "Settings" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    expect(navigation.querySelector("svg")).toBeNull();
+  });
+
+  it("shows the supplied brand mark, Folium, and a Beta label under the name", () => {
+    renderShell();
+    const header = screen.getByRole("banner");
+    const mark = header.querySelector(`img[src="${foliumMark}"]`);
+    expect(mark).toBeInTheDocument();
+    expect(mark).toHaveAttribute("width", "40");
+    expect(mark).toHaveAttribute("height", "40");
+    expect(screen.getByText("Folium")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/app version/i)).not.toBeInTheDocument();
+  });
+
+  it("places Settings in the primary nav rather than as an icon control", () => {
+    renderShell();
+    const navigation = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(navigation).getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/settings",
+    );
+    expect(screen.getAllByRole("link", { name: "Settings" })).toHaveLength(1);
+  });
+
+  it("places Upload immediately left of the AI status control", () => {
+    renderShell();
+    const upload = screen.getByRole("button", { name: "Upload" });
+    const ai = screen.getByRole("button", { name: "Open AI settings" });
+    expect(upload.compareDocumentPosition(ai) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows a compact AI status control", () => {
     renderShell();
     expect(screen.getByRole("button", { name: "Open AI settings" })).toHaveTextContent("AI");
+    expect(screen.getByRole("button", { name: "Open AI settings" })).not.toHaveTextContent("AI Ready");
+  });
+
+  it("omits the overall AI status and OCR rows from the AI hover card", async () => {
+    renderShell();
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Open AI settings" }));
+    fireEvent.focus(screen.getByRole("button", { name: "Open AI settings" }));
+    expect(await screen.findByText("Indexing")).toBeInTheDocument();
+    expect(screen.getByText("Embedding")).toBeInTheDocument();
+    expect(screen.getByText("Chat")).toBeInTheDocument();
+    expect(screen.queryByText("OCR")).not.toBeInTheDocument();
+    expect(screen.queryByText("READY")).not.toBeInTheDocument();
   });
 
   it("keeps log out inside the account menu rather than as a standalone control", () => {
     renderShell();
     expect(screen.queryByRole("menuitem", { name: "Log out" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Account menu" })).toBeInTheDocument();
+  });
+
+  it("does not navigate to /search when submitting the global search box", () => {
+    renderShell();
+    const input = screen.getByRole("searchbox", { name: "Search documents, tags, folders" });
+    fireEvent.change(input, { target: { value: "contracts" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(screen.getByTestId("location")).toHaveTextContent("/documents");
+    expect(screen.getByTestId("location")).not.toHaveTextContent("/search");
+  });
+
+  it("hides the search overlay when the query is empty", () => {
+    renderShell();
+    fireEvent.focus(screen.getByRole("searchbox", { name: "Search documents, tags, folders" }));
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("lists keyword search hits in an overlay and opens the document", async () => {
+    searchHits.splice(0, searchHits.length, {
+      document: {
+        id: "doc-1",
+        title: "Q3 contracts",
+        original_filename: "contracts.pdf",
+        has_thumbnail: false,
+        folder_path: "/Legal",
+      },
+      score: 1,
+      snippet: "indemnity clause",
+      page_number: 2,
+      chunk_id: null,
+    } as SearchHit);
+
+    renderShell();
+    const input = screen.getByRole("searchbox", { name: "Search documents, tags, folders" });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "contracts" } });
+
+    expect(await screen.findByRole("option", { name: /Q3 contracts/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: /Q3 contracts/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/documents?doc=doc-1&viewerPage=2");
+    });
+  });
+
+  it("exposes Ask Folium as a floating control", () => {
+    renderShell();
+    expect(screen.getByRole("button", { name: "Ask Folium AI" })).toBeInTheDocument();
+  });
+
+  it("hides the Ask Folium button in the inbox workspace", () => {
+    renderShell("/inbox");
+    expect(screen.queryByRole("button", { name: "Ask Folium AI" })).not.toBeInTheDocument();
+  });
+
+  it("opens a compact Ask dock with in-composer context and send", () => {
+    renderShell("/documents");
+    fireEvent.click(screen.getByRole("button", { name: "Ask Folium AI" }));
+    expect(screen.getByRole("dialog", { name: "Ask Folium" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("Single-turn answers with citations from the selected scope."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("AI responses can be inaccurate. Verify important information."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Scope")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select ask context" })).toHaveTextContent("Library");
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
   });
 });
