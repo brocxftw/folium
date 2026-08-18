@@ -121,6 +121,31 @@ OpenAPI is proxied at http://localhost:8080/docs (port 8000 is unpublished unles
 
 Locked out of every admin: `docker compose exec -it api folium reset-admin-password`
 
+### Updating
+
+Operators pull published GHCR images. Do not `git pull` or `docker compose build` on a production install.
+
+**1. Installer (primary).** Re-run the same script. When it detects `/opt/folium` (or your install dir), choose **Update**. Secrets and document data stay in place; Compose pulls the pinned release images and restarts. The `folium update` CLI command is still a stub — use the installer TUI.
+
+```bash
+curl -fsSL -o install-folium.sh \
+  https://github.com/brocxftw/folium/releases/latest/download/install-folium.sh
+less install-folium.sh
+bash install-folium.sh
+```
+
+**2. Manual Compose.** In the directory with `docker-compose.yml` and `.env`, pin the release and recreate:
+
+```bash
+# in .env
+FOLIUM_VERSION=0.1.22
+
+docker compose pull
+docker compose up -d
+```
+
+Do not `docker compose down -v`. The API runs migrations on start. Confirm with `curl -sS http://localhost:8080/health` (`"version"` should match the pin). Full notes and rollback limits: [`docs/deployment/upgrades.md`](docs/deployment/upgrades.md).
+
 Contributors building from source: [`docs/development/local-development.md`](docs/development/local-development.md)
 
 Deployment: [`docs/deployment/`](docs/deployment/overview.md)
