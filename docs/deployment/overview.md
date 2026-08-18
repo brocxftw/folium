@@ -19,8 +19,8 @@ Postgres is pulled from Docker Hub (`pgvector/pgvector:pg17`). Folium `api`/`wor
 
 | URL | Service |
 |-----|---------|
-| http://localhost:8080 | UI |
-| http://localhost:8080/health | API liveness + version (nginx proxy) |
+| http://localhost:9398 | UI |
+| http://localhost:9398/health | API liveness + version (nginx proxy) |
 | http://localhost:8000/docs | OpenAPI (published by public Compose; installer leaves 8000 unpublished unless opted in) |
 
 First boot creates the bootstrap admin from `FOLIUM_ADMIN_USERNAME` / `FOLIUM_ADMIN_PASSWORD` if no users exist.

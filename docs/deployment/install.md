@@ -34,7 +34,7 @@ Edit `.env`:
 1. `FOLIUM_SECRET_KEY` and `FOLIUM_ENCRYPTION_KEY` — `openssl rand -hex 32` for each
 2. `POSTGRES_PASSWORD` — required; use hex (`openssl rand -hex 24`). Do not use `@ : / # ?` in the password
 3. `FOLIUM_ADMIN_PASSWORD` — first-boot admin only
-4. `FRONTEND_ORIGIN` — the URL you will open in the browser (default `http://localhost:8080`)
+4. `FRONTEND_ORIGIN` — comma-separated browser URLs (default `http://localhost:9398`)
 5. Host bind paths if you do not want `./data/...`
 
 ```bash
@@ -45,9 +45,11 @@ sudo chown -R 1000:1000 data/documents data/consume data/export data/backups dat
 docker compose up -d
 ```
 
-UI: http://localhost:8080  
-Health (via nginx): http://localhost:8080/health  
-OpenAPI: http://localhost:8080/docs (or http://localhost:8000/docs if you publish port 8000)
+UI: http://localhost:9398  
+Health (via nginx): http://localhost:9398/health  
+OpenAPI: http://localhost:9398/docs (or http://localhost:9099/docs if you publish the API port)
+
+MCP: http://localhost:9398/mcp (Bearer API token; proxied through `web`)
 
 Bootstrap admin is created **only** when the users table is empty.
 

@@ -66,22 +66,25 @@ assert_ok "pinned with v" config_is_pinned_version "v0.1.16"
 assert_fail "reject latest" config_is_pinned_version "latest"
 assert_fail "reject empty" config_is_pinned_version ""
 
-assert_ok "forbid /" storage_is_forbidden_path "/"
-assert_ok "forbid /etc" storage_is_forbidden_path "/etc"
-assert_ok "forbid /usr/bin" storage_is_forbidden_path "/usr/bin"
-assert_ok "forbid /boot" storage_is_forbidden_path "/boot"
-assert_fail "allow /opt/folium" storage_is_forbidden_path "/opt/folium"
-assert_fail "allow /mnt/data/docs" storage_is_forbidden_path "/mnt/data/docs"
+assert_ok "forbid /" storage_is_critical_forbidden_path "/"
+assert_ok "forbid /etc" storage_is_critical_forbidden_path "/etc"
+assert_ok "forbid /usr/bin" storage_is_critical_forbidden_path "/usr/bin"
+assert_ok "forbid /boot" storage_is_critical_forbidden_path "/boot"
+assert_fail "allow /opt/folium" storage_is_critical_forbidden_path "/opt/folium"
+assert_fail "allow /mnt/data/docs" storage_is_critical_forbidden_path "/mnt/data/docs"
+assert_fail "allow /root/sandbox" storage_is_critical_forbidden_path "/root/sandbox/folium"
+assert_ok "risky /root/sandbox" storage_is_risky_install_path "/root/sandbox/folium"
+assert_fail "not risky /opt" storage_is_risky_install_path "/opt/folium"
 
 assert_ok "bind lan" network_bind_valid "0.0.0.0"
 assert_ok "bind loopback" network_bind_valid "127.0.0.1"
 assert_fail "bind other" network_bind_valid "10.0.0.1"
-assert_ok "port 8080" network_port_valid "8080"
+assert_ok "port 9398" network_port_valid "9398"
 assert_fail "port 0" network_port_valid "0"
 assert_fail "port junk" network_port_valid "abc"
 
-assert_eq "origin loopback" "$(network_origin_for 127.0.0.1 8080 "")" "http://127.0.0.1:8080"
-assert_eq "origin public" "$(network_origin_for 0.0.0.0 8080 "https://docs.example.com/")" "https://docs.example.com"
+assert_eq "origin loopback" "$(network_origin_for 127.0.0.1 9398 "")" "http://127.0.0.1:9398"
+assert_eq "origin public" "$(network_origin_for 0.0.0.0 9398 "https://docs.example.com/")" "https://docs.example.com"
 
 redacted="$(printf 'FOLIUM_SECRET_KEY=abc\nPOSTGRES_PASSWORD=s3cret\nFRONTEND_ORIGIN=http://x\n' | _folium_redact)"
 assert_eq "redact secret key" "$(printf '%s\n' "${redacted}" | sed -n '1p')" "FOLIUM_SECRET_KEY=***REDACTED***"
@@ -96,16 +99,16 @@ trap 'rm -rf "${TMP}"' EXIT
 
 cp "${REPO_ROOT}/docker-compose.yml" "${TMP}/docker-compose.yml"
 config_strip_compose_ports "${TMP}/docker-compose.yml"
-if grep -q '8000:8000' "${TMP}/docker-compose.yml"; then
+if grep -q '9099:8000' "${TMP}/docker-compose.yml"; then
   FAILED=$((FAILED + 1))
-  printf 'FAIL compose strip left api 8000\n'
+  printf 'FAIL compose strip left api 9099\n'
 else
   PASSED=$((PASSED + 1))
   printf 'ok  compose strip api port\n'
 fi
-if grep -q '8080:80' "${TMP}/docker-compose.yml"; then
+if grep -q '9398:80' "${TMP}/docker-compose.yml"; then
   FAILED=$((FAILED + 1))
-  printf 'FAIL compose strip left web 8080\n'
+  printf 'FAIL compose strip left web 9398\n'
 else
   PASSED=$((PASSED + 1))
   printf 'ok  compose strip web port\n'
@@ -119,10 +122,10 @@ FOLIUM_EXTRA_GID="10000"
 config_write_override
 assert_ok "override has ui port" grep -q '\${FOLIUM_BIND}:\${FOLIUM_HTTP_PORT}:80' "${TMP}/docker-compose.override.yml"
 assert_ok "override has extra gid" grep -q '10000' "${TMP}/docker-compose.override.yml"
-assert_fail "override omits api publish" grep -q '8000:8000' "${TMP}/docker-compose.override.yml"
+assert_fail "override omits api publish" grep -q '9099:8000' "${TMP}/docker-compose.override.yml"
 
 FOLIUM_EXPOSE_API="1"
-FOLIUM_API_PORT="8000"
+FOLIUM_API_PORT="9099"
 config_write_override
 assert_ok "override can publish api" grep -q '\${FOLIUM_BIND}:\${FOLIUM_API_PORT}:8000' "${TMP}/docker-compose.override.yml"
 

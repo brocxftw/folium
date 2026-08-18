@@ -44,7 +44,7 @@ services:
       EXPORT_PATH: /export
       BACKUPS_PATH: /backups
       FOLIUM_DOCUMENTS_HOST_SOURCE: ${FOLIUM_DOCUMENTS_HOST_SOURCE:-}
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:9398}
     volumes:
       - ${FOLIUM_DOCUMENTS_HOST:-./data/documents}:/documents
       - ${FOLIUM_CONSUME_HOST:-./data/consume}:/consume
@@ -52,7 +52,7 @@ services:
       - ${FOLIUM_BACKUPS_HOST:-./data/backups}:/backups
       - ${FOLIUM_PADDLE_CACHE_HOST:-./data/paddleocr}:/app/.paddleocr
     ports:
-      - "8000:8000"
+      - "9099:8000"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:8000/health"]
       interval: 10s
@@ -106,7 +106,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "8080:80"
+      - "9398:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 10s

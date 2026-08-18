@@ -1,5 +1,8 @@
 # Folium — root ignore (safe for a future public repo)
 
+# Personal host deploy configs (not part of the product)
+hades/
+
 # ---- Secrets & local env ----
 .env
 .env.*
