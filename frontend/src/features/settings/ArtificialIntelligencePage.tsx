@@ -29,8 +29,24 @@ import {
 } from "@/components/ui/Select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 
-const TABS = ["usage", "models", "providers", "policy", "advanced"] as const;
+const TABS = ["usage", "models", "advanced"] as const;
 type Tab = (typeof TABS)[number];
+const TAB_LABELS: Record<Tab, string> = {
+  usage: "Usage",
+  models: "Models",
+  advanced: "Advanced",
+};
+const LEGACY_TABS: Record<string, Tab> = {
+  providers: "models",
+  policy: "advanced",
+};
+
+function resolveTab(raw: string | null): Tab {
+  if (raw && TABS.includes(raw as Tab)) return raw as Tab;
+  if (raw && raw in LEGACY_TABS) return LEGACY_TABS[raw];
+  return "usage";
+}
+
 type UsageRange = "today" | "7d" | "30d" | "month";
 
 function UsageChart({ points }: { points: Array<{ bucket: string; requests: number }> }) {
@@ -297,25 +313,40 @@ function VisionAssignmentPanel() {
 
 export function ArtificialIntelligencePage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const raw = searchParams.get("tab");
-  const tab: Tab = TABS.includes(raw as Tab) ? (raw as Tab) : "usage";
+  const tab = resolveTab(searchParams.get("tab"));
   return (
     <div className="mx-auto max-w-6xl space-y-5">
-      <header><h1 className="text-xl font-semibold">Artificial Intelligence</h1><p className="mt-1 text-sm text-text-secondary">Models, providers, privacy policy, performance, and deployment-wide usage.</p></header>
+      <header>
+        <h1 className="text-xl font-semibold">Artificial Intelligence</h1>
+        <p className="mt-1 text-sm text-text-secondary">
+          Deployment usage, models and providers, privacy policy, and performance.
+        </p>
+      </header>
       <Tabs value={tab} onValueChange={(value) => setSearchParams(value === "usage" ? {} : { tab: value })}>
         <TabsList className="max-w-full overflow-x-auto">
-          {TABS.map((value) => <TabsTrigger key={value} value={value} className="capitalize">{value}</TabsTrigger>)}
+          {TABS.map((value) => (
+            <TabsTrigger key={value} value={value}>{TAB_LABELS[value]}</TabsTrigger>
+          ))}
         </TabsList>
         <TabsContent value="usage"><UsagePanel /></TabsContent>
-        <TabsContent value="models"><ModelsPanel /></TabsContent>
-        <TabsContent value="providers"><AIProvidersSettings /></TabsContent>
-        <TabsContent value="policy"><AIPolicySettings /></TabsContent>
+        <TabsContent value="models">
+          <div className="space-y-10">
+            <ModelsPanel />
+            <section id="providers" className="scroll-mt-4 border-t border-surface-border pt-8" aria-label="Providers">
+              <AIProvidersSettings />
+            </section>
+          </div>
+        </TabsContent>
         <TabsContent value="advanced">
-          <div className="space-y-6">
-            <div><h2 className="text-lg font-semibold">Advanced</h2><p className="text-sm text-text-secondary">Response performance and experimental assignments.</p></div>
-            <AIProfilesSettings />
-            <VisionAssignmentPanel />
-            {dataVision()}
+          <div className="space-y-10">
+            <section id="ai-policy" className="scroll-mt-4" aria-label="Policy">
+              <AIPolicySettings />
+            </section>
+            <section className="space-y-6 border-t border-surface-border pt-8" aria-label="Performance and experimental assignments">
+              <AIProfilesSettings />
+              <VisionAssignmentPanel />
+              {dataVision()}
+            </section>
           </div>
         </TabsContent>
       </Tabs>

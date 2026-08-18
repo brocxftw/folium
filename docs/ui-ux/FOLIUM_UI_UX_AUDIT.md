@@ -88,7 +88,7 @@ Folium
 │   │   ├── Profile                   /settings/profile
 │   │   ├── Users (admin)             /settings/profile/users
 │   │   ├── Artificial Intelligence   /settings/artificial-intelligence
-│   │   │   └── tabs: usage | models | providers | policy | advanced
+│   │   │   └── tabs: usage | models | advanced
 │   │   ├── System (admin)            /settings/system
 │   │   ├── Logs (admin)              /settings/logs
 │   │   └── About                     /settings/about
@@ -199,7 +199,7 @@ Source: `frontend/src/components/layout/AppShell.tsx`
 | Library view tabs | Documents | All / Recently added / Unprocessed |
 | Search mode tabs | Documents header, Search | Hybrid / Keyword / Semantic |
 | Settings section nav | SettingsLayout | Profile, AI, System, Logs, About (+ admin filter) |
-| AI settings tabs | Artificial Intelligence | `?tab=` usage\|models\|providers\|policy\|advanced |
+| AI settings tabs | Artificial Intelligence | `?tab=` usage\|models\|advanced (legacy `providers` → models, `policy` → advanced) |
 | Inbox status tabs | Inbox | All / Ready / Needs review / Failed / Preparing |
 | Inspector tabs | Viewer | Overview / Metadata / OCR |
 | Breadcrumbs | Documents (folder) | Display-only path string (**not** clickable navigators) |
@@ -918,7 +918,7 @@ Source: `frontend/src/components/settings/UsersSettings.tsx`
 
 ## Settings — Artificial Intelligence (admin)
 
-Tabs via `?tab=` (default `usage`):
+Tabs via `?tab=` (default `usage`): Usage | Models | Advanced.
 
 ### Usage
 
@@ -926,19 +926,17 @@ Range: today / 7d / 30d / month. KPIs: Requests, Tokens, Processing time, Estima
 
 ### Models
 
-Assignments for Indexing, Embedding, Chat (vision in Advanced). Change opens AssignmentDialog (provider + model discovery or free text). Embedding change warning. `GET/PATCH /api/ai/assignments`.
+Two sections:
 
-### Providers
-
-List providers (Ollama, OpenAI Compatible, OpenAI, OpenRouter, Anthropic, Gemini). Add/Edit dialog (name, kind, base URL, API key show/hide, chat/embedding models, embedding knobs, local checkbox). Test / Enable-Disable / Delete (`window.confirm`).
-
-### Policy
-
-Privacy mode: local only / private hybrid / standard. Remote allow Q&A / embeddings / vision; warn before remote; block remote. Automation: auto-enrichment, auto-tagging. Enforcement note + active embedding info. `GET/PATCH /api/ai/policy`.
+- Workload assignments for Indexing, Embedding, Chat (vision in Advanced). Change opens AssignmentDialog (provider + model discovery or free text). Embedding change warning. `GET/PATCH /api/ai/assignments`.
+- Providers: list (Ollama, OpenAI Compatible, OpenAI, OpenRouter, Anthropic, Gemini). Add/Edit dialog (name, kind, base URL, API key show/hide, chat/embedding models, embedding knobs, local checkbox). Test / Enable-Disable / Delete (`window.confirm`). Anchor `#providers`. Legacy `?tab=providers` opens this tab.
 
 ### Advanced
 
-AI profiles (Lightweight / Balanced / Quality / Custom token/chunk knobs) + Vision assignment panel. Note in UI: profiles ≠ model selection.
+Two sections:
+
+- Policy: privacy mode (local only / private hybrid / standard); remote allow Q&A / embeddings / vision; warn before remote; block remote; automation (auto-enrichment, auto-tagging); enforcement note + active embedding info. `GET/PATCH /api/ai/policy`. Anchor `#ai-policy`. Legacy `?tab=policy` opens this tab.
+- Response performance: AI profiles (Lightweight / Balanced / Quality / Custom token/chunk knobs) + Vision assignment panel. Note in UI: profiles ≠ model selection.
 
 Source: `ArtificialIntelligencePage.tsx`, `AIProvidersSettings.tsx`, `AIPolicySettings.tsx`, `AIProfilesSettings.tsx`
 
@@ -1776,7 +1774,7 @@ Profile; Reset password (external link).
 Configure optional AI usage, models, providers, privacy policy, and profiles.
 
 ### Required regions
-Tabbed workspace: usage; models; providers; policy; advanced.
+Tabbed workspace: usage; models (assignments + providers); advanced (policy + performance).
 
 ### Required components
 KPI/charts; assignment dialog; provider CRUD/test; privacy toggles; profile selectors; vision assignment.

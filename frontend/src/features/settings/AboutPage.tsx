@@ -31,7 +31,7 @@ export function AboutPage() {
           <p>Provider credentials are encrypted at rest and are never returned in full. Operational logs contain allowlisted application facts and are redacted; prompts, extracted document text, cookies, credentials, and authentication tokens are not intentionally persisted.</p>
         </div>
         {session?.user.is_admin ? (
-          <Link className="inline-flex text-sm font-medium text-accent hover:underline" to="/settings/artificial-intelligence?tab=policy">Review AI Policy →</Link>
+          <Link className="inline-flex text-sm font-medium text-accent hover:underline" to="/settings/artificial-intelligence?tab=advanced#ai-policy">Review AI Policy →</Link>
         ) : (
           <p className="text-sm text-text-muted">AI Policy is managed by your Folium administrator.</p>
         )}

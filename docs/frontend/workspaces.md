@@ -17,7 +17,7 @@ User-facing surfaces by purpose. Routes from `App.tsx`.
 | Section | Who | Notes |
 |---------|-----|-------|
 | Profile | All | Password, avatar, sessions; Users nested at `profile/users` (admin) |
-| Artificial Intelligence | Admin | Providers, policy, profiles/advanced |
+| Artificial Intelligence | Admin | Usage; models (assignments + providers); advanced (policy + performance) |
 | Library | All | Stats / health-ish metrics; reset counters |
 | Backup & Restore | Admin | Manual/scheduled backups, history, restore |
 | System | Admin | Process/container-visible facts, storage paths |

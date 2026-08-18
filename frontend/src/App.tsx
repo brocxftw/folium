@@ -81,8 +81,8 @@ export default function App() {
               <Route path="about" element={<AboutPage />} />
               <Route path="users" element={<Navigate to="/settings/profile/users" replace />} />
               <Route path="storage" element={<Navigate to="/settings/system#storage" replace />} />
-              <Route path="ai-providers" element={<Navigate to="/settings/artificial-intelligence?tab=providers" replace />} />
-              <Route path="ai-policy" element={<Navigate to="/settings/artificial-intelligence?tab=policy" replace />} />
+              <Route path="ai-providers" element={<Navigate to="/settings/artificial-intelligence?tab=models#providers" replace />} />
+              <Route path="ai-policy" element={<Navigate to="/settings/artificial-intelligence?tab=advanced#ai-policy" replace />} />
               <Route path="ai-profiles" element={<Navigate to="/settings/artificial-intelligence?tab=advanced" replace />} />
             </Route>
             <Route path="*" element={<NotFoundPage />} />
