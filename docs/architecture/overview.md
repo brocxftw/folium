@@ -34,7 +34,7 @@ It is designed to run as Docker Compose on a homelab or NAS-backed host. Postgre
 
 ```text
 Browser
-   │  HTTP (same origin via web:8080, or Vite :8080 in dev)
+   │  HTTP (same origin via web:9398, or Vite :8080 in dev)
    ▼
 Frontend (nginx or Vite)
    │  /api /health  →  api:8000

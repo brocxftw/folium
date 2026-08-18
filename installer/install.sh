@@ -283,8 +283,18 @@ wizard_directory() {
   local dir=""
   dir="$(ui_input "Install directory:" "${FOLIUM_INSTALL_DIR:-${FOLIUM_DEFAULT_INSTALL_DIR}}")" || return "${UI_BACK}"
   dir="$(storage_normalize_path "${dir}")"
-  if storage_is_forbidden_path "${dir}"; then
+  if storage_is_critical_forbidden_path "${dir}"; then
     ui_msgbox "Refusing to install into ${dir}. Choose another directory."
+    return 1
+  fi
+  if ! storage_validate_install_path "${dir}"; then
+    if storage_is_risky_install_path "${dir}"; then
+      ui_msgbox "Refusing to install into ${dir} without accepting the risk.
+
+Set FOLIUM_ACCEPT_RISKY_PATH=1 for non-interactive installs under /root or /tmp."
+    else
+      ui_msgbox "Refusing to install into ${dir}. Choose another directory."
+    fi
     return 1
   fi
   FOLIUM_INSTALL_DIR="${dir}"
@@ -325,7 +335,7 @@ wizard_storage_paths() {
   FOLIUM_PADDLE_PATH="${FOLIUM_INSTALL_DIR}/data/paddleocr"
   local p
   for p in "${FOLIUM_DOCS_PATH}" "${FOLIUM_CONSUME_PATH}" "${FOLIUM_EXPORT_PATH}" "${FOLIUM_PADDLE_PATH}"; do
-    if storage_is_forbidden_path "${p}"; then
+    if ! storage_validate_bind_path "${p}"; then
       ui_msgbox "Refusing storage path ${p}. Choose another path."
       return 1
     fi
@@ -391,7 +401,7 @@ Enter a different HTTP port."
 
 wizard_expose_api() {
   local choice=""
-  FOLIUM_API_PORT="${FOLIUM_API_PORT:-8000}"
+  FOLIUM_API_PORT="${FOLIUM_API_PORT:-${FOLIUM_DEFAULT_API_PORT}}"
   choice="$(ui_menu "Publish the API/OpenAPI port on ${FOLIUM_BIND} as well?
 
 The UI already proxies /api and /health. Leave this off unless you need OpenAPI from other hosts." \
@@ -406,7 +416,7 @@ The UI already proxies /api and /health. Leave this off unless you need OpenAPI 
     return "${UI_OK}"
   fi
   FOLIUM_EXPOSE_API=1
-  local port="${FOLIUM_API_PORT:-8000}"
+  local port="${FOLIUM_API_PORT:-${FOLIUM_DEFAULT_API_PORT}}"
   local users=""
   while true; do
     port="$(ui_input "Host port to publish for OpenAPI (container stays 8000):" "${port}")" || return "${UI_BACK}"
@@ -434,29 +444,30 @@ Enter a different host port."
   done
 }
 
-wizard_reverse_proxy() {
-  local choice=""
-  choice="$(ui_menu "Will you reach Folium through a reverse proxy or public hostname?
+wizard_origin() {
+  local choice="" origin=""
+  choice="$(ui_menu "Browser origin (FRONTEND_ORIGIN)
 
-If yes, you will enter the public URL (for example https://docs.example.com). This installer does not install Caddy or nginx on the host." \
-    no "No — use the bind address" \
-    yes "Yes — I have a public URL" \
+List every URL you will open in a browser (comma-separated). Include reverse-proxy URLs and direct LAN URLs if you use both.
+
+The installer does not install Caddy or nginx on the host." \
+    default "Default from bind address and port" \
+    custom "Enter custom origin(s)" \
     back "Back")" || return "${UI_BACK}"
   if [[ "${choice}" == "back" ]]; then
     return "${UI_BACK}"
   fi
-  FOLIUM_USE_PROXY="${choice}"
-  return "${UI_OK}"
-}
-
-wizard_origin() {
-  local origin=""
-  if [[ "${FOLIUM_USE_PROXY:-no}" == "yes" ]]; then
-    origin="$(ui_input "Public URL (FRONTEND_ORIGIN):" "${FOLIUM_FRONTEND_ORIGIN:-https://docs.example.com}")" || return "${UI_BACK}"
-  else
-    origin="$(network_origin_for "${FOLIUM_BIND}" "${FOLIUM_HTTP_PORT}" "")"
+  if [[ "${choice}" == "default" ]]; then
+    FOLIUM_FRONTEND_ORIGIN="$(network_origin_for "${FOLIUM_BIND}" "${FOLIUM_HTTP_PORT}" "")"
+    return "${UI_OK}"
   fi
-  FOLIUM_FRONTEND_ORIGIN="$(ui_input "Confirm the browser origin (must match the URL you open):" "${origin}")" || return "${UI_BACK}"
+  origin="$(ui_input "Origins (comma-separated, no spaces after commas):" "${FOLIUM_FRONTEND_ORIGIN:-https://docs.example.com,http://192.168.1.1:${FOLIUM_HTTP_PORT}}")" || return "${UI_BACK}"
+  origin="$(printf '%s' "${origin}" | tr -d ' ')"
+  if [[ -z "${origin}" ]]; then
+    ui_msgbox "At least one origin is required."
+    return 1
+  fi
+  FOLIUM_FRONTEND_ORIGIN="${origin}"
   return "${UI_OK}"
 }
 
@@ -520,10 +531,9 @@ wizard_dispatch() {
     6) wizard_bind ;;
     7) wizard_http_port ;;
     8) wizard_expose_api ;;
-    9) wizard_reverse_proxy ;;
-    10) wizard_origin ;;
-    11) wizard_secrets ;;
-    12) wizard_summary ;;
+    9) wizard_origin ;;
+    10) wizard_secrets ;;
+    11) wizard_summary ;;
     *) rc=0 ;;
   esac
   rc=$?
@@ -539,7 +549,6 @@ run_wizard() {
   local step=0
   local rc=0
   FOLIUM_STORAGE_KIND="${FOLIUM_STORAGE_KIND:-managed}"
-  FOLIUM_USE_PROXY="${FOLIUM_USE_PROXY:-no}"
   FOLIUM_UI_NOCANCEL=0
   FOLIUM_UI_CANCEL_LABEL="Back"
   FOLIUM_UI_OK_LABEL="OK"
@@ -551,7 +560,7 @@ run_wizard() {
     wizard_dispatch "${step}" || rc=$?
     case "${rc}" in
       0)
-        if [[ "${step}" -eq 12 ]]; then
+        if [[ "${step}" -eq 11 ]]; then
           return 0
         fi
         step=$((step + 1))
@@ -583,7 +592,7 @@ run_wizard() {
 }
 
 apply_storage() {
-  local path fst chown_now
+  local path fst chown_now suggested_gid
   for path in "${FOLIUM_DOCS_PATH}" "${FOLIUM_CONSUME_PATH}" "${FOLIUM_EXPORT_PATH}" "${FOLIUM_PADDLE_PATH}"; do
     if [[ ! -d "${path}" ]]; then
       run_root mkdir -p "${path}"
@@ -618,9 +627,36 @@ Ctrl+C cancels." \
     if [[ "${chown_now}" == "1" ]]; then
       run_root chown "${FOLIUM_APP_UID}:${FOLIUM_APP_GID}" "${path}"
     fi
-    if ! storage_writable_by_app_user "${path}"; then
-      abort "Storage path ${path} is still not writable by UID ${FOLIUM_APP_UID}."
+    if storage_writable_by_app_user "${path}"; then
+      continue
     fi
+    suggested_gid="$(storage_gid_of "${path}" 2>/dev/null || true)"
+    if [[ -n "${suggested_gid}" && "${suggested_gid}" != "${FOLIUM_APP_GID}" && -z "${FOLIUM_EXTRA_GID:-}" ]]; then
+      if [[ "${FOLIUM_NONINTERACTIVE}" == "1" ]]; then
+        FOLIUM_EXTRA_GID="${suggested_gid}"
+        log_info "auto-selected extra GID ${suggested_gid} for ${path}"
+      else
+        local gid_choice=""
+        FOLIUM_UI_NOCANCEL=1
+        gid_choice="$(ui_menu "${path} is still not writable after chown.
+
+Directory group GID is ${suggested_gid}. CIFS/NFS paths with mode 0770 often need group_add in Compose.
+
+Add GID ${suggested_gid} as an extra container group?" \
+          yes "Add GID ${suggested_gid}" \
+          abort "Abort install")"
+        FOLIUM_UI_NOCANCEL=0
+        if [[ "${gid_choice}" == "yes" ]]; then
+          FOLIUM_EXTRA_GID="${suggested_gid}"
+        else
+          abort "Storage path ${path} is not writable. Configure FOLIUM_EXTRA_GID for 0770 CIFS binds."
+        fi
+      fi
+    fi
+    if storage_writable_by_app_user "${path}"; then
+      continue
+    fi
+    abort "Storage path ${path} is still not writable by UID ${FOLIUM_APP_UID}. For 0770 CIFS binds set FOLIUM_EXTRA_GID to the directory group GID."
   done
 }
 
@@ -700,7 +736,7 @@ folium_health_progress() {
 
 execute_install() {
   log_info "execute_install method=${FOLIUM_METHOD} version=${FOLIUM_VERSION}"
-  FOLIUM_API_PORT="${FOLIUM_API_PORT:-8000}"
+  FOLIUM_API_PORT="${FOLIUM_API_PORT:-${FOLIUM_DEFAULT_API_PORT}}"
   ensure_install_dir
   if [[ "${FOLIUM_MODE}" == "reconfigure" ]]; then
     config_backup_install_dir
@@ -779,7 +815,7 @@ repair_install() {
   if [[ "${ok}" == "1" ]]; then
     ui_msgbox "Repair finished. Folium is healthy.
 
-UI: ${FOLIUM_FRONTEND_ORIGIN:-http://127.0.0.1:${FOLIUM_HTTP_PORT:-8080}}
+UI: ${FOLIUM_FRONTEND_ORIGIN:-http://127.0.0.1:${FOLIUM_HTTP_PORT:-9398}}
 CLI: folium status
 Log: ${FOLIUM_LOG_FILE}"
   else
@@ -800,7 +836,7 @@ update_install() {
   SHOW_ADMIN_PASSWORD=0
   FOLIUM_BIND="${FOLIUM_BIND:-0.0.0.0}"
   FOLIUM_HTTP_PORT="${FOLIUM_HTTP_PORT:-${FOLIUM_DEFAULT_HTTP_PORT}}"
-  FOLIUM_API_PORT="${FOLIUM_API_PORT:-8000}"
+  FOLIUM_API_PORT="${FOLIUM_API_PORT:-${FOLIUM_DEFAULT_API_PORT}}"
   FOLIUM_COMPOSE_PROJECT="${FOLIUM_COMPOSE_PROJECT:-${FOLIUM_DEFAULT_PROJECT}}"
   FOLIUM_EXPOSE_API="${FOLIUM_EXPOSE_API:-0}"
   FOLIUM_FRONTEND_ORIGIN="$(config_env_get FRONTEND_ORIGIN || printf '%s' "${FOLIUM_FRONTEND_ORIGIN:-http://127.0.0.1:${FOLIUM_HTTP_PORT}}")"
@@ -886,7 +922,17 @@ ${FOLIUM_LOG_FILE}" \
 }
 
 success_screen() {
-  local admin_note=""
+  local admin_note="" mcp_note="" api_note=""
+  local primary_origin="${FOLIUM_FRONTEND_ORIGIN%*,*}"
+  primary_origin="${primary_origin%/}"
+  mcp_note="
+
+MCP (Bearer token): ${primary_origin}/mcp"
+  if [[ "${FOLIUM_EXPOSE_API:-0}" == "1" ]]; then
+    api_note="
+
+API (optional): http://${FOLIUM_BIND}:${FOLIUM_API_PORT:-${FOLIUM_DEFAULT_API_PORT}}/mcp"
+  fi
   if [[ "${SHOW_ADMIN_PASSWORD}" == "1" ]]; then
     admin_note="
 
@@ -904,7 +950,7 @@ Existing admin credentials were kept and are not displayed."
     [[ "${FOLIUM_MODE}" == "update" ]] && verb="updated"
     ui_msgbox "Folium ${FOLIUM_VERSION} is ${verb} and healthy.
 
-Open: ${FOLIUM_FRONTEND_ORIGIN}
+Open: ${FOLIUM_FRONTEND_ORIGIN}${mcp_note}${api_note}
 Install dir: ${FOLIUM_INSTALL_DIR}
 CLI: folium status | start | stop | logs | doctor
 Log: ${FOLIUM_LOG_FILE}${admin_note}"
@@ -913,7 +959,7 @@ Log: ${FOLIUM_LOG_FILE}${admin_note}"
     [[ "${FOLIUM_MODE}" == "update" ]] && verb="Update"
     ui_msgbox "${verb} completed but Folium is not healthy yet.
 
-Open: ${FOLIUM_FRONTEND_ORIGIN}
+Open: ${FOLIUM_FRONTEND_ORIGIN}${mcp_note}${api_note}
 Install dir: ${FOLIUM_INSTALL_DIR}
 Log: ${FOLIUM_LOG_FILE}
 Next: folium doctor
@@ -970,9 +1016,16 @@ You can continue, but performance or disk space may be tight."
   if [[ "${FOLIUM_NONINTERACTIVE}" == "1" ]]; then
     FOLIUM_METHOD="${FOLIUM_METHOD:-image}"
     FOLIUM_INSTALL_DIR="${FOLIUM_INSTALL_DIR:-${FOLIUM_DEFAULT_INSTALL_DIR}}"
+    FOLIUM_INSTALL_DIR="$(storage_normalize_path "${FOLIUM_INSTALL_DIR}")"
+    if storage_is_critical_forbidden_path "${FOLIUM_INSTALL_DIR}"; then
+      abort "Refusing to install into ${FOLIUM_INSTALL_DIR}."
+    fi
+    if ! storage_validate_install_path "${FOLIUM_INSTALL_DIR}"; then
+      abort "Refusing risky install path ${FOLIUM_INSTALL_DIR}. Set FOLIUM_ACCEPT_RISKY_PATH=1 to allow /root or /tmp."
+    fi
     FOLIUM_BIND="${FOLIUM_BIND:-127.0.0.1}"
     FOLIUM_HTTP_PORT="${FOLIUM_HTTP_PORT:-${FOLIUM_DEFAULT_HTTP_PORT}}"
-    FOLIUM_API_PORT="${FOLIUM_API_PORT:-8000}"
+    FOLIUM_API_PORT="${FOLIUM_API_PORT:-${FOLIUM_DEFAULT_API_PORT}}"
     FOLIUM_EXPOSE_API="${FOLIUM_EXPOSE_API:-0}"
     FOLIUM_COMPOSE_PROJECT="${FOLIUM_COMPOSE_PROJECT:-${FOLIUM_DEFAULT_PROJECT}}"
     if [[ -z "${FOLIUM_VERSION_TAG:-}" ]]; then
@@ -990,6 +1043,12 @@ You can continue, but performance or disk space may be tight."
     FOLIUM_CONSUME_PATH="${FOLIUM_CONSUME_PATH:-${FOLIUM_INSTALL_DIR}/data/consume}"
     FOLIUM_EXPORT_PATH="${FOLIUM_EXPORT_PATH:-${FOLIUM_INSTALL_DIR}/data/export}"
     FOLIUM_PADDLE_PATH="${FOLIUM_PADDLE_PATH:-${FOLIUM_INSTALL_DIR}/data/paddleocr}"
+    local bind_path
+    for bind_path in "${FOLIUM_DOCS_PATH}" "${FOLIUM_CONSUME_PATH}" "${FOLIUM_EXPORT_PATH}" "${FOLIUM_PADDLE_PATH}"; do
+      if ! storage_validate_bind_path "${bind_path}"; then
+        abort "Refusing storage bind path ${bind_path}."
+      fi
+    done
     FOLIUM_FRONTEND_ORIGIN="${FOLIUM_FRONTEND_ORIGIN:-$(network_origin_for "${FOLIUM_BIND}" "${FOLIUM_HTTP_PORT}" "")}"
     wizard_secrets
     execute_install

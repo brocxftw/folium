@@ -1,20 +1,41 @@
 # Host path validation for document binds. UID 1000; no chmod 777.
 # shellcheck shell=bash
 
-storage_is_forbidden_path() {
+storage_is_critical_forbidden_path() {
   local raw="${1:-}"
   local path
   [[ -n "${raw}" ]] || return 0
   path="$(storage_normalize_path "${raw}")" || return 0
   case "${path}" in
-    /|/bin|/boot|/dev|/etc|/lib|/lib64|/proc|/root|/sbin|/sys|/usr)
+    /|/bin|/boot|/dev|/etc|/lib|/lib64|/proc|/sbin|/sys|/usr)
       return 0
       ;;
-    /bin/*|/boot/*|/dev/*|/etc/*|/lib/*|/lib64/*|/proc/*|/root/*|/sbin/*|/sys/*|/usr/*)
+    /bin/*|/boot/*|/dev/*|/etc/*|/lib/*|/lib64/*|/proc/*|/sbin/*|/sys/*|/usr/*)
       return 0
       ;;
   esac
   return 1
+}
+
+storage_is_risky_install_path() {
+  local raw="${1:-}"
+  local path
+  [[ -n "${raw}" ]] || return 1
+  path="$(storage_normalize_path "${raw}")" || return 1
+  case "${path}" in
+    /root|/tmp)
+      return 0
+      ;;
+    /root/*|/tmp/*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+# Backwards-compatible alias: critical system paths only (not /root or /tmp).
+storage_is_forbidden_path() {
+  storage_is_critical_forbidden_path "$@"
 }
 
 storage_normalize_path() {
@@ -55,7 +76,14 @@ storage_writable_by_app_user() {
   local path="$1"
   local marker="${path}/.folium-write-test"
   if docker_info_ok; then
-    docker_bin run --rm --user "${FOLIUM_APP_UID}:${FOLIUM_APP_GID}" \
+    local -a docker_args=(
+      run --rm
+      --user "${FOLIUM_APP_UID}:${FOLIUM_APP_GID}"
+    )
+    if [[ -n "${FOLIUM_EXTRA_GID:-}" ]]; then
+      docker_args+=(--group-add "${FOLIUM_EXTRA_GID}")
+    fi
+    docker_bin "${docker_args[@]}" \
       -v "${path}:/mnt" alpine:3.20 sh -c 'touch /mnt/.folium-write-test && rm -f /mnt/.folium-write-test' \
       >/dev/null 2>&1
     return $?
@@ -77,4 +105,39 @@ storage_prepare_dir() {
     run_root chown "${FOLIUM_APP_UID}:${FOLIUM_APP_GID}" "${path}"
   fi
   storage_writable_by_app_user "${path}"
+}
+
+storage_confirm_risky_install_path() {
+  local path="$1"
+  local choice=""
+  FOLIUM_UI_NOCANCEL=1
+  choice="$(ui_menu "${path} is under /root or /tmp.
+
+Installing here is at your own risk (permissions, backups, and upgrades are your responsibility).
+
+Continue with this install directory?" \
+    yes "Continue at my own risk" \
+    abort "Choose another directory")"
+  FOLIUM_UI_NOCANCEL=0
+  [[ "${choice}" == "yes" ]]
+}
+
+storage_validate_install_path() {
+  local path="$1"
+  if storage_is_critical_forbidden_path "${path}"; then
+    return 1
+  fi
+  if ! storage_is_risky_install_path "${path}"; then
+    return 0
+  fi
+  if [[ "${FOLIUM_NONINTERACTIVE}" == "1" ]]; then
+    [[ "${FOLIUM_ACCEPT_RISKY_PATH:-0}" == "1" ]]
+    return
+  fi
+  storage_confirm_risky_install_path "${path}"
+}
+
+storage_validate_bind_path() {
+  local path="$1"
+  ! storage_is_critical_forbidden_path "${path}"
 }

@@ -39,7 +39,7 @@ docker compose -f docker-compose.yml -f compose.dev.yaml up --build -d
 
 ## Ports
 
-Public: `8080:80` (web), `8000:8000` (api). Postgres is **not** published. The development overlay maps `5433:5432`.
+Public: `9398:80` (web), `9099:8000` (api). Postgres is **not** published. The development overlay maps `5433:5432`.
 
 ## Migrations
 

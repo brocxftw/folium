@@ -56,8 +56,8 @@ data = {
   "install_dir": os.environ.get("FOLIUM_INSTALL_DIR", ""),
   "network": {
     "bind": os.environ.get("FOLIUM_BIND", "0.0.0.0"),
-    "port": int(os.environ.get("FOLIUM_HTTP_PORT", "8080")),
-    "api_port": int(os.environ.get("FOLIUM_API_PORT", "8000")),
+    "port": int(os.environ.get("FOLIUM_HTTP_PORT", "9398")),
+    "api_port": int(os.environ.get("FOLIUM_API_PORT", "9099")),
     "expose_api": os.environ.get("FOLIUM_EXPOSE_API", "0") == "1",
     "frontend_origin": os.environ.get("FOLIUM_FRONTEND_ORIGIN", ""),
   },
