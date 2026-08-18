@@ -146,6 +146,14 @@ async def search(
     _user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SearchResponse:
+    return await execute_search(db, _user.id, body)
+
+
+async def execute_search(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+    body: SearchRequest,
+) -> SearchResponse:
     ai_settings = await ensure_ai_settings(db)
     semantic_available = False
     query_embedding: list[float] | None = None
@@ -177,11 +185,11 @@ async def search(
         body.folder_id,
         body.folder_ids,
         body.include_descendants,
-        _user.id,
+        owner_id,
     )
     filters = _filters_from_body(
         body,
-        owner_id=_user.id,
+        owner_id=owner_id,
         resolved_folder_ids=resolved_folder_ids,
     )
 
@@ -221,14 +229,14 @@ async def search(
         page_hits = await search_pages(
             db,
             body.query,
-            owner_id=_user.id,
+            owner_id=owner_id,
             filters=filters,
             limit=_RAW_FETCH_CAP,
         )
         doc_hits = await search_documents(
             db,
             body.query,
-            owner_id=_user.id,
+            owner_id=owner_id,
             filters=filters,
             limit=_RAW_FETCH_CAP,
         )
@@ -271,7 +279,7 @@ async def search(
         sem_hits = await search_chunks_semantic(
             db,
             query_embedding,
-            owner_id=_user.id,
+            owner_id=owner_id,
             embedding_provider=embed_provider_name,
             embedding_model=embed_model,
             embedding_dimension=embed_dim,
@@ -305,7 +313,7 @@ async def search(
             db,
             body.query,
             query_embedding,
-            owner_id=_user.id,
+            owner_id=owner_id,
             embedding_provider=embed_provider_name,
             embedding_model=embed_model,
             embedding_dimension=embed_dim,
@@ -344,7 +352,7 @@ async def search(
     page_ids = _paginate_doc_ids(ordered_ids, page=body.page, page_size=body.page_size)
     items = await _build_groups(
         db,
-        owner_id=_user.id,
+        owner_id=owner_id,
         ordered_doc_ids=page_ids,
         scores=scores,
         matches_by_doc=matches_by_doc,

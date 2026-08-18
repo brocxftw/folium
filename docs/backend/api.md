@@ -17,6 +17,12 @@ Mutating routes generally depend on `SafeSession` (CSRF). GETs use `CurrentUser`
 
 **Flow:** login → Set-Cookie session + CSRF → SPA stores CSRF from JSON/`folium_csrf` cookie → mutations send `X-CSRF-Token`.
 
+**API tokens (additive):** `POST/GET /api/auth/tokens`, `DELETE /api/auth/tokens/{id}`. Create returns the raw secret once. `Authorization: Bearer <token>` authenticates as the owning user on existing APIs (CSRF not required). Cookie sessions are unchanged.
+
+**MCP (read-only v1):** Streamable HTTP at `/mcp` (also proxied from `web`). Requires Bearer. Tools: `search_evidence`, `search_documents`, `get_document`, `list_folder`. Keyword search works without an AI provider. No Ask/ingest in v1.
+
+Client config (Cursor / Claude Desktop HTTP MCP): URL `<origin>/mcp`, header `Authorization: Bearer <token>` from Settings → Profile.
+
 ---
 
 ## Documents and Inbox / Process

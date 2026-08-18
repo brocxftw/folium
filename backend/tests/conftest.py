@@ -56,6 +56,7 @@ _TRUNCATE_TABLES = (
     "backup_settings",
     "jobs",
     "sessions",
+    "api_tokens",
     "password_reset_requests",
     "invites",
     "tags",
@@ -237,6 +238,15 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
     """Authenticated client with CSRF header set."""
     await login(client)
     return client
+
+
+@pytest_asyncio.fixture
+async def guest_client(client: AsyncClient) -> AsyncGenerator[AsyncClient]:
+    """Separate cookie jar; lifespan is already running via `client`."""
+    del client
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
 
 
 @pytest.fixture

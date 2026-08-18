@@ -50,6 +50,8 @@ import type {
   SearchResponse,
   Session,
   UserSession,
+  ApiToken,
+  ApiTokenCreated,
   StorageHealth,
   StorageMetrics,
   SystemSummary,
@@ -110,6 +112,7 @@ export const queryKeys = {
   backupRestoreStatus: ["backups", "restore-status"] as const,
   bootstrapStatus: ["bootstrap", "status"] as const,
   bootstrapBackups: ["bootstrap", "backups"] as const,
+  apiTokens: ["auth", "api-tokens"] as const,
 };
 
 // ---- Auth ----
@@ -215,6 +218,30 @@ export function useMySessions() {
   return useQuery({
     queryKey: ["auth", "sessions"] as const,
     queryFn: () => api.get<UserSession[]>("/api/auth/me/sessions"),
+  });
+}
+
+export function useApiTokens() {
+  return useQuery({
+    queryKey: queryKeys.apiTokens,
+    queryFn: () => api.get<ApiToken[]>("/api/auth/tokens"),
+  });
+}
+
+export function useCreateApiToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      api.post<ApiTokenCreated>("/api/auth/tokens", { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.apiTokens }),
+  });
+}
+
+export function useRevokeApiToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<Message>(`/api/auth/tokens/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.apiTokens }),
   });
 }
 

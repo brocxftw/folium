@@ -129,6 +129,22 @@ class SessionOut(BaseModel):
     csrf_token: str
 
 
+class ApiTokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+class ApiTokenOut(ORMModel):
+    id: UUID
+    name: str
+    prefix: str
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+
+class ApiTokenCreatedOut(ApiTokenOut):
+    token: str
+
+
 class UserSessionOut(ORMModel):
     id: UUID
     created_at: datetime

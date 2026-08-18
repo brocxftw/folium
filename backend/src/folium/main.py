@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -11,7 +12,8 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from folium import __version__
 from folium.api.errors import register_exception_handlers
@@ -20,6 +22,28 @@ from folium.bootstrap import bootstrap
 from folium.core.config import get_settings
 from folium.core.logging import request_id_context, setup_logging
 from folium.db.session import dispose_engine, session_scope
+from folium.mcp import build_mcp_asgi, mcp
+
+
+class _McpProxy:
+    """Stable `/mcp` mount; inner app is rebuilt each lifespan (new session manager)."""
+
+    def __init__(self) -> None:
+        self._app: ASGIApp | None = None
+
+    def set_app(self, app: ASGIApp | None) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        inner = self._app
+        if inner is None:
+            response = JSONResponse({"error": "MCP unavailable"}, status_code=503)
+            await response(scope, receive, send)
+            return
+        await inner(scope, receive, send)
+
+
+_mcp_proxy = _McpProxy()
 
 
 @asynccontextmanager
@@ -27,8 +51,31 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     setup_logging("api")
     async with session_scope() as session:
         await bootstrap(session)
-    yield
-    await dispose_engine()
+
+    # streamable_http_app() builds a session manager that can be .run() only once.
+    _mcp_proxy.set_app(build_mcp_asgi())
+    ready = asyncio.Event()
+    stop = asyncio.Event()
+
+    async def _run_mcp() -> None:
+        try:
+            async with mcp.session_manager.run():
+                ready.set()
+                await stop.wait()
+        finally:
+            ready.set()
+
+    runner = asyncio.create_task(_run_mcp())
+    try:
+        await ready.wait()
+        if runner.done():
+            await runner
+        yield
+    finally:
+        stop.set()
+        await runner
+        _mcp_proxy.set_app(None)
+        await dispose_engine()
 
 
 def create_app() -> FastAPI:
@@ -48,6 +95,18 @@ def create_app() -> FastAPI:
     )
 
     access_logger = logging.getLogger("folium.api.access")
+
+    @app.middleware("http")
+    async def mcp_accept_no_trailing_slash(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        # FastAPI Mount("/mcp") matches /mcp/... only; MCP clients POST /mcp.
+        if request.scope.get("path") == "/mcp":
+            request.scope["path"] = "/mcp/"
+            if isinstance(request.scope.get("raw_path"), (bytes, bytearray)):
+                request.scope["raw_path"] = b"/mcp/"
+        return await call_next(request)
 
     @app.middleware("http")
     async def request_context(
@@ -78,6 +137,7 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(api_router)
+    app.mount("/mcp", _mcp_proxy)
 
     return app
 
