@@ -765,21 +765,28 @@ async def get_usage(
     ).all()
     operation_rows = (
         await db.execute(
-            select(AIUsage.operation, func.count(AIUsage.id))
+            select(
+                AIUsage.operation,
+                func.count(AIUsage.id),
+                func.sum(AIUsage.duration_ms),
+            )
             .where(*where)
             .group_by(AIUsage.operation)
         )
     ).all()
     workload_names = {
         "embedding": ("embeddings", "Embeddings"),
-        "qa": ("chat", "Chat"),
-        "summary": ("indexing", "Indexing"),
-        "metadata_suggestion": ("indexing", "Indexing"),
+        "qa": ("chat", "Ask Folium"),
+        "summary": ("indexing", "Filing suggestions"),
+        "metadata_suggestion": ("indexing", "Filing suggestions"),
     }
-    grouped: dict[str, tuple[str, int]] = {}
-    for operation, count in operation_rows:
+    grouped: dict[str, dict[str, int | str | None]] = {}
+    for operation, count, duration_ms in operation_rows:
         key, label = workload_names.get(operation, (operation, operation.replace("_", " ").title()))
-        grouped[key] = (label, grouped.get(key, (label, 0))[1] + int(count))
+        bucket = grouped.setdefault(key, {"label": label, "requests": 0, "duration_ms": 0})
+        bucket["requests"] = int(bucket["requests"]) + int(count)
+        if duration_ms is not None:
+            bucket["duration_ms"] = int(bucket["duration_ms"] or 0) + int(duration_ms)
 
     return AIUsageSummary(
         range=range,
@@ -816,8 +823,13 @@ async def get_usage(
             for row in provider_rows
         ],
         by_workload=[
-            {"key": key, "label": label, "requests": count}
-            for key, (label, count) in sorted(grouped.items())
+            {
+                "key": key,
+                "label": str(entry["label"]),
+                "requests": int(entry["requests"]),
+                "duration_ms": int(entry["duration_ms"]) if entry["duration_ms"] else None,
+            }
+            for key, entry in sorted(grouped.items())
         ],
     )
 

@@ -90,7 +90,7 @@ describe("About privacy policy access", () => {
     );
     expect(screen.getByRole("link", { name: /review ai policy/i })).toHaveAttribute(
       "href",
-      "/settings/artificial-intelligence?tab=policy",
+      "/settings/artificial-intelligence?tab=controls#ai-policy",
     );
   });
 

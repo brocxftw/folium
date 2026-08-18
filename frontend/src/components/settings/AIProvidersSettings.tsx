@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Plus, Trash2, Zap, Eye, EyeOff } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Plus, Eye, EyeOff } from "lucide-react";
 import {
+  useAIAssignments,
   useAIProviders,
   useCreateAIProvider,
   useUpdateAIProvider,
@@ -8,6 +9,8 @@ import {
   useTestAIProvider,
 } from "@/lib/api/hooks";
 import type { AIProvider, AIProviderCreate, AIProviderKind } from "@/lib/api/types";
+import { AiProviderCard } from "@/features/settings/ai/AiProviderCard";
+import { WORKLOAD_COPY } from "@/features/settings/ai/workloadCopy";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
@@ -25,7 +28,6 @@ import {
   SelectValue,
 } from "@/components/ui/Select";
 import { Checkbox } from "@/components/ui/Checkbox";
-import { cn } from "@/lib/utils";
 
 const PROVIDER_KINDS: { value: AIProviderKind; label: string; defaultUrl: string; local: boolean }[] = [
   { value: "ollama", label: "Ollama (local)", defaultUrl: "http://host.docker.internal:11434/v1", local: true },
@@ -45,67 +47,9 @@ const DEFAULT_FORM: AIProviderCreate = {
   embedding_model: "",
 };
 
-function ProviderRow({
-  provider,
-  onEdit,
-  onDelete,
-  onTest,
-  onToggle,
-  testing,
-}: {
-  provider: AIProvider;
-  onEdit: () => void;
-  onDelete: () => void;
-  onTest: () => void;
-  onToggle: () => void;
-  testing: boolean;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-md border border-surface-border p-3">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-text-primary">{provider.name}</span>
-          <span className="text-xs text-text-muted capitalize">{provider.kind.replace("_", " ")}</span>
-          {provider.is_local && (
-            <span className="rounded bg-accent-muted px-1.5 py-0.5 text-[10px] text-accent">local</span>
-          )}
-          {!provider.enabled && (
-            <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] text-text-muted">disabled</span>
-          )}
-        </div>
-        <p className="text-xs text-text-muted font-mono truncate mt-0.5">{provider.base_url}</p>
-        <div className="flex gap-3 mt-1 text-xs text-text-secondary">
-          {provider.chat_model && <span>Chat: {provider.chat_model}</span>}
-          {provider.embedding_model && <span>Embed: {provider.embedding_model}</span>}
-          {provider.has_api_key && (
-            <span>Key: {provider.api_key_masked ?? "••••••••"}</span>
-          )}
-          <span>
-            Status: {provider.last_probe_status || "not tested"}
-            {provider.last_probe_latency_ms != null ? ` · ${provider.last_probe_latency_ms}ms` : ""}
-            {provider.last_probe_model_count != null ? ` · ${provider.last_probe_model_count} models` : ""}
-          </span>
-        </div>
-      </div>
-      <Button variant="ghost" size="sm" onClick={onTest} disabled={testing}>
-        <Zap className="h-3.5 w-3.5 mr-1" />
-        Test
-      </Button>
-      <Button variant="ghost" size="sm" onClick={onEdit}>
-        Edit
-      </Button>
-      <Button variant="ghost" size="sm" onClick={onToggle}>
-        {provider.enabled ? "Disable" : "Enable"}
-      </Button>
-      <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Delete ${provider.name}`}>
-        <Trash2 className="h-3.5 w-3.5 text-danger" />
-      </Button>
-    </div>
-  );
-}
-
 export function AIProvidersSettings() {
   const { data: providers = [], isLoading } = useAIProviders();
+  const { data: assignments = [] } = useAIAssignments();
   const createProvider = useCreateAIProvider();
   const updateProvider = useUpdateAIProvider();
   const deleteProvider = useDeleteAIProvider();
@@ -118,6 +62,18 @@ export function AIProvidersSettings() {
   const [showKey, setShowKey] = useState(false);
   const [testResult, setTestResult] = useState<{ id: string; ok: boolean; message: string } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const usedByMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const assignment of assignments) {
+      if (!assignment.provider_id || assignment.role === "vision") continue;
+      const label = WORKLOAD_COPY[assignment.role].title;
+      const existing = map.get(assignment.provider_id) ?? [];
+      if (!existing.includes(label)) existing.push(label);
+      map.set(assignment.provider_id, existing);
+    }
+    return map;
+  }, [assignments]);
 
   const openCreate = () => {
     setEditing(null);
@@ -196,11 +152,11 @@ export function AIProvidersSettings() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-text-primary">AI Providers</h2>
-          <p className="text-sm text-text-secondary mt-1">
-            Configure LLM and embedding providers
+          <h2 className="text-base font-semibold text-text-primary">Providers</h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            Manage AI provider connections and health.
           </p>
         </div>
         <Button onClick={openCreate} className="gap-1">
@@ -216,34 +172,30 @@ export function AIProvidersSettings() {
           No providers configured. Add a local Ollama instance or a remote API provider.
         </p>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {providers.map((p) => (
-            <div key={p.id}>
-              <ProviderRow
-                provider={p}
-                onEdit={() => openEdit(p)}
-                onDelete={() => {
-                  if (window.confirm(`Delete provider “${p.name}”? Assigned providers must be reassigned first.`)) {
-                    deleteProvider.mutate(p.id);
-                  }
-                }}
-                onTest={() => handleTest(p.id)}
-                onToggle={() =>
-                  updateProvider.mutate({ id: p.id, data: { enabled: !p.enabled } })
+            <AiProviderCard
+              key={p.id}
+              provider={p}
+              usedBy={usedByMap.get(p.id) ?? []}
+              onEdit={() => openEdit(p)}
+              onDelete={() => {
+                if (
+                  window.confirm(
+                    `Delete provider “${p.name}”? Assigned providers must be reassigned first.`,
+                  )
+                ) {
+                  deleteProvider.mutate(p.id);
                 }
-                testing={testProvider.isPending}
-              />
-              {testResult?.id === p.id && (
-                <p
-                  className={cn(
-                    "text-xs mt-1 px-3",
-                    testResult.ok ? "text-accent" : "text-danger",
-                  )}
-                >
-                  {testResult.message}
-                </p>
-              )}
-            </div>
+              }}
+              onTest={() => handleTest(p.id)}
+              onToggle={() =>
+                updateProvider.mutate({ id: p.id, data: { enabled: !p.enabled } })
+              }
+              testing={testProvider.isPending}
+              testMessage={testResult?.id === p.id ? testResult.message : undefined}
+              testOk={testResult?.id === p.id ? testResult.ok : undefined}
+            />
           ))}
         </div>
       )}
