@@ -50,7 +50,8 @@ Legend: **Required** means “must be set to a non-default secret in any real de
 | `SESSION_COOKIE_NAME` | No | `folium_session` | api | Session cookie | No |
 | `SESSION_TTL_HOURS` | No | `168` | api | Session lifetime | No |
 | `CSRF_COOKIE_NAME` | No | `folium_csrf` | api | Must match SPA (`folium_csrf` hard-coded) | No |
-| `FRONTEND_ORIGIN` | Prod | `http://localhost:8080` | api | CORS + CSRF origin | No |
+| `FRONTEND_ORIGIN` | Prod | `http://localhost:9398` | api | Comma-separated CORS + MCP origins | No |
+| `FOLIUM_SECURE_COOKIES` | No | `false` | api | Force `Secure` on session/CSRF cookies (e.g. HTTPS reverse proxy with HTTP LAN origin in list) | No |
 | `FOLIUM_BUILD_REVISION` | Images | `null` | api | About page; baked into published images | No |
 | `FOLIUM_BUILD_DATE` | Images | `null` | api | About page; baked into published images | No |
 | `FOLIUM_REPOSITORY_URL` | Images | GitHub URL in images | api | About links | No |

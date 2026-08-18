@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,7 +55,7 @@ async def health_worker(db: AsyncSession = Depends(get_db)) -> WorkerHealthOut:
 
 @router.get("/health/storage", response_model=StorageHealthOut)
 async def health_storage() -> StorageHealthOut:
-    health = StorageService().check_health()
+    health = await asyncio.to_thread(StorageService().check_health)
     return StorageHealthOut(
         status=health.status,
         documents_ok=health.documents_ok,

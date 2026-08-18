@@ -43,4 +43,4 @@ Additional runtime reads:
 
 ## Frontend
 
-Vite/nginx do not load Folium `Settings`. CSRF cookie name is hard-coded in the SPA. `FRONTEND_ORIGIN` must match the URL users actually open.
+Vite/nginx do not load Folium `Settings`. CSRF cookie name is hard-coded in the SPA. `FRONTEND_ORIGIN` is a comma-separated list of browser URLs (CORS + MCP). Set `FOLIUM_SECURE_COOKIES=true` when users reach the UI over HTTPS via a reverse proxy but an HTTP LAN URL remains in the list.

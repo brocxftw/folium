@@ -23,13 +23,13 @@ Worker Compose healthcheck runs `python -m folium.workers.healthcheck` (90s stal
 
 | Port (host → container) | Service |
 |-------------------------|---------|
-| `8080 → 80` | `web` (primary UI) |
-| `8000 → 8000` | `api` (direct OpenAPI / health) |
+| `9398 → 80` | `web` (primary UI) |
+| `9099 → 8000` | `api` (optional direct OpenAPI / MCP) |
 | `5433 → 5432` | `db` (**development overlay only**) |
 
-Frontend origin default: `http://localhost:8080` (`FRONTEND_ORIGIN`). CORS allows that origin with credentials.
+Frontend origin default: `http://localhost:9398` (`FRONTEND_ORIGIN`, comma-separated). CORS allows listed origins with credentials.
 
-Dev (non-Compose): Vite listens on **8080** and proxies `/api` and `/health` to `localhost:8000`. Running Compose `web` and Vite on 8080 at once will conflict (**Configuration-dependent**).
+Dev (non-Compose): Vite listens on **8080** and proxies `/api`, `/health`, and `/mcp` to `localhost:8000`. Compose `web` uses **9398** by default so Vite and Compose can run side by side.
 
 ---
 

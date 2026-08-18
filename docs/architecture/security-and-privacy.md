@@ -11,8 +11,8 @@ Wording “Folium enforces…” is used only where application code implements 
 - Passwords hashed with **Argon2** (`folium.auth.passwords`).
 - Session token stored **hashed** in `sessions`; raw token in HttpOnly cookie (`SESSION_COOKIE_NAME`, default `folium_session`).
 - CSRF: double-submit style — cookie `CSRF_COOKIE_NAME` (not HttpOnly) plus header `X-CSRF-Token` required on mutating API calls (`require_auth_csrf`).
-- `SameSite=Lax`. `Secure` flag when `FOLIUM_ENV` is not dev **and** `FRONTEND_ORIGIN` is `https://`.
-- CORS: single allowed origin `FRONTEND_ORIGIN` with credentials.
+- `SameSite=Lax`. `Secure` flag when `FOLIUM_ENV` is not dev and any `FRONTEND_ORIGIN` entry is `https://`, or when `FOLIUM_SECURE_COOKIES=true`.
+- CORS: allowed origins from comma-separated `FRONTEND_ORIGIN` with credentials.
 - Bootstrap admin (`FOLIUM_ADMIN_*`) is created **only when the users table is empty**. Env password is not reapplied on restart.
 - Password recovery is **admin-approved** (no SMTP). CLI: `folium reset-admin-password`.
 

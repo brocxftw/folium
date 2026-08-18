@@ -56,8 +56,7 @@ def user_out(user: User) -> UserOut:
 
 
 def _use_secure_cookies() -> bool:
-    settings = get_settings()
-    return (not settings.is_dev) and settings.frontend_origin.startswith("https://")
+    return get_settings().use_secure_cookies
 
 
 def _cookie_options() -> dict[str, object]:

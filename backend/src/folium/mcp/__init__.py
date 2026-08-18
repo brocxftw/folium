@@ -62,11 +62,7 @@ def _parse_uuid(value: str | None, *, field: str) -> uuid.UUID | None:
 
 def _transport_security() -> TransportSecuritySettings:
     settings = get_settings()
-    origin = settings.frontend_origin.rstrip("/")
-    host = urlparse(origin).hostname or "localhost"
-    allowed_hosts = [
-        host,
-        f"{host}:*",
+    allowed_hosts: list[str] = [
         "localhost",
         "localhost:*",
         "127.0.0.1",
@@ -78,10 +74,22 @@ def _transport_security() -> TransportSecuritySettings:
         "test",
         "test:*",
     ]
+    allowed_origins: list[str] = ["http://test", "http://localhost", "http://127.0.0.1"]
+    seen_hosts: set[str] = set()
+    seen_origins: set[str] = set()
+    for origin in settings.frontend_origins:
+        if origin not in seen_origins:
+            seen_origins.add(origin)
+            allowed_origins.append(origin)
+        host = urlparse(origin).hostname
+        if host and host not in seen_hosts:
+            seen_hosts.add(host)
+            allowed_hosts.append(host)
+            allowed_hosts.append(f"{host}:*")
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=allowed_hosts,
-        allowed_origins=[origin, "http://test", "http://localhost", "http://127.0.0.1"],
+        allowed_origins=allowed_origins,
     )
 
 

@@ -106,7 +106,7 @@ cmd_doctor() {
   echo
   echo "-- port --"
   local port
-  port="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("network",{}).get("port",8080))' "${FOLIUM_INSTALL_DIR}/install-state.json")"
+  port="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("network",{}).get("port",9398))' "${FOLIUM_INSTALL_DIR}/install-state.json")"
   FOLIUM_HTTP_PORT="${port}"
   if network_port_in_use "${port}"; then
     echo "port ${port} is listening (expected if Folium is up)"
@@ -137,7 +137,7 @@ main() {
   export FOLIUM_INSTALL_DIR
   if [[ -f "${FOLIUM_INSTALL_DIR}/install-state.json" ]]; then
     FOLIUM_COMPOSE_PROJECT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("compose_project","folium"))' "${FOLIUM_INSTALL_DIR}/install-state.json")"
-    FOLIUM_HTTP_PORT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("network",{}).get("port",8080))' "${FOLIUM_INSTALL_DIR}/install-state.json")"
+    FOLIUM_HTTP_PORT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("network",{}).get("port",9398))' "${FOLIUM_INSTALL_DIR}/install-state.json")"
     export FOLIUM_COMPOSE_PROJECT FOLIUM_HTTP_PORT
   fi
   load_libs || {

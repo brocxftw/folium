@@ -99,7 +99,8 @@ class Settings(BaseSettings):
     session_cookie_name: str = Field(default="folium_session", alias="SESSION_COOKIE_NAME")
     session_ttl_hours: int = Field(default=168, alias="SESSION_TTL_HOURS")
     csrf_cookie_name: str = Field(default="folium_csrf", alias="CSRF_COOKIE_NAME")
-    frontend_origin: str = Field(default="http://localhost:8080", alias="FRONTEND_ORIGIN")
+    frontend_origin: str = Field(default="http://localhost:9398", alias="FRONTEND_ORIGIN")
+    secure_cookies: bool = Field(default=False, alias="FOLIUM_SECURE_COOKIES")
     password_reset_token_ttl_hours: int = Field(default=1, alias="PASSWORD_RESET_TOKEN_TTL_HOURS")
     max_avatar_size_mb: int = Field(default=2, alias="MAX_AVATAR_SIZE_MB")
     consume_owner_username: str | None = Field(default=None, alias="CONSUME_OWNER_USERNAME")
@@ -129,6 +130,31 @@ class Settings(BaseSettings):
     @property
     def is_dev(self) -> bool:
         return self.env.lower() in {"development", "dev", "test"}
+
+    @property
+    def frontend_origins(self) -> list[str]:
+        """Browser origins allowed for CORS and MCP (comma-separated in FRONTEND_ORIGIN)."""
+        seen: set[str] = set()
+        origins: list[str] = []
+        for raw in self.frontend_origin.split(","):
+            origin = raw.strip().rstrip("/")
+            if not origin or origin in seen:
+                continue
+            seen.add(origin)
+            origins.append(origin)
+        return origins or ["http://localhost:9398"]
+
+    @property
+    def primary_frontend_origin(self) -> str:
+        return self.frontend_origins[0]
+
+    @property
+    def use_secure_cookies(self) -> bool:
+        if self.is_dev:
+            return False
+        if self.secure_cookies:
+            return True
+        return any(origin.startswith("https://") for origin in self.frontend_origins)
 
     @property
     def originals_path(self) -> Path:

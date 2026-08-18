@@ -37,8 +37,8 @@ bash installer/pack.sh /tmp/install-folium.sh
 3. Detects an existing install and offers **Update** (pull a pinned release image), Reconfigure, Repair, or Exit. It never silently rewrites `.env` secrets.
 4. Chooses **pre-built GHCR images** (default) or **build from source** (clones the selected tag into `INSTALL_DIR/src`).
 5. Pins a real `vX.Y.Z` release. It never stores `latest` as the installed version.
-6. Writes `/opt/folium` by default: Release `docker-compose.yml`, a small overlay (bind/port/`group_add` only), and `.env` (`chmod 600`). Backup files go to `$INSTALL_DIR/data/backups` (not the installer config snapshot folder).
-7. Publishes **only the UI port** (default 8080). Port 8000 is unpublished unless you opt in. Nginx already proxies `/api` and `/health`.
+6. Writes `/opt/folium` by default (you may choose another directory; `/root` and `/tmp` are allowed at your own risk with a confirmation). Release `docker-compose.yml`, a small overlay (bind/port/`group_add` only), and `.env` (`chmod 600`). Backup files go to `$INSTALL_DIR/data/backups` (not the installer config snapshot folder).
+7. Publishes **only the UI port** (default **9398**). The API host port (default **9099**) is unpublished unless you opt in. Nginx in `web` already proxies `/api`, `/health`, and `/mcp`.
 8. Waits for `GET /health`, `/health/database`, `/health/storage`, and `/health/worker`. AI health is ignored.
 9. Installs `/usr/local/bin/folium` (`status`, `start`, `stop`, `restart`, `logs`, `doctor`). `update` and `uninstall` are stubs in v1.
 
@@ -64,7 +64,11 @@ There is no timezone prompt. Folium timestamps are UTC.
 
 Paddle OCR cache is always under the install directory. Document/consume/export binds may be existing host paths, including NFS/CIFS mounts **already present**. The installer does not edit `/etc/fstab` and does not install NAS client packages.
 
-`FRONTEND_ORIGIN` must match the URL you open in a browser. If you use a reverse proxy, enter that public URL. The installer does not install Caddy or nginx on the host.
+`FRONTEND_ORIGIN` lists every browser URL you will use (comma-separated), for example `https://docs.example.com,http://192.168.1.10:9398`. If you use a reverse proxy on HTTPS but keep an HTTP LAN origin in the list, set `FOLIUM_SECURE_COOKIES=true` so session cookies use the `Secure` flag. The installer does not install Caddy or nginx on the host.
+
+**MCP:** Streamable HTTP at `{origin}/mcp` through the UI port (recommended). Requires a Bearer API token from Settings → Profile. Optional: publish the API port and use `http://host:9099/mcp` directly.
+
+Non-interactive installs under `/root` or `/tmp` require `FOLIUM_ACCEPT_RISKY_PATH=1`.
 
 ## Management CLI
 
@@ -110,14 +114,15 @@ CI runs ShellCheck and `installer/tests/run.sh`.
 | Existing install: Update / Reconfigure / Repair / Exit | TUI on a host with `/opt/folium` |
 | Source build (`git clone` + `compose.source.yaml`) | Manual |
 | LAN bind `0.0.0.0` + detected IPv4 origin | Manual |
-| Reverse-proxy `FRONTEND_ORIGIN` only | Manual |
+| Comma-separated `FRONTEND_ORIGIN` (proxy + LAN) | Manual |
+| Install under `/root` or `/tmp` (risky path confirm) | Manual |
 | Existing NFS/CIFS binds + extra GID | Manual (no fstab edits) |
 | Occupied HTTP port | Installer asks for another port (does not exit) |
 | Non-amd64 | Hard-fail in `system_check` (needs an ARM host) |
 | Docker missing → get.docker.com | Manual / VM |
 | Ctrl+C during TUI | Restores tty; does not delete data |
 
-A development host that already runs Folium on 8080/8000 must use another Compose project name and HTTP port for installer smokes.
+A development host that already runs Folium on 9398/9099 must use another Compose project name and HTTP port for installer smokes.
 
 ## Release assets
 

@@ -41,10 +41,10 @@ CLI: `folium reset-admin-password`.
 ```bash
 cd frontend
 npm install
-npm run dev          # :8080, proxies /api and /health → :8000
+npm run dev          # Vite :8080, proxies /api, /health, /mcp → :8000
 ```
 
-Do not run Compose `web` on 8080 at the same time as Vite.
+Compose `web` defaults to host port **9398** (not 8080). Vite stays on **8080** so you can run the frontend dev server alongside a local Compose stack without a port clash. Do not run Compose `web` on 8080 at the same time as Vite.
 
 ## Full stack from source
 

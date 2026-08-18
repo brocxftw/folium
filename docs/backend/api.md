@@ -19,9 +19,14 @@ Mutating routes generally depend on `SafeSession` (CSRF). GETs use `CurrentUser`
 
 **API tokens (additive):** `POST/GET /api/auth/tokens`, `DELETE /api/auth/tokens/{id}`. Create returns the raw secret once. `Authorization: Bearer <token>` authenticates as the owning user on existing APIs (CSRF not required). Cookie sessions are unchanged.
 
-**MCP (read-only v1):** Streamable HTTP at `/mcp` (also proxied from `web`). Requires Bearer. Tools: `search_evidence`, `search_documents`, `get_document`, `list_folder`. Keyword search works without an AI provider. No Ask/ingest in v1.
+**MCP (read-only v1):** Streamable HTTP at `/mcp` (proxied from `web` on the UI port). Requires Bearer (API token from Settings → Profile). Tools: `search_evidence`, `search_documents`, `get_document`, `list_folder`. Keyword search works without an AI provider. No Ask/ingest in v1.
 
-Client config (Cursor / Claude Desktop HTTP MCP): URL `<origin>/mcp`, header `Authorization: Bearer <token>` from Settings → Profile.
+Client config (Cursor / Claude Desktop HTTP MCP):
+
+- **Recommended:** `https://<your-ui-host>/mcp` (same origin as the browser UI, including reverse proxies).
+- **Optional:** `http://<host>:9099/mcp` when the API port is published.
+
+Header: `Authorization: Bearer <token>`. MCP does not use session cookies.
 
 ---
 

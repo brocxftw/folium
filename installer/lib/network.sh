@@ -83,6 +83,6 @@ network_origin_for() {
 }
 
 network_health_base() {
-  local port="${FOLIUM_HTTP_PORT:-8080}"
+  local port="${FOLIUM_HTTP_PORT:-9398}"
   printf 'http://127.0.0.1:%s' "${port}"
 }

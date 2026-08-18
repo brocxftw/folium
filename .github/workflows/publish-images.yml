@@ -112,7 +112,7 @@ jobs:
           POSTGRES_DB=folium
           FOLIUM_ADMIN_USERNAME=admin
           FOLIUM_ADMIN_PASSWORD=ci-smoke-admin-not-for-production
-          FRONTEND_ORIGIN=http://localhost:8080
+          FRONTEND_ORIGIN=http://localhost:9398
           ALLOW_REGISTRATION=false
           FOLIUM_ENV=production
           AI_PRIVACY_MODE=local_only
@@ -127,7 +127,7 @@ jobs:
           docker compose -p folium-smoke up -d
           ok=0
           for _ in $(seq 1 48); do
-            if curl -sf http://127.0.0.1:8000/health | grep -q '"status"'; then
+            if curl -sf http://127.0.0.1:9099/health | grep -q '"status"'; then
               ok=1
               break
             fi
@@ -138,8 +138,8 @@ jobs:
             docker compose -p folium-smoke logs
             exit 1
           fi
-          curl -sf http://127.0.0.1:8000/health
-          curl -sf http://127.0.0.1:8080/health
+          curl -sf http://127.0.0.1:9099/health
+          curl -sf http://127.0.0.1:9398/health
           docker compose -p folium-smoke down
           test -d "$smoke/data/documents"
 
