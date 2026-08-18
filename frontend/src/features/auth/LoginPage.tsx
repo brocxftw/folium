@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import foliumLogo from "@/assets/brand/folium_logo.svg";
-import bgLogin from "@/assets/brand/bg_login.png";
+import bgLogin from "@/assets/brand/bg_login_2.svg";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -20,8 +20,8 @@ const loginSchema = z.object({
 type LoginForm = z.infer<typeof loginSchema>;
 
 const fieldClassName =
-  "h-[52px] rounded-[12px] border-[rgba(148,163,184,0.24)] bg-[rgba(15,23,42,0.30)] " +
-  "text-[14px] text-[#F8FAFC] placeholder:text-[#94A3B8] " +
+  "h-[52px] rounded-[12px] border-surface-border bg-white " +
+  "text-[14px] text-text-primary placeholder:text-text-muted " +
   "focus-visible:border-[rgba(45,212,191,0.65)] focus-visible:ring-0 " +
   "focus-visible:shadow-[0_0_0_3px_rgba(45,212,191,0.12)]";
 
@@ -70,51 +70,54 @@ export function LoginPage() {
         src={bgLogin}
         alt=""
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center opacity-70"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
       />
 
       <div
         className={cn(
-          "relative z-10 w-full max-w-full rounded-[24px] border border-[rgba(148,163,184,0.14)]",
-          "bg-navbar px-5 py-7 text-[#F8FAFC]",
-          "shadow-[0_20px_50px_rgba(2,6,23,0.26),0_6px_18px_rgba(2,6,23,0.16)]",
+          "relative z-10 w-full max-w-full rounded-[24px] border border-surface-border",
+          "bg-white px-5 py-7 text-text-primary",
+          "shadow-[0_10px_30px_rgba(15,23,42,0.08),0_2px_8px_rgba(15,23,42,0.06)]",
           "sm:max-w-[520px] sm:p-8",
           "lg:max-w-[560px] lg:px-12 lg:pt-10 lg:pb-8",
         )}
       >
-        <div className="flex flex-col items-center gap-3 text-center">
-          <img
-            src={foliumLogo}
-            alt=""
-            height={52}
-            className="h-[52px] w-auto object-contain"
-            aria-hidden="true"
-          />
-          <h1 className="text-[56px] leading-none font-bold tracking-[-0.03em] text-[#F8FAFC]">
-            Folium
-          </h1>
-          <div className="flex items-center justify-center gap-2.5">
+        <div className="flex flex-col items-center gap-1.5 text-center">
+          <div className="flex items-center gap-3">
+            <img
+              src={foliumLogo}
+              alt=""
+              width={62}
+              height={62}
+              className="h-[62px] w-[62px] shrink-0 object-contain"
+              aria-hidden="true"
+            />
+            <h1 className="text-[56px] leading-none font-bold tracking-[-0.03em] text-text-primary">
+              Folium
+            </h1>
+          </div>
+          <div className="flex items-center justify-center gap-[9px]">
             {version ? (
-              <span className="inline-flex h-9 items-center rounded-[10px] border border-[rgba(45,212,191,0.35)] bg-[rgba(13,148,136,0.10)] px-4 text-sm font-semibold text-[#2DD4BF]">
+              <span className="inline-flex h-[32px] items-center rounded-[9px] border border-accent bg-white px-[14px] text-[13px] font-semibold text-accent">
                 v{version.replace(/^v/i, "")}
               </span>
             ) : null}
-            <span className="inline-flex h-9 items-center rounded-[10px] border border-[rgba(148,163,184,0.12)] bg-[rgba(148,163,184,0.10)] px-4 text-sm font-medium text-[#CBD5E1] shadow-[0_3px_10px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <span className="inline-flex h-[32px] items-center rounded-[9px] border border-surface-border bg-surface-muted px-[14px] text-[13px] font-medium text-text-secondary shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
               Beta
             </span>
           </div>
         </div>
 
-        <div className="mt-3 mb-7 text-center">
-          <h2 className="text-2xl font-semibold text-[#F8FAFC]">Welcome back</h2>
-          <p className="mt-1 text-base font-normal text-[#94A3B8]">
+        <div className="mt-[29px] mb-7 text-center">
+          <h2 className="text-2xl font-semibold text-text-primary">Welcome back</h2>
+          <p className="mt-1 text-base font-normal text-text-secondary">
             Sign in to access your documents
           </p>
         </div>
 
         <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
           {notice && (
-            <p className="rounded-lg bg-[rgba(148,163,184,0.10)] px-3 py-2 text-sm text-[#CBD5E1]">
+            <p className="rounded-lg bg-surface-muted px-3 py-2 text-sm text-text-secondary">
               {notice}
             </p>
           )}
@@ -122,13 +125,13 @@ export function LoginPage() {
           <div>
             <label
               htmlFor="username"
-              className="text-sm font-semibold text-[#E2E8F0]"
+              className="text-sm font-semibold text-text-primary"
             >
               Username
             </label>
             <div className="relative mt-1.5">
               <User
-                className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[#CBD5E1]"
+                className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-text-muted"
                 aria-hidden="true"
               />
               <Input
@@ -147,13 +150,13 @@ export function LoginPage() {
           <div>
             <label
               htmlFor="password"
-              className="text-sm font-semibold text-[#E2E8F0]"
+              className="text-sm font-semibold text-text-primary"
             >
               Password
             </label>
             <div className="relative mt-1.5">
               <Lock
-                className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[#CBD5E1]"
+                className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-text-muted"
                 aria-hidden="true"
               />
               <Input
@@ -166,7 +169,7 @@ export function LoginPage() {
               />
               <button
                 type="button"
-                className="absolute top-1/2 right-3.5 -translate-y-1/2 text-[#CBD5E1] transition-colors hover:text-[#F8FAFC]"
+                className="absolute top-1/2 right-3.5 -translate-y-1/2 text-text-muted transition-colors hover:text-text-primary"
                 aria-label={showPassword ? "Hide password" : "Show password"}
                 onClick={() => setShowPassword((open) => !open)}
               >
@@ -198,9 +201,8 @@ export function LoginPage() {
             type="submit"
             disabled={login.isPending}
             className={cn(
-              "mt-2 h-[54px] w-full rounded-[12px] border-0 text-lg font-semibold text-white",
-              "bg-[linear-gradient(180deg,#14B8A6_0%,#0F766E_100%)]",
-              "shadow-[0_10px_24px_rgba(20,184,166,0.18)] hover:bg-[linear-gradient(180deg,#14B8A6_0%,#0F766E_100%)] hover:opacity-95",
+              "mt-2 h-[54px] w-full rounded-[12px] border-0 bg-[#0F172A] text-lg font-semibold text-white shadow-none",
+              "hover:bg-[#1E293B] hover:shadow-none",
             )}
           >
             {login.isPending ? "Signing in…" : "Sign in"}

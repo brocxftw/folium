@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { LoginPage } from "@/features/auth/LoginPage";
 import foliumLogo from "@/assets/brand/folium_logo.svg";
-import bgLogin from "@/assets/brand/bg_login.png";
+import bgLogin from "@/assets/brand/bg_login_2.svg";
 
 vi.mock("@/lib/api/hooks", () => ({
   useLogin: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -45,9 +45,16 @@ describe("Login page", () => {
   it("uses the supplied logo and background assets", () => {
     const { container } = renderLogin();
     const images = Array.from(container.querySelectorAll("img"));
-    expect(images.some((img) => img.getAttribute("src") === foliumLogo)).toBe(true);
+    const logo = images.find((img) => img.getAttribute("src") === foliumLogo);
+    expect(logo).toBeInTheDocument();
+    expect(logo).toHaveAttribute("height", "62");
+    expect(
+      logo!.compareDocumentPosition(screen.getByRole("heading", { name: "Folium" })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const background = images.find((img) => img.getAttribute("src") === bgLogin);
     expect(background).toBeInTheDocument();
-    expect(background).toHaveClass("opacity-70");
+    expect(screen.getByRole("heading", { name: "Folium" }).closest(".bg-white")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in" })).toHaveClass("shadow-none");
   });
 });
