@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Leaf, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useDocument, useTrashDocument } from "@/lib/api/hooks";
 import type { Citation, Folder } from "@/lib/api/types";
 import { DocumentViewer } from "@/components/viewer/DocumentViewer";
 import { DocumentInspector } from "@/components/inspector/DocumentInspector";
 import { Breadcrumbs } from "@/components/documents/Breadcrumbs";
 import { DocumentAskPanel } from "@/components/ask/DocumentAskPanel";
+import { AskFoliumFab } from "@/components/ask/AskFoliumFab";
 import { Button } from "@/components/ui/Button";
 import {
   Dialog,
@@ -14,15 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/Dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/Tooltip";
 import { RetrievalReadinessBadge } from "./RetrievalReadinessBadge";
 import { canAskDocument } from "./retrievalReadiness";
-import { cn } from "@/lib/utils";
 
 interface DocumentViewerModalProps {
   activeId: string | null;
@@ -162,26 +156,10 @@ export function DocumentViewerModal({
                 className="h-full"
               />
               {!askOpen && doc && canAskDocument(doc) && (
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="Ask Folium AI"
-                        onClick={() => setAskOpen(true)}
-                        className={cn(
-                          "absolute bottom-4 right-4 z-10 flex h-12 w-12 items-center justify-center",
-                          "rounded-full bg-accent text-white shadow-md",
-                          "transition hover:bg-accent-hover hover:shadow-lg",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2",
-                        )}
-                      >
-                        <Leaf className="h-5 w-5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="left">Ask Folium AI</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                <AskFoliumFab
+                  onClick={() => setAskOpen(true)}
+                  className="absolute right-4 bottom-4 z-10"
+                />
               )}
             </div>
             {/* Inspector when Ask closed; Ask replaces this rail when open (same width). */}

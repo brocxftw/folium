@@ -10,6 +10,8 @@ import {
 } from "@/lib/api/hooks";
 import { AiStatusPill } from "@/components/layout/AiStatusPill";
 import { NavbarSearch } from "@/components/layout/NavbarSearch";
+import { NavbarUpload } from "@/components/layout/NavbarUpload";
+import { AskFoliumDock } from "@/components/ask/AskFoliumDock";
 import foliumMark from "@/assets/brand/folium-mark.png";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import {
@@ -65,7 +67,7 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           </div>
 
-          <div className="ml-11 flex items-center">
+          <div className="ml-11 flex min-w-0 flex-1 items-center justify-end">
             <NavbarSearch />
           </div>
 
@@ -106,6 +108,8 @@ export function AppShell({ children }: AppShellProps) {
           </nav>
 
           <div className="ml-auto flex items-center gap-[22px] pl-6">
+            <NavbarUpload />
+
             <div className="flex max-md:hidden">
               <AiStatusPill />
             </div>
@@ -158,6 +162,7 @@ export function AppShell({ children }: AppShellProps) {
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
           {children}
         </main>
+        <AskFoliumDock />
       </div>
     </TooltipProvider>
   );

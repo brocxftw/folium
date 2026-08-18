@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { Upload } from "lucide-react";
 import {
   useInboxOverview,
   useRemoveFromQueue,
@@ -58,7 +57,6 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
 
   const {
     data: overview,
-    isFetching: overviewFetching,
     refetch: refetchOverview,
   } = useInboxOverview({
     refetchInterval: (query) => {
@@ -121,24 +119,6 @@ export function InboxOverview({ uploader }: InboxOverviewProps) {
   return (
     <div className="h-full overflow-auto bg-[#F8FAFB]">
       <div className="px-5 pb-6 pt-[18px]">
-        <div className="flex items-center justify-between gap-3 border-b border-[#E7ECEF] pb-3">
-          <div>
-            <h1 className="text-lg font-bold leading-tight text-[#14212B]">Inbox</h1>
-            <p className="mt-0.5 text-xs text-[#42515D]">
-              Ingest documents and track processing
-              {overviewFetching ? " · refreshing…" : ""}
-            </p>
-          </div>
-          <Button
-            className="h-8 rounded-md bg-[#07998E] px-3.5 hover:bg-[#087F78]"
-            disabled={uploader.busy}
-            onClick={() => goWork(true)}
-          >
-            <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />
-            Upload documents
-          </Button>
-        </div>
-
         <InboxIngestionHero uploader={uploader} onBrowse={() => goWork(true)} />
 
         <InboxOverviewMetrics metrics={metrics} />
