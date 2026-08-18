@@ -36,7 +36,7 @@ The API container runs `alembic upgrade head` before serving traffic. The worker
 
 ## Update using `latest`
 
-If `FOLIUM_VERSION=latest`, `docker compose pull` fetches the most recent **stable tag** published by the release workflow (not arbitrary `main` commits).
+If `FOLIUM_VERSION=latest`, `docker compose pull` fetches the most recent **stable** image tag (`vX.Y.Z` with no prerelease suffix). Prerelease tags (`vX.Y.Z-beta.N`) publish a moving `beta` tag instead and do not replace `latest`.
 
 Prefer pinning `FOLIUM_VERSION` so the Compose file, `.env`, and images stay aligned.
 

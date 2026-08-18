@@ -19,6 +19,11 @@ def normalize_version(value: str) -> str:
     return text
 
 
+def is_prerelease_version(value: str) -> bool:
+    """True when the version has a semver prerelease suffix (``0.1.24-beta.1``)."""
+    return "-" in normalize_version(value)
+
+
 def _repo_root() -> Path | None:
     here = Path(__file__).resolve()
     # backend/src/folium/core/version.py → repo root is parents[4]

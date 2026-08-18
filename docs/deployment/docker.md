@@ -17,7 +17,7 @@ Restart: `unless-stopped` on all four. `security_opt: no-new-privileges:true` on
 
 **Frontend:** multi-stage `node:20` `npm ci && npm run build` → `nginx:1.27-alpine` + `docker/nginx.conf`.
 
-Build context for contributors is the **repository root**. Published tags: `X.Y.Z`, `X.Y`, `latest` (stable tags only), `sha-<shortsha>`. Platform: **linux/amd64**. ARM is untested.
+Build context for contributors is the **repository root**. Published tags: `X.Y.Z` and `X.Y` plus `latest` for **stable** tags; prerelease tags (`X.Y.Z-beta.N`) also publish `beta` and must not move `latest` or `X.Y`. Every image also gets `sha-<shortsha>`. Platform: **linux/amd64**. ARM is untested.
 
 OCI labels include source URL `https://github.com/brocxftw/folium` and licence `AGPL-3.0-only`. Build-args set `FOLIUM_VERSION`, `FOLIUM_BUILD_REVISION`, `FOLIUM_BUILD_DATE`.
 
@@ -47,4 +47,4 @@ Only the **api** entrypoint runs Alembic. Failures abort startup (`set -e`). Wor
 
 ## Publishing
 
-`.github/workflows/publish-images.yml` runs on `v*` tags: tests, amd64 build, compose smoke (`GET /health`), push to GHCR, upload Release assets (`docker-compose.yml`, `env.example`, `default.env.example`, standalone `install-folium.sh`, `checksums.txt`). Packages must be made **public** once (see [install](install.md)).
+`.github/workflows/publish-images.yml` runs on `v*` tags: tests, amd64 build, compose smoke (`GET /health`), push to GHCR, upload Release assets (`docker-compose.yml`, `env.example`, `default.env.example`, standalone `install-folium.sh`, `checksums.txt`). Tags with a prerelease suffix (`v0.1.24-beta.1`) create a GitHub **prerelease**, publish the `beta` image tag, and do not update `latest`. Packages must be made **public** once (see [install](install.md)).

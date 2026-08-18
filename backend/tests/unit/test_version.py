@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from folium.core.version import get_app_version, normalize_version
+from folium.core.version import get_app_version, is_prerelease_version, normalize_version
 
 
 def test_normalize_version_strips_release_prefix() -> None:
@@ -10,6 +10,14 @@ def test_normalize_version_strips_release_prefix() -> None:
     assert normalize_version("V1.2.3") == "1.2.3"
     assert normalize_version("0.1.16") == "0.1.16"
     assert normalize_version("vnext") == "vnext"
+    assert normalize_version("v0.1.24-beta.1") == "0.1.24-beta.1"
+
+
+def test_is_prerelease_version() -> None:
+    assert is_prerelease_version("v0.1.24-beta.1") is True
+    assert is_prerelease_version("0.1.24-beta") is True
+    assert is_prerelease_version("0.1.23") is False
+    assert is_prerelease_version("v0.1.23") is False
 
 
 def test_get_app_version_prefers_env(monkeypatch) -> None:
