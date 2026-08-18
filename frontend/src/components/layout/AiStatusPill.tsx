@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown } from "lucide-react";
 import { useAIHealth, useJobs, useSession } from "@/lib/api/hooks";
 import type { AICapabilityHealth, AICapabilityStatus } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
@@ -40,11 +39,11 @@ function capabilityLabel(cap: AICapabilityHealth | undefined): string {
   return cap.model?.trim() || cap.provider || "Available";
 }
 
-function overallLabel(working: boolean, ready: boolean, partial: boolean): string {
-  if (working) return "WORKING";
-  if (ready) return "READY";
-  if (partial) return "PARTIAL";
-  return "OFFLINE";
+function navbarLabel(working: boolean, ready: boolean, partial: boolean): string {
+  if (working) return "AI Working";
+  if (ready) return "AI Ready";
+  if (partial) return "AI Partial";
+  return "AI Offline";
 }
 
 function StatusDot({
@@ -66,7 +65,7 @@ function StatusDot({
         working || checking
           ? "animate-pulse bg-amber-400"
           : ready
-            ? "bg-emerald-400"
+            ? "bg-[#14B8A6] shadow-[0_0_8px_rgba(20,184,166,0.30)]"
             : "bg-navbar-muted",
       )}
     />
@@ -122,24 +121,16 @@ export function AiStatusPill() {
     ? "/settings/artificial-intelligence"
     : "/settings/about";
 
-  const tooltipRows = [
-    {
-      key: "ai",
-      label: "AI",
-      value: overallLabel(aiWorking, allConfiguredReady, partial),
-      working: aiWorking,
-      ready: allConfiguredReady && !aiWorking,
-      checking: false,
-    },
-    ...pipelineRows.map((row) => ({
+  const tooltipRows = pipelineRows
+    .filter((row) => row.key !== "ocr")
+    .map((row) => ({
       key: row.key,
       label: row.label,
       value: row.detail,
       working: roleWorking[row.key],
       ready: row.ready,
       checking: row.checking,
-    })),
-  ];
+    }));
 
   return (
     <Tooltip delayDuration={200}>
@@ -147,10 +138,10 @@ export function AiStatusPill() {
         <button
           type="button"
           className={cn(
-            "inline-flex h-10 min-w-[84px] items-center gap-2.5 rounded-xl px-3.5",
-            "bg-navbar-accent/10 text-navbar-text",
-            "border border-navbar-accent/35",
-            "transition-colors hover:bg-navbar-accent/16",
+            "inline-flex h-[46px] items-center gap-2.5 rounded-[10px] px-4",
+            "border border-[rgba(148,163,184,0.18)] bg-[rgba(30,41,59,0.68)] text-[#F8FAFC]",
+            "shadow-[0_2px_6px_rgba(2,6,23,0.12)]",
+            "transition-colors duration-150 ease-out hover:bg-[rgba(30,41,59,0.86)]",
           )}
           aria-label="Open AI settings"
           onClick={() => navigate(settingsPath)}
@@ -161,8 +152,9 @@ export function AiStatusPill() {
             checking={!aiHealth}
             size="md"
           />
-          <span className="text-sm font-semibold">AI</span>
-          <ChevronDown className="h-3.5 w-3.5 opacity-80" />
+          <span className="text-sm font-semibold">
+            {navbarLabel(aiWorking, allConfiguredReady, partial)}
+          </span>
         </button>
       </TooltipTrigger>
       <TooltipContent

@@ -1,13 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import {
-  FileText,
-  Inbox,
-  Settings,
-  LogOut,
-  Leaf,
-  Trash2,
-  ChevronDown,
-} from "lucide-react";
+import { LogOut } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { api } from "@/lib/api/client";
 import {
@@ -15,15 +7,11 @@ import {
   useLogout,
   useInboxCount,
   useTrashCount,
-  useHealth,
 } from "@/lib/api/hooks";
 import { AiStatusPill } from "@/components/layout/AiStatusPill";
-import {
-  TooltipProvider,
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-} from "@/components/ui/Tooltip";
+import { NavbarSearch } from "@/components/layout/NavbarSearch";
+import foliumMark from "@/assets/brand/folium-mark.png";
+import { TooltipProvider } from "@/components/ui/Tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,9 +24,10 @@ interface AppShellProps {
 }
 
 const NAV_ITEMS = [
-  { to: "/inbox", label: "Inbox", icon: Inbox, badge: "inbox" as const },
-  { to: "/documents", label: "Library", icon: FileText },
-  { to: "/trash", label: "Trash", icon: Trash2, badge: "trash" as const },
+  { to: "/inbox", label: "Inbox", badge: "inbox" as const },
+  { to: "/documents", label: "Library" },
+  { to: "/trash", label: "Trash", badge: "trash" as const },
+  { to: "/settings", label: "Settings" },
 ];
 
 export function AppShell({ children }: AppShellProps) {
@@ -47,9 +36,6 @@ export function AppShell({ children }: AppShellProps) {
   const logout = useLogout();
   const { data: inboxCount = 0 } = useInboxCount();
   const { data: trashCount } = useTrashCount();
-  const { data: health } = useHealth();
-
-  const appVersion = health?.version;
 
   const handleLogout = async () => {
     await logout.mutateAsync();
@@ -58,27 +44,36 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="flex h-screen flex-col overflow-hidden">
-        <header className="grid h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center overflow-x-auto border-b border-navbar-border bg-navbar px-5 text-navbar-text">
-          <div className="flex items-center gap-2.5 justify-self-start">
-            <Leaf className="h-5 w-5 shrink-0 text-navbar-accent" />
-            <div className="min-w-0">
-              <span className="block truncate text-lg font-semibold leading-tight tracking-tight text-navbar-text">
+      <div className="flex h-screen flex-col overflow-hidden bg-surface-muted">
+        <header className="relative z-50 m-3 flex min-h-[88px] w-[calc(100%-24px)] shrink-0 flex-nowrap items-stretch overflow-x-auto rounded-[14px] border border-[rgba(148,163,184,0.10)] bg-navbar px-8 text-navbar-text shadow-[0_10px_30px_rgba(2,6,23,0.24),0_2px_8px_rgba(2,6,23,0.20)]">
+          <div className="flex items-center">
+            <img
+              src={foliumMark}
+              alt=""
+              width={40}
+              height={40}
+              className="mr-3 h-10 w-10 shrink-0 object-contain mix-blend-lighten"
+              aria-hidden="true"
+            />
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className="shrink-0 text-[30px] leading-none font-bold tracking-[-0.02em] text-[#F8FAFC]">
                 Folium
               </span>
-              {appVersion && (
-                <p
-                  className="truncate text-xs font-medium text-navbar-muted"
-                  aria-label={`App version ${appVersion}`}
-                >
-                  v{appVersion}
-                </p>
-              )}
+              <span className="self-start rounded px-1.5 py-px text-[10px] font-medium leading-4 text-[#CBD5E1] border border-[rgba(148,163,184,0.05)] bg-[rgba(148,163,184,0.12)] shadow-[0_1px_3px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.03)]">
+                Beta
+              </span>
             </div>
           </div>
 
-          <nav className="flex h-full items-stretch gap-7" aria-label="Primary">
-            {NAV_ITEMS.map(({ to, label, icon: Icon, badge }) => {
+          <div className="ml-11 flex items-center">
+            <NavbarSearch />
+          </div>
+
+          <nav
+            className="ml-12 flex items-stretch gap-[38px]"
+            aria-label="Primary"
+          >
+            {NAV_ITEMS.map(({ to, label, badge }) => {
               const badgeCount =
                 badge === "inbox"
                   ? inboxCount
@@ -91,14 +86,13 @@ export function AppShell({ children }: AppShellProps) {
                   to={to}
                   className={({ isActive }) =>
                     cn(
-                      "relative flex h-full items-center text-navbar-text",
+                      "relative flex h-full items-center px-1 text-sm font-semibold text-[#E2E8F0] transition-colors duration-150 ease-out hover:text-white",
                       isActive &&
-                        "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:rounded-full after:bg-navbar-accent",
+                        "text-white after:absolute after:bottom-0 after:left-1/2 after:h-[3px] after:w-16 after:-translate-x-1/2 after:rounded-t-[3px] after:bg-[#2DD4BF] after:shadow-[0_-1px_6px_rgba(45,212,191,0.20)] after:content-['']",
                     )
                   }
                 >
-                  <span className="flex h-10 items-center gap-2 rounded-lg px-1.5 py-2 text-sm font-semibold hover:bg-navbar-hover">
-                    <Icon className="h-4 w-4 shrink-0 opacity-90" />
+                  <span className="flex items-center gap-2">
                     <span>{label}</span>
                     {badgeCount > 0 && (
                       <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-navbar-accent/20 px-1.5 text-[11px] font-medium text-navbar-accent">
@@ -111,30 +105,24 @@ export function AppShell({ children }: AppShellProps) {
             })}
           </nav>
 
-          <div className="flex items-center gap-3.5 justify-self-end">
-            <AiStatusPill />
+          <div className="ml-auto flex items-center gap-[22px] pl-6">
+            <div className="flex max-md:hidden">
+              <AiStatusPill />
+            </div>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <NavLink
-                  to="/settings"
-                  aria-label="Settings"
-                  className="flex h-9 w-9 items-center justify-center rounded-[10px] text-navbar-text hover:bg-navbar-hover"
-                >
-                  <Settings className="h-[18px] w-[18px]" />
-                </NavLink>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Settings</TooltipContent>
-            </Tooltip>
+            <span
+              className="block h-[38px] w-px shrink-0 bg-[rgba(148,163,184,0.18)] max-md:hidden"
+              aria-hidden="true"
+            />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex h-11 items-center gap-2.5 rounded-lg px-1 text-left hover:bg-navbar-hover"
+                  className="flex items-center gap-2.5 rounded-lg px-1 text-left transition-colors duration-150 ease-out hover:bg-[rgba(148,163,184,0.08)]"
                   aria-label="Account menu"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-navbar-hover text-xs font-medium">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[rgba(20,184,166,0.45)] bg-[#172033] text-sm font-bold text-[#F8FAFC]">
                     {session?.user?.has_avatar ? (
                       <img
                         src={api.avatarUrl(session.user.id)}
@@ -147,15 +135,14 @@ export function AppShell({ children }: AppShellProps) {
                       "?"
                     )}
                   </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-navbar-text">
+                  <div className="min-w-0 max-lg:hidden">
+                    <p className="truncate text-sm font-semibold text-[#F8FAFC]">
                       {session?.user.display_name ?? "User"}
                     </p>
-                    <p className="truncate text-xs text-navbar-muted">
+                    <p className="truncate text-[13px] font-normal text-[#94A3B8]">
                       {session?.user.is_admin ? "Admin" : "User"}
                     </p>
                   </div>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-navbar-muted" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
