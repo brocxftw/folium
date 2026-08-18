@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -46,6 +46,7 @@ import { InboxPreviewDialog } from "./InboxPreviewDialog";
 import { InboxProgressBar } from "./InboxProgressBar";
 import { InboxReviewCard } from "./InboxReviewCard";
 import { InboxRejectedCard } from "./InboxRejectedCard";
+import { inboxAiFilingState } from "./inboxAiFiling";
 import { inboxBatchProgress } from "./inboxPreparingPhases";
 import {
   canRetrySuggestions,
@@ -156,9 +157,7 @@ export function InboxWorkView({
     { refetchInterval: pollWhilePreparing },
   );
   const { data: aiHealth } = useAIHealth();
-  const aiSuggestionsAvailable = Boolean(
-    aiHealth?.auto_tagging && aiHealth.indexing.status === "available",
-  );
+  const { aiSuggestionsAvailable, reason: filingReason } = inboxAiFilingState(aiHealth);
   const { data: pendingSuggestions = [] } = usePendingSuggestions(aiSuggestionsAvailable);
   const { data: inboxJobs = [] } = useJobs(undefined, undefined, {
     refetchInterval: (query) => {
@@ -467,8 +466,31 @@ export function InboxWorkView({
               </p>
               {!aiSuggestionsAvailable && (
                 <p className="mt-1 text-[11px] text-[#74828D]">
-                  AI filing suggestions unavailable — use Manual filing on each
-                  document, or process from the toolbar when a destination is set.
+                  {filingReason === "controls_off" ? (
+                    <>
+                      A filing model is assigned, but AI filing is turned off in{" "}
+                      <Link
+                        className="font-medium text-[#087F78] hover:underline"
+                        to="/settings/artificial-intelligence?tab=controls"
+                      >
+                        AI → Controls
+                      </Link>
+                      . Use Manual filing on each document, or process from the toolbar
+                      when a destination is set.
+                    </>
+                  ) : (
+                    <>
+                      Assign a filing model in{" "}
+                      <Link
+                        className="font-medium text-[#087F78] hover:underline"
+                        to="/settings/artificial-intelligence?tab=models"
+                      >
+                        AI → Models
+                      </Link>
+                      . Use Manual filing on each document, or process from the toolbar
+                      when a destination is set.
+                    </>
+                  )}
                 </p>
               )}
             </div>
@@ -702,6 +724,9 @@ export function InboxWorkView({
                   expanded={isDocSettled(doc) && (expandedIds?.has(doc.id) ?? false)}
                   reviewReady={isDocSettled(doc)}
                   aiSuggestionsAvailable={aiSuggestionsAvailable}
+                  filingUnavailableReason={
+                    aiSuggestionsAvailable ? undefined : filingReason
+                  }
                   suggestionJobStatus={suggestionJobStatusForDoc(
                     inboxJobs,
                     doc.id,

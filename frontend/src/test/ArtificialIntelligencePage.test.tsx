@@ -197,6 +197,15 @@ describe("Artificial Intelligence settings tabs", () => {
     expect(screen.getByRole("heading", { name: "Privacy" })).toBeInTheDocument();
   });
 
+  it("does not ask for chat or embedding models on the provider form", () => {
+    renderPage("?tab=models");
+    fireEvent.click(screen.getByRole("button", { name: /Add provider/i }));
+    expect(screen.getByRole("heading", { name: "Add provider" })).toBeInTheDocument();
+    expect(screen.queryByText("Chat model")).not.toBeInTheDocument();
+    expect(screen.queryByText("Embedding model")).not.toBeInTheDocument();
+    expect(screen.getByText("Local provider")).toBeInTheDocument();
+  });
+
   it("saves controls without block_remote_ai exposed in UI", () => {
     renderPage("?tab=controls");
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));

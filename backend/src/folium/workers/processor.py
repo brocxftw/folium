@@ -284,6 +284,7 @@ async def _enqueue_metadata_suggestion_or_finish(
 
     ai_settings = await ensure_ai_settings(session)
     indexing = await resolve_assignment(session, AIWorkloadRole.INDEXING)
+    # auto_tagging is an explicit Controls off-switch, not a proxy for "no model".
     can_suggest = (
         ai_settings.auto_tagging
         and indexing.provider is not None

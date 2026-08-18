@@ -24,7 +24,7 @@ from folium.ocr.paddle_engine import get_paddle_import_error, paddle_ocr_availab
 
 logger = get_logger(__name__)
 
-HEALTH_PROBE_INTERVAL_SECONDS = 3.0
+HEALTH_PROBE_INTERVAL_SECONDS = 10.0
 # Keep probes cheap: a down provider must not stall OCR / extract job polling.
 HEALTH_PROBE_TIMEOUT_SECONDS = 5.0
 
@@ -243,35 +243,53 @@ async def probe_provider(provider: AIProvider) -> None:
         logger.warning("AI health probe failed provider=%s", provider.name)
 
 
+def _copy_probe_fields(dest: AIProvider, source: AIProvider) -> None:
+    dest.last_probe_status = source.last_probe_status
+    dest.last_probe_error = source.last_probe_error
+    dest.last_probe_latency_ms = source.last_probe_latency_ms
+    dest.last_probed_at = source.last_probed_at
+    dest.last_success_at = source.last_success_at
+
+
+async def _load_enabled_provider(provider_id: uuid.UUID) -> AIProvider | None:
+    async with session_scope() as session:
+        provider = await session.get(AIProvider, provider_id)
+        if provider is None or not provider.enabled:
+            return None
+        session.expunge(provider)
+        return provider
+
+
+async def _persist_probe_fields(provider_id: uuid.UUID, probed: AIProvider) -> None:
+    async with session_scope() as session:
+        row = await session.get(AIProvider, provider_id)
+        if row is None:
+            return
+        _copy_probe_fields(row, probed)
+
+
 async def probe_assigned_providers(session: AsyncSession | None = None) -> int:
     """Probe unique enabled providers assigned to indexing/embedding/chat.
 
-    When ``session`` is omitted, each provider is probed in its own short-lived
-    session so this can run as a background worker task safely.
+    Provider rows are loaded and saved in short-lived sessions. Outbound HTTP
+    runs with no DB session checked out so probes cannot exhaust the pool.
+
+    When ``session`` is provided it is used only to list assigned provider IDs.
 
     Returns the number of providers probed.
     """
     if session is not None:
         provider_ids = await _list_assigned_provider_ids(session)
-        count = 0
-        for provider_id in provider_ids:
-            provider = await session.get(AIProvider, provider_id)
-            if provider is None or not provider.enabled:
-                continue
-            await probe_provider(provider)
-            count += 1
-        await session.flush()
-        return count
-
-    async with session_scope() as short:
-        provider_ids = await _list_assigned_provider_ids(short)
+    else:
+        async with session_scope() as short:
+            provider_ids = await _list_assigned_provider_ids(short)
 
     count = 0
     for provider_id in provider_ids:
-        async with session_scope() as short:
-            provider = await short.get(AIProvider, provider_id)
-            if provider is None or not provider.enabled:
-                continue
-            await probe_provider(provider)
-            count += 1
+        provider = await _load_enabled_provider(provider_id)
+        if provider is None:
+            continue
+        await probe_provider(provider)
+        await _persist_probe_fields(provider_id, provider)
+        count += 1
     return count

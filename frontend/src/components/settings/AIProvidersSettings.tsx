@@ -43,8 +43,6 @@ const DEFAULT_FORM: AIProviderCreate = {
   kind: "openai_compatible",
   base_url: "https://api.openai.com/v1",
   is_local: false,
-  chat_model: "",
-  embedding_model: "",
 };
 
 export function AIProvidersSettings() {
@@ -90,15 +88,6 @@ export function AIProvidersSettings() {
       kind: p.kind as AIProviderKind,
       base_url: p.base_url,
       is_local: p.is_local,
-      chat_model: p.chat_model ?? "",
-      embedding_model: p.embedding_model ?? "",
-      vision_model: p.vision_model ?? "",
-      supports_embeddings: p.supports_embeddings,
-      embedding_max_input_tokens: p.embedding_max_input_tokens ?? undefined,
-      embedding_recommended_chunk_tokens: p.embedding_recommended_chunk_tokens ?? undefined,
-      embedding_batch_size: p.embedding_batch_size ?? undefined,
-      embedding_max_batch_size: p.embedding_max_batch_size ?? undefined,
-      embedding_concurrency: p.embedding_concurrency ?? undefined,
     });
     setApiKey("");
     setSaveError(null);
@@ -107,25 +96,26 @@ export function AIProvidersSettings() {
 
   const handleSave = async () => {
     setSaveError(null);
-    const payload = {
-      ...form,
-      chat_model: form.chat_model || undefined,
-      embedding_model: form.embedding_model || undefined,
-      api_key: apiKey || undefined,
-      supports_embeddings: Boolean(form.embedding_model),
-    };
-
     try {
       if (editing) {
         await updateProvider.mutateAsync({
           id: editing.id,
           data: {
-            ...payload,
+            name: form.name,
+            base_url: form.base_url,
+            is_local: form.is_local,
+            api_key: apiKey || undefined,
             clear_api_key: !apiKey && editing.has_api_key ? false : undefined,
           },
         });
       } else {
-        await createProvider.mutateAsync(payload);
+        await createProvider.mutateAsync({
+          name: form.name,
+          kind: form.kind,
+          base_url: form.base_url,
+          is_local: form.is_local,
+          api_key: apiKey || undefined,
+        });
       }
       setDialogOpen(false);
     } catch (err) {
@@ -273,92 +263,6 @@ export function AIProvidersSettings() {
                 </button>
               </div>
             </div>
-            <div>
-              <label className="text-xs text-text-muted">Chat model</label>
-              <Input
-                value={form.chat_model ?? ""}
-                onChange={(e) => setForm({ ...form, chat_model: e.target.value })}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-text-muted">Embedding model</label>
-              <Input
-                value={form.embedding_model ?? ""}
-                onChange={(e) => setForm({ ...form, embedding_model: e.target.value })}
-                className="mt-1"
-              />
-            </div>
-            {Boolean(form.embedding_model) && (
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-text-muted">Embed max input tokens</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={form.embedding_max_input_tokens ?? ""}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        embedding_max_input_tokens: e.target.value ? Number(e.target.value) : undefined,
-                      })
-                    }
-                    placeholder="8192"
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-text-muted">Recommended chunk tokens</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={form.embedding_recommended_chunk_tokens ?? ""}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        embedding_recommended_chunk_tokens: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      })
-                    }
-                    placeholder="512"
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-text-muted">Batch size</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={form.embedding_batch_size ?? ""}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        embedding_batch_size: e.target.value ? Number(e.target.value) : undefined,
-                      })
-                    }
-                    placeholder="16"
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-text-muted">Max batch size</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={form.embedding_max_batch_size ?? ""}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        embedding_max_batch_size: e.target.value ? Number(e.target.value) : undefined,
-                      })
-                    }
-                    placeholder="32"
-                    className="mt-1"
-                  />
-                </div>
-              </div>
-            )}
             <label className="flex items-center gap-2 text-sm">
               <Checkbox
                 checked={form.is_local}

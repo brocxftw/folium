@@ -23,6 +23,12 @@ import {
 } from "@/components/ui/Select";
 import { WORKLOAD_COPY } from "./workloadCopy";
 
+export function assignmentProviderChoices<T extends { enabled: boolean }>(
+  providers: T[],
+): T[] {
+  return providers.filter((provider) => provider.enabled);
+}
+
 export function AssignmentDialog({
   assignment,
   onClose,
@@ -36,11 +42,7 @@ export function AssignmentDialog({
   const [model, setModel] = useState(assignment.model || "");
   const { data: discovery, isFetching } = useProviderModels(providerId || null);
   const copy = WORKLOAD_COPY[assignment.role];
-  const compatible = providers.filter((provider) =>
-    assignment.role === "embedding"
-      ? provider.enabled && provider.supports_embeddings
-      : provider.enabled,
-  );
+  const compatible = assignmentProviderChoices(providers);
 
   const save = async () => {
     await mutation.mutateAsync({

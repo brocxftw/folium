@@ -14,6 +14,10 @@ from sqlalchemy.orm import DeclarativeBase
 
 from folium.core.config import get_settings
 
+DB_POOL_SIZE = 10
+DB_MAX_OVERFLOW = 20
+DB_POOL_TIMEOUT_SECONDS = 10
+
 
 class Base(DeclarativeBase):
     pass
@@ -30,8 +34,9 @@ def get_engine():
         _engine = create_async_engine(
             settings.database_url,
             pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
+            pool_size=DB_POOL_SIZE,
+            max_overflow=DB_MAX_OVERFLOW,
+            pool_timeout=DB_POOL_TIMEOUT_SECONDS,
             echo=False,
         )
         _session_factory = async_sessionmaker(

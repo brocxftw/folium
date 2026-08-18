@@ -11,11 +11,13 @@ import { Textarea } from "@/components/ui/Textarea";
 import { InboxFolderControl } from "./InboxFolderControl";
 import { InboxTagsControl } from "./InboxTagsControl";
 import { folderDisplayLabel, isSystemInboxPath } from "./formatMeta";
+import type { InboxAiFilingState } from "./inboxAiFiling";
 
 interface InboxManualFilingPanelProps {
   document: Document;
   /** When AI suggestions failed, show retry affordance above manual fields. */
   aiRetryAvailable?: boolean;
+  filingUnavailableReason?: InboxAiFilingState["reason"];
   onRetrySuggestions?: () => void;
   retrySuggestionsBusy?: boolean;
 }
@@ -37,6 +39,7 @@ function formFromDoc(doc: Document) {
 export function InboxManualFilingPanel({
   document: doc,
   aiRetryAvailable = false,
+  filingUnavailableReason,
   onRetrySuggestions,
   retrySuggestionsBusy = false,
 }: InboxManualFilingPanelProps) {
@@ -105,7 +108,11 @@ export function InboxManualFilingPanel({
           <div className="min-w-0">
             <h4 className="text-[15px] font-bold text-[#14212B]">Manual filing</h4>
             <p className="mt-0.5 text-xs text-[#5D6B76]">
-              Review OCR output and enter document details before processing.
+              {filingUnavailableReason === "controls_off"
+                ? "A filing model is assigned, but AI filing is turned off in AI → Controls."
+                : filingUnavailableReason === "not_assigned"
+                  ? "Assign a filing model in AI → Models, or file this document manually."
+                  : "Review OCR output and enter document details before processing."}
             </p>
           </div>
         </div>
