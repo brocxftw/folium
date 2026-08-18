@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
 import type { Citation } from "@/lib/api/types";
 import { AIChatPanel } from "@/components/ask/AIChatPanel";
@@ -8,7 +8,13 @@ import { Button } from "@/components/ui/Button";
 
 export function AskFoliumDock() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
+  const inboxWorkspace = pathname.startsWith("/inbox");
+
+  useEffect(() => {
+    if (inboxWorkspace) setOpen(false);
+  }, [inboxWorkspace]);
 
   useEffect(() => {
     if (!open) return;
@@ -30,7 +36,7 @@ export function AskFoliumDock() {
 
   return (
     <>
-      {!open && (
+      {!open && !inboxWorkspace && (
         <AskFoliumFab
           onClick={() => setOpen(true)}
           className="fixed right-5 bottom-5 z-40"
@@ -55,6 +61,9 @@ export function AskFoliumDock() {
             active={open}
             initialScope={{ kind: "library" }}
             onCitationClick={handleCitation}
+            showScopeSelector={false}
+            compactComposer
+            description=""
             className="h-full"
           />
         </div>

@@ -39,13 +39,6 @@ function capabilityLabel(cap: AICapabilityHealth | undefined): string {
   return cap.model?.trim() || cap.provider || "Available";
 }
 
-function navbarLabel(working: boolean, ready: boolean, partial: boolean): string {
-  if (working) return "AI Working";
-  if (ready) return "AI Ready";
-  if (partial) return "AI Partial";
-  return "AI Offline";
-}
-
 function StatusDot({
   working,
   ready,
@@ -113,10 +106,8 @@ export function AiStatusPill() {
   }, [runningJobs, queuedJobs]);
 
   const configuredRows = pipelineRows.filter((r) => !r.notConfigured);
-  const anyAvailable = configuredRows.some((r) => r.ready);
   const allConfiguredReady =
     configuredRows.length > 0 && configuredRows.every((r) => r.ready);
-  const partial = anyAvailable && !allConfiguredReady;
   const settingsPath = isAdmin
     ? "/settings/artificial-intelligence"
     : "/settings/about";
@@ -138,10 +129,8 @@ export function AiStatusPill() {
         <button
           type="button"
           className={cn(
-            "inline-flex h-[41px] items-center gap-2.5 rounded-[10px] px-4",
-            "border border-[rgba(148,163,184,0.18)] bg-[rgba(30,41,59,0.68)] text-[#F8FAFC]",
-            "shadow-[0_2px_6px_rgba(2,6,23,0.12)]",
-            "transition-colors duration-150 ease-out hover:bg-[rgba(30,41,59,0.86)]",
+            "inline-flex h-[41px] items-center gap-2 rounded-md px-1.5",
+            "text-[#F8FAFC] transition-opacity duration-150 ease-out hover:opacity-80",
           )}
           aria-label="Open AI settings"
           onClick={() => navigate(settingsPath)}
@@ -152,9 +141,7 @@ export function AiStatusPill() {
             checking={!aiHealth}
             size="md"
           />
-          <span className="text-sm font-semibold">
-            {navbarLabel(aiWorking, allConfiguredReady, partial)}
-          </span>
+          <span className="text-sm font-semibold">AI</span>
         </button>
       </TooltipTrigger>
       <TooltipContent

@@ -47,7 +47,7 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <TooltipProvider delayDuration={400}>
       <div className="flex h-screen flex-col overflow-hidden bg-surface-muted">
-        <header className="relative z-50 m-3 flex min-h-[88px] w-[calc(100%-24px)] shrink-0 flex-nowrap items-stretch overflow-x-auto rounded-[14px] border border-[rgba(148,163,184,0.10)] bg-navbar px-8 text-navbar-text shadow-[0_10px_30px_rgba(2,6,23,0.24),0_2px_8px_rgba(2,6,23,0.20)]">
+        <header className="relative z-50 m-3 flex min-h-[79px] w-[calc(100%-24px)] shrink-0 flex-nowrap items-stretch overflow-x-auto rounded-[14px] border border-[rgba(148,163,184,0.10)] bg-navbar px-8 text-navbar-text shadow-[0_10px_30px_rgba(2,6,23,0.24),0_2px_8px_rgba(2,6,23,0.20)]">
           <div className="flex items-center">
             <img
               src={foliumMark}
@@ -67,7 +67,7 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           </div>
 
-          <div className="ml-11 flex min-w-0 flex-1 items-center justify-end">
+          <div className="ml-5 flex min-w-0 flex-1 items-center justify-start">
             <NavbarSearch />
           </div>
 

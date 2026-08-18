@@ -47,10 +47,26 @@ vi.mock("@/lib/api/hooks", () => ({
         : undefined,
     isLoading: false,
     isFetching: false,
+    isError: false,
   }),
   useAsk: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAICapabilities: () => ({ data: undefined }),
-  useFolders: () => ({ data: [] }),
+  useFolders: () => ({
+    data: [
+      {
+        id: "folder-legal",
+        name: "Legal",
+        parent_id: null,
+        kind: "normal",
+        sort_order: 0,
+        path_cache: "/Legal",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+        children_count: 0,
+        document_count: 0,
+      },
+    ],
+  }),
 }));
 
 vi.mock("@/lib/api/upload", () => ({
@@ -148,7 +164,8 @@ describe("AppShell top navbar", () => {
 
   it("shows a compact AI status control", () => {
     renderShell();
-    expect(screen.getByRole("button", { name: "Open AI settings" })).toHaveTextContent("AI Ready");
+    expect(screen.getByRole("button", { name: "Open AI settings" })).toHaveTextContent("AI");
+    expect(screen.getByRole("button", { name: "Open AI settings" })).not.toHaveTextContent("AI Ready");
   });
 
   it("omits the overall AI status and OCR rows from the AI hover card", async () => {
@@ -213,5 +230,26 @@ describe("AppShell top navbar", () => {
   it("exposes Ask Folium as a floating control", () => {
     renderShell();
     expect(screen.getByRole("button", { name: "Ask Folium AI" })).toBeInTheDocument();
+  });
+
+  it("hides the Ask Folium button in the inbox workspace", () => {
+    renderShell("/inbox");
+    expect(screen.queryByRole("button", { name: "Ask Folium AI" })).not.toBeInTheDocument();
+  });
+
+  it("opens a compact Ask dock with in-composer context and send", () => {
+    renderShell("/documents");
+    fireEvent.click(screen.getByRole("button", { name: "Ask Folium AI" }));
+    expect(screen.getByRole("dialog", { name: "Ask Folium" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("Single-turn answers with citations from the selected scope."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("AI responses can be inaccurate. Verify important information."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Scope")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select ask context" })).toHaveTextContent("Library");
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ask" })).not.toBeInTheDocument();
   });
 });
