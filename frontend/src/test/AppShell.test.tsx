@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within, waitFor } from "@testing-library/rea
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { AppShell } from "@/components/layout/AppShell";
-import foliumMark from "@/assets/brand/folium-mark.png";
+import foliumLogo from "@/assets/brand/folium_logo.svg";
 import type { SearchHit } from "@/lib/api/types";
 
 const { searchHits } = vi.hoisted(() => ({ searchHits: [] as SearchHit[] }));
@@ -136,7 +136,7 @@ describe("AppShell top navbar", () => {
   it("shows the supplied brand mark, Folium, and a Beta label under the name", () => {
     renderShell();
     const header = screen.getByRole("banner");
-    const mark = header.querySelector(`img[src="${foliumMark}"]`);
+    const mark = header.querySelector(`img[src="${foliumLogo}"]`);
     expect(mark).toBeInTheDocument();
     expect(mark).toHaveAttribute("width", "40");
     expect(mark).toHaveAttribute("height", "40");

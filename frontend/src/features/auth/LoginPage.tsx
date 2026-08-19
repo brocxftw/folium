@@ -1,12 +1,16 @@
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Leaf } from "lucide-react";
-import { useLogin, useRegistrationStatus } from "@/lib/api/hooks";
+import { Eye, EyeOff, Lock, User } from "lucide-react";
+import { useHealth, useLogin, useRegistrationStatus } from "@/lib/api/hooks";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ApiError } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
+import foliumLogo from "@/assets/brand/folium_logo.svg";
+import bgLogin from "@/assets/brand/bg_login_2.svg";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -15,9 +19,16 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>;
 
+const fieldClassName =
+  "h-[52px] rounded-[12px] border-surface-border bg-white " +
+  "text-[14px] text-text-primary placeholder:text-text-muted " +
+  "focus-visible:border-[rgba(45,212,191,0.65)] focus-visible:ring-0 " +
+  "focus-visible:shadow-[0_0_0_3px_rgba(45,212,191,0.12)]";
+
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [showPassword, setShowPassword] = useState(false);
   const notice =
     typeof location.state === "object" &&
     location.state &&
@@ -27,6 +38,8 @@ export function LoginPage() {
       : null;
   const login = useLogin();
   const { data: regStatus } = useRegistrationStatus();
+  const { data: health } = useHealth();
+  const version = health?.version?.trim();
 
   const {
     register,
@@ -52,83 +65,171 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface-muted p-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="inline-flex items-center gap-2 mb-2">
-            <Leaf className="h-7 w-7 text-accent" />
-            <span className="text-2xl font-semibold text-text-primary tracking-tight">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#F8FAFC] p-6">
+      <img
+        src={bgLogin}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+      />
+
+      <div
+        className={cn(
+          "relative z-10 w-full max-w-full rounded-[24px] border border-surface-border",
+          "bg-white px-5 py-7 text-text-primary",
+          "shadow-[0_10px_30px_rgba(15,23,42,0.08),0_2px_8px_rgba(15,23,42,0.06)]",
+          "sm:max-w-[520px] sm:p-8",
+          "lg:max-w-[560px] lg:px-12 lg:pt-10 lg:pb-8",
+        )}
+      >
+        <div className="flex flex-col items-center gap-1.5 text-center">
+          <div className="flex items-center gap-3">
+            <img
+              src={foliumLogo}
+              alt=""
+              width={62}
+              height={62}
+              className="h-[62px] w-[62px] shrink-0 object-contain"
+              aria-hidden="true"
+            />
+            <h1 className="text-[56px] leading-none font-bold tracking-[-0.03em] text-text-primary">
               Folium
+            </h1>
+          </div>
+          <div className="flex items-center justify-center gap-[9px]">
+            {version ? (
+              <span className="inline-flex h-[32px] items-center rounded-[9px] border border-accent bg-white px-[14px] text-[13px] font-semibold text-accent">
+                v{version.replace(/^v/i, "")}
+              </span>
+            ) : null}
+            <span className="inline-flex h-[32px] items-center rounded-[9px] border border-surface-border bg-surface-muted px-[14px] text-[13px] font-medium text-text-secondary shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
+              Beta
             </span>
           </div>
-          <p className="text-sm text-text-secondary">
-            Sign in to your document library
+        </div>
+
+        <div className="mt-[29px] mb-7 text-center">
+          <h2 className="text-2xl font-semibold text-text-primary">Welcome back</h2>
+          <p className="mt-1 text-base font-normal text-text-secondary">
+            Sign in to access your documents
           </p>
         </div>
 
-        <form
-          onSubmit={handleSubmit(onSubmit)}
-          className="rounded-lg border border-surface-border bg-surface p-6 shadow-sm space-y-4"
-        >
+        <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
           {notice && (
-            <p className="rounded bg-surface-muted px-2 py-1.5 text-xs text-text-secondary">
+            <p className="rounded-lg bg-surface-muted px-3 py-2 text-sm text-text-secondary">
               {notice}
             </p>
           )}
+
           <div>
-            <label htmlFor="username" className="text-xs font-medium text-text-secondary">
+            <label
+              htmlFor="username"
+              className="text-sm font-semibold text-text-primary"
+            >
               Username
             </label>
-            <Input
-              id="username"
-              autoComplete="username"
-              className="mt-1"
-              {...register("username")}
-            />
+            <div className="relative mt-1.5">
+              <User
+                className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-text-muted"
+                aria-hidden="true"
+              />
+              <Input
+                id="username"
+                autoComplete="username"
+                placeholder="Enter your username"
+                className={cn(fieldClassName, "pl-11")}
+                {...register("username")}
+              />
+            </div>
             {errors.username && (
               <p className="mt-1 text-xs text-danger">{errors.username.message}</p>
             )}
           </div>
 
           <div>
-            <label htmlFor="password" className="text-xs font-medium text-text-secondary">
+            <label
+              htmlFor="password"
+              className="text-sm font-semibold text-text-primary"
+            >
               Password
             </label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              className="mt-1"
-              {...register("password")}
-            />
+            <div className="relative mt-1.5">
+              <Lock
+                className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-text-muted"
+                aria-hidden="true"
+              />
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                placeholder="Enter your password"
+                className={cn(fieldClassName, "pr-11 pl-11")}
+                {...register("password")}
+              />
+              <button
+                type="button"
+                className="absolute top-1/2 right-3.5 -translate-y-1/2 text-text-muted transition-colors hover:text-text-primary"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={() => setShowPassword((open) => !open)}
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                )}
+              </button>
+            </div>
             {errors.password && (
               <p className="mt-1 text-xs text-danger">{errors.password.message}</p>
             )}
+            <p className="mt-2 text-right">
+              <Link
+                to="/forgot-password"
+                className="text-sm font-medium text-[#2DD4BF] transition-colors hover:text-[#5EEAD4]"
+              >
+                Forgot password?
+              </Link>
+            </p>
           </div>
 
           {errors.root && (
-            <p className="text-xs text-danger text-center">{errors.root.message}</p>
+            <p className="text-center text-xs text-danger">{errors.root.message}</p>
           )}
 
-          <Button type="submit" className="w-full" disabled={login.isPending}>
+          <Button
+            type="submit"
+            disabled={login.isPending}
+            className={cn(
+              "mt-2 h-[54px] w-full rounded-[12px] border-0 bg-[#0F172A] text-lg font-semibold text-white shadow-none",
+              "hover:bg-[#1E293B] hover:shadow-none",
+            )}
+          >
             {login.isPending ? "Signing in…" : "Sign in"}
           </Button>
+        </form>
 
-          <p className="text-center text-xs text-text-secondary">
-            <Link to="/forgot-password" className="text-accent hover:underline">
-              Forgot password?
+        <div className="mt-5 mb-4 flex items-center gap-3">
+          <span className="h-px flex-1 bg-[rgba(148,163,184,0.20)]" />
+          <span className="text-sm text-[#94A3B8]">or</span>
+          <span className="h-px flex-1 bg-[rgba(148,163,184,0.20)]" />
+        </div>
+
+        <p className="text-center text-sm font-normal text-[#94A3B8]">
+          Self-hosted. Your data stays under your control.
+        </p>
+
+        {(regStatus?.allow_registration ?? true) && (
+          <p className="mt-3 text-center text-sm text-[#94A3B8]">
+            New here?{" "}
+            <Link
+              to="/register"
+              className="font-medium text-[#2DD4BF] transition-colors hover:text-[#5EEAD4]"
+            >
+              Create an account
             </Link>
           </p>
-
-          {(regStatus?.allow_registration ?? true) && (
-            <p className="text-center text-xs text-text-secondary">
-              New here?{" "}
-              <Link to="/register" className="text-accent hover:underline">
-                Create an account
-              </Link>
-            </p>
-          )}
-        </form>
+        )}
       </div>
     </div>
   );

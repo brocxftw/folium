@@ -12,7 +12,7 @@ import { AiStatusPill } from "@/components/layout/AiStatusPill";
 import { NavbarSearch } from "@/components/layout/NavbarSearch";
 import { NavbarUpload } from "@/components/layout/NavbarUpload";
 import { AskFoliumDock } from "@/components/ask/AskFoliumDock";
-import foliumMark from "@/assets/brand/folium-mark.png";
+import foliumLogo from "@/assets/brand/folium_logo.svg";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import {
   DropdownMenu,
@@ -50,11 +50,11 @@ export function AppShell({ children }: AppShellProps) {
         <header className="relative z-50 m-3 flex min-h-[79px] w-[calc(100%-24px)] shrink-0 flex-nowrap items-stretch overflow-x-auto rounded-[14px] border border-[rgba(148,163,184,0.10)] bg-navbar px-8 text-navbar-text shadow-[0_10px_30px_rgba(2,6,23,0.24),0_2px_8px_rgba(2,6,23,0.20)]">
           <div className="flex items-center">
             <img
-              src={foliumMark}
+              src={foliumLogo}
               alt=""
               width={40}
               height={40}
-              className="mr-3 h-10 w-10 shrink-0 object-contain mix-blend-lighten"
+              className="mr-3 h-10 w-10 shrink-0 object-contain"
               aria-hidden="true"
             />
             <div className="flex min-w-0 flex-col gap-1">
