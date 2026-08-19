@@ -1,18 +1,16 @@
 import { Button } from "@/components/ui/Button";
 import type { AIAssignment } from "@/lib/api/types";
-import { cn } from "@/lib/utils";
+import { SettingsCard, SettingsStatusBadge } from "@/features/settings/components";
 import { WORKLOAD_COPY } from "./workloadCopy";
 
-function statusBadgeClass(status: AIAssignment["status"]): string {
+function statusTone(status: AIAssignment["status"]): "success" | "warning" | "neutral" {
   switch (status) {
     case "configured":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+      return "success";
     case "offline":
-      return "bg-amber-50 text-amber-700 border-amber-200";
-    case "disabled":
-      return "bg-surface-muted text-text-muted border-surface-border";
+      return "warning";
     default:
-      return "bg-surface-muted text-text-secondary border-surface-border";
+      return "neutral";
   }
 }
 
@@ -51,38 +49,32 @@ export function AiWorkloadCard({
     .join(" · ");
 
   return (
-    <div className="flex flex-wrap items-start gap-4 rounded-lg border border-surface-border bg-surface p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-5">
-      <div
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-muted"
-        style={{ color: copy.iconColour }}
-      >
-        <Icon className="h-5 w-5" strokeWidth={1.75} />
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-semibold text-text-primary">{copy.title}</h3>
-          <span
-            className={cn(
-              "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-              statusBadgeClass(assignment.status),
-            )}
-          >
-            {statusLabel(assignment.status)}
-          </span>
+    <SettingsCard padding="sm">
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-muted text-text-secondary">
+          <Icon className="h-5 w-5" strokeWidth={1.75} />
         </div>
-        <p className="text-xs text-text-secondary">{copy.subtitle}</p>
-        {configured ? (
-          <>
-            <p className="pt-1 text-base font-semibold text-text-primary">{assignment.model}</p>
-            <p className="text-xs text-text-muted">{providerLine}</p>
-          </>
-        ) : (
-          <p className="pt-1 text-sm text-text-muted">No model assigned yet.</p>
-        )}
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-text-primary">{copy.title}</h3>
+            <SettingsStatusBadge tone={statusTone(assignment.status)}>
+              {statusLabel(assignment.status)}
+            </SettingsStatusBadge>
+          </div>
+          <p className="text-xs text-text-secondary">{copy.subtitle}</p>
+          {configured ? (
+            <>
+              <p className="pt-1 text-base font-semibold text-text-primary">{assignment.model}</p>
+              <p className="text-xs text-text-muted">{providerLine}</p>
+            </>
+          ) : (
+            <p className="pt-1 text-sm text-text-muted">No model assigned yet.</p>
+          )}
+        </div>
+        <Button size="sm" variant="outline" onClick={onChangeModel}>
+          Change model
+        </Button>
       </div>
-      <Button size="sm" variant="secondary" onClick={onChangeModel}>
-        Change model
-      </Button>
-    </div>
+    </SettingsCard>
   );
 }

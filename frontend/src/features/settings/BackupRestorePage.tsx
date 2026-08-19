@@ -35,7 +35,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/Select";
+import { Switch } from "@/components/ui/Switch";
 import { formatBytes, formatDateTime } from "@/lib/utils";
+import {
+  SettingsCard,
+  SettingsContent,
+  SettingsDisclosure,
+  SettingsEmptyState,
+  SettingsInfoBanner,
+  SettingsPageHeader,
+  SettingsRow,
+  SettingsSection,
+  SettingsStatusBadge,
+} from "@/features/settings/components";
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -63,6 +75,7 @@ export function BackupRestorePage() {
   const running = (backups.data || []).some((item) => item.status === "queued" || item.status === "running")
     || restoreStatus.data?.active;
   const repoUnavailable = data ? !data.repository.writable : false;
+  const fieldsDisabled = !data?.enabled || update.isPending;
 
   const apply = async (patch: BackupSettingsUpdate) => {
     setError(null);
@@ -78,171 +91,200 @@ export function BackupRestorePage() {
     [backups.data],
   );
 
-  if (settings.isLoading) return <p className="p-6 text-text-muted">Loading backup settings…</p>;
-  if (settings.error || !data) return <p role="alert" className="p-6 text-danger">Backup settings are unavailable.</p>;
+  if (settings.isLoading) {
+    return (
+      <SettingsContent>
+        <SettingsEmptyState>Loading backup settings…</SettingsEmptyState>
+      </SettingsContent>
+    );
+  }
+  if (settings.error || !data) {
+    return (
+      <SettingsContent>
+        <p role="alert" className="text-danger">Backup settings are unavailable.</p>
+      </SettingsContent>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-10">
-      <header>
-        <h1 className="text-xl font-semibold">Backup &amp; Restore</h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          Create versioned Folium backups of canonical library data. Derived artefacts such as thumbnails may rebuild after restore.
-        </p>
-      </header>
+    <SettingsContent>
+      <SettingsPageHeader
+        title="Backup & Restore"
+        description="Protect your library with automatic backups and restore points."
+        actions={
+          <Button
+            onClick={() =>
+              void Promise.resolve(createBackup.mutateAsync()).catch((err) =>
+                setError(err instanceof ApiError ? err.message : "Backup failed"),
+              )
+            }
+            disabled={createBackup.isPending || !!running || repoUnavailable}
+          >
+            {createBackup.isPending ? "Queuing…" : "Back up now"}
+          </Button>
+        }
+      />
 
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       {restoreStatus.data?.active && (
-        <p className="rounded-md bg-accent-muted px-3 py-2 text-sm text-accent">
+        <SettingsInfoBanner>
           Restore in progress: {restoreStatus.data.stage}
-        </p>
+        </SettingsInfoBanner>
       )}
       {restoreStatus.data?.error && (
         <p role="alert" className="text-sm text-danger">Restore failed: {restoreStatus.data.error}</p>
       )}
 
-      <section className="space-y-4" aria-labelledby="automatic-heading">
-        <h2 id="automatic-heading" className="text-lg font-semibold">Automatic backups</h2>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={data.enabled}
-            onChange={(event) => void apply({ enabled: event.target.checked })}
-            disabled={update.isPending || !!running}
-          />
-          Enable automatic backups
-        </label>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <label className="text-xs text-text-muted">Schedule</label>
-            <Select
-              value={data.schedule_type}
-              onValueChange={(value) => void apply({ schedule_type: value as BackupSettingsUpdate["schedule_type"] })}
-              disabled={!data.enabled || update.isPending}
-            >
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="daily">Daily</SelectItem>
-                <SelectItem value="weekly">Weekly</SelectItem>
-                <SelectItem value="interval_hours">Every N hours</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {data.schedule_type !== "interval_hours" && (
+      <SettingsSection title="Automatic backups" description="Schedule versioned copies of your library.">
+        <SettingsCard>
+          <label className="flex cursor-pointer items-center justify-between gap-4">
+            <span className="text-sm font-semibold text-text-primary">Enable automatic backups</span>
+            <Switch
+              checked={data.enabled}
+              onCheckedChange={(checked) => void apply({ enabled: checked })}
+              disabled={update.isPending || !!running}
+              aria-label="Enable automatic backups"
+            />
+          </label>
+          <div className={`mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 ${!data.enabled ? "opacity-50" : ""}`}>
             <div>
-              <label className="text-xs text-text-muted">Time (UTC)</label>
-              <Input
-                className="mt-1"
-                type="time"
-                value={data.backup_time}
-                onChange={(event) => void apply({ backup_time: event.target.value })}
-                disabled={!data.enabled || update.isPending}
-              />
-            </div>
-          )}
-          {data.schedule_type === "weekly" && (
-            <div>
-              <label className="text-xs text-text-muted">Weekday</label>
+              <label className="text-xs text-text-muted">Schedule</label>
               <Select
-                value={String(data.weekday ?? 0)}
-                onValueChange={(value) => void apply({ weekday: Number(value) })}
-                disabled={!data.enabled || update.isPending}
+                value={data.schedule_type}
+                onValueChange={(value) => void apply({ schedule_type: value as BackupSettingsUpdate["schedule_type"] })}
+                disabled={fieldsDisabled}
               >
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {WEEKDAYS.map((label, index) => (
-                    <SelectItem key={label} value={String(index)}>{label}</SelectItem>
-                  ))}
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="interval_hours">Every N hours</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-          )}
-          {data.schedule_type === "interval_hours" && (
+            {data.schedule_type !== "interval_hours" && (
+              <div>
+                <label className="text-xs text-text-muted">Time (UTC)</label>
+                <Input
+                  className="mt-1"
+                  type="time"
+                  value={data.backup_time}
+                  onChange={(event) => void apply({ backup_time: event.target.value })}
+                  disabled={fieldsDisabled}
+                />
+              </div>
+            )}
+            {data.schedule_type === "weekly" && (
+              <div>
+                <label className="text-xs text-text-muted">Weekday</label>
+                <Select
+                  value={String(data.weekday ?? 0)}
+                  onValueChange={(value) => void apply({ weekday: Number(value) })}
+                  disabled={fieldsDisabled}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {WEEKDAYS.map((label, index) => (
+                      <SelectItem key={label} value={String(index)}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {data.schedule_type === "interval_hours" && (
+              <div>
+                <label className="text-xs text-text-muted">Interval hours</label>
+                <Input
+                  className="mt-1"
+                  type="number"
+                  min={1}
+                  value={data.interval_hours ?? 24}
+                  onChange={(event) => void apply({ interval_hours: Number(event.target.value) })}
+                  disabled={fieldsDisabled}
+                />
+              </div>
+            )}
             <div>
-              <label className="text-xs text-text-muted">Interval hours</label>
+              <label className="text-xs text-text-muted">Backups to keep</label>
               <Input
                 className="mt-1"
                 type="number"
                 min={1}
-                value={data.interval_hours ?? 24}
-                onChange={(event) => void apply({ interval_hours: Number(event.target.value) })}
-                disabled={!data.enabled || update.isPending}
+                max={365}
+                value={data.retention_count}
+                onChange={(event) => void apply({ retention_count: Number(event.target.value) })}
+                disabled={update.isPending}
               />
             </div>
-          )}
-          <div>
-            <label className="text-xs text-text-muted">Backups to keep</label>
-            <Input
-              className="mt-1"
-              type="number"
-              min={1}
-              max={365}
-              value={data.retention_count}
-              onChange={(event) => void apply({ retention_count: Number(event.target.value) })}
-              disabled={update.isPending}
-            />
           </div>
-          <div>
-            <label className="text-xs text-text-muted">Repository subdirectory</label>
-            <Input
-              className="mt-1"
-              value={data.repository_subdir}
-              placeholder="optional, inside /backups"
-              onBlur={(event) => void apply({ repository_subdir: event.target.value })}
+          <label className="mt-4 flex items-center gap-2 text-sm">
+            <Switch
+              checked={data.verify_after_backup}
+              onCheckedChange={(checked) => void apply({ verify_after_backup: checked })}
               disabled={update.isPending}
+              aria-label="Verify after creation"
             />
-          </div>
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={data.verify_after_backup}
-            onChange={(event) => void apply({ verify_after_backup: event.target.checked })}
-            disabled={update.isPending}
-          />
-          Verify after creation
-        </label>
-      </section>
-
-      <section className="space-y-4" aria-labelledby="status-heading">
-        <h2 id="status-heading" className="text-lg font-semibold">Status</h2>
-        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            ["Last successful backup", formatDateTime(data.last_success_at)],
-            ["Last status", lastSuccessful?.status ?? "—"],
-            ["Last backup size", lastSuccessful?.size_bytes == null ? "—" : formatBytes(lastSuccessful.size_bytes)],
-            ["Next scheduled backup", formatDateTime(data.next_run_at)],
-            ["Repository", data.repository.writable ? "writable" : data.repository.message],
-            ["Free space", data.repository.free_bytes == null ? "Unavailable" : formatBytes(data.repository.free_bytes)],
-          ].map(([label, value]) => (
-            <div key={label} className="border-b border-surface-border pb-3">
-              <dt className="text-xs text-text-muted">{label}</dt>
-              <dd className="mt-1 font-medium">{value}</dd>
+            Verify after creation
+          </label>
+          <SettingsDisclosure title="Advanced settings" className="mt-5">
+            <div>
+              <label className="text-xs text-text-muted">Repository subdirectory</label>
+              <Input
+                className="mt-1"
+                value={data.repository_subdir}
+                placeholder="optional, inside /backups"
+                onBlur={(event) => void apply({ repository_subdir: event.target.value })}
+                disabled={update.isPending}
+              />
             </div>
-          ))}
-        </dl>
-        {repoUnavailable && (
-          <p role="alert" className="text-sm text-danger">
-            Backup repository is unavailable. Folium remains usable; backups will not run until `/backups` is writable.
-          </p>
-        )}
-        <Button
-          onClick={() => void Promise.resolve(createBackup.mutateAsync()).catch((err) => setError(err instanceof ApiError ? err.message : "Backup failed"))}
-          disabled={createBackup.isPending || !!running || repoUnavailable}
-        >
-          {createBackup.isPending ? "Queuing…" : "Back up now"}
-        </Button>
-      </section>
+          </SettingsDisclosure>
+        </SettingsCard>
+      </SettingsSection>
 
-      <section className="space-y-4" aria-labelledby="history-heading">
-        <h2 id="history-heading" className="text-lg font-semibold">Backup history</h2>
+      <SettingsSection title="Backup status">
+        <SettingsCard>
+          <div className="grid gap-1 sm:grid-cols-2">
+            <SettingsRow title="Last successful backup" description={formatDateTime(data.last_success_at)} />
+            <SettingsRow title="Next scheduled backup" description={formatDateTime(data.next_run_at)} />
+            <SettingsRow
+              title="Last status"
+              description={lastSuccessful ? statusLabel(lastSuccessful.status) : "—"}
+            />
+            <SettingsRow
+              title="Repository"
+              description={data.repository.writable ? "Writable" : data.repository.message}
+              action={
+                <SettingsStatusBadge tone={data.repository.writable ? "success" : "danger"}>
+                  {data.repository.writable ? "Healthy" : "Unavailable"}
+                </SettingsStatusBadge>
+              }
+            />
+            <SettingsRow
+              title="Last backup size"
+              description={lastSuccessful?.size_bytes == null ? "—" : formatBytes(lastSuccessful.size_bytes)}
+            />
+            <SettingsRow
+              title="Free space"
+              description={data.repository.free_bytes == null ? "Unavailable" : formatBytes(data.repository.free_bytes)}
+            />
+          </div>
+          {repoUnavailable && (
+            <p role="alert" className="mt-3 text-sm text-danger">
+              Backup repository is unavailable. Folium remains usable; backups will not run until `/backups` is writable.
+            </p>
+          )}
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title="Backup history" description="Restore replaces the current library with a selected backup.">
         {(backups.data || []).length === 0 ? (
-          <p className="text-sm text-text-muted">No backups yet.</p>
+          <SettingsEmptyState bordered>No backups yet.</SettingsEmptyState>
         ) : (
-          <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
+          <ul className="divide-y divide-surface-border rounded-lg border border-surface-border bg-surface">
             {(backups.data || []).map((item) => (
-              <li key={item.filename} className="flex items-center justify-between gap-3 p-3">
-                <div>
-                  <p className="font-medium">{formatDateTime(item.created_at)}</p>
+              <li key={item.filename} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-text-primary">{formatDateTime(item.created_at)}</p>
                   <p className="text-xs text-text-muted">
                     {item.size_bytes == null ? "—" : formatBytes(item.size_bytes)} · {item.folium_version || "unknown"} · {statusLabel(item.status)} · {statusLabel(item.verification_status)}
                     {item.progress_stage && item.status === "running" ? ` · ${item.progress_stage}` : ""}
@@ -279,7 +321,7 @@ export function BackupRestorePage() {
             ))}
           </ul>
         )}
-      </section>
+      </SettingsSection>
 
       <Dialog open={!!confirm} onOpenChange={(open) => !open && setConfirm(null)}>
         <DialogContent>
@@ -317,6 +359,6 @@ export function BackupRestorePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </SettingsContent>
   );
 }

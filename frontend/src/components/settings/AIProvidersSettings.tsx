@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/Select";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { SettingsSection } from "@/features/settings/components";
 
 const PROVIDER_KINDS: { value: AIProviderKind; label: string; defaultUrl: string; local: boolean }[] = [
   { value: "ollama", label: "Ollama (local)", defaultUrl: "http://host.docker.internal:11434/v1", local: true },
@@ -141,19 +142,16 @@ export function AIProvidersSettings() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-text-primary">Providers</h2>
-          <p className="mt-1 text-sm text-text-secondary">
-            Manage AI provider connections and health.
-          </p>
-        </div>
-        <Button onClick={openCreate} className="gap-1">
+    <SettingsSection
+      title="Providers"
+      description="Manage AI provider connections and availability."
+      actions={
+        <Button onClick={openCreate}>
           <Plus className="h-3.5 w-3.5" />
           Add provider
         </Button>
-      </div>
+      }
+    >
 
       {isLoading ? (
         <p className="text-sm text-text-muted">Loading…</p>
@@ -285,6 +283,6 @@ export function AIProvidersSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </SettingsSection>
   );
 }

@@ -1,51 +1,108 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAbout, useSession } from "@/lib/api/hooks";
+import { Button } from "@/components/ui/Button";
+import foliumLogo from "@/assets/brand/folium_logo.svg";
+import {
+  SettingsCard,
+  SettingsContent,
+  SettingsEmptyState,
+  SettingsPageHeader,
+  SettingsSection,
+} from "@/features/settings/components";
 
 export function AboutPage() {
   const { data, isLoading, error } = useAbout();
   const { data: session } = useSession();
+  const [copied, setCopied] = useState(false);
+
+  const copyRevision = async (value: string) => {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+  };
+
   return (
-    <div className="mx-auto max-w-4xl space-y-10">
-      <header>
-        <h1 className="text-xl font-semibold">About</h1>
-        <p className="mt-1 text-sm text-text-secondary">Product information and privacy & data handling.</p>
-      </header>
-      {isLoading ? <p className="text-text-muted">Loading product information…</p> : error || !data ? (
+    <SettingsContent>
+      <SettingsPageHeader
+        title="About"
+        description="What version this is, and how Folium handles your data."
+      />
+      {isLoading ? (
+        <SettingsEmptyState>Loading product information…</SettingsEmptyState>
+      ) : error || !data ? (
         <p role="alert" className="text-danger">Product metadata is unavailable.</p>
       ) : (
-        <section className="space-y-3" aria-labelledby="product-heading">
-          <h2 id="product-heading" className="text-lg font-semibold">{data.product}</h2>
-          <p className="text-text-secondary">{data.description}</p>
-          <dl className="grid gap-3 sm:grid-cols-3">
-            <div><dt className="text-xs text-text-muted">Version</dt><dd className="font-mono">{data.version}</dd></div>
-            <div><dt className="text-xs text-text-muted">Build revision</dt><dd className="font-mono">{data.build_revision || "Not supplied"}</dd></div>
-            <div><dt className="text-xs text-text-muted">Build date</dt><dd>{data.build_date || "Not supplied"}</dd></div>
-          </dl>
-        </section>
+        <SettingsSection title="Folium">
+          <SettingsCard>
+            <div className="flex flex-wrap items-start gap-4">
+              <img src={foliumLogo} alt="" width={48} height={48} className="h-12 w-12" />
+              <div className="min-w-0 flex-1">
+                <p className="text-base font-semibold text-text-primary">{data.product}</p>
+                <p className="mt-1 text-sm text-text-secondary">{data.description}</p>
+                <p className="mt-3 text-sm">
+                  <span className="text-text-muted">Version </span>
+                  <span className="font-mono font-medium text-text-primary">{data.version}</span>
+                </p>
+                {(data.build_revision || data.build_date) && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                    {data.build_revision && (
+                      <>
+                        <span className="font-mono">{data.build_revision}</span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void copyRevision(data.build_revision!)}
+                        >
+                          {copied ? "Copied" : "Copy revision"}
+                        </Button>
+                      </>
+                    )}
+                    {data.build_date && <span>{data.build_date}</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          </SettingsCard>
+        </SettingsSection>
       )}
-      <section className="space-y-4 border-t border-surface-border pt-8" aria-labelledby="privacy-heading">
-        <h2 id="privacy-heading" className="text-lg font-semibold">Privacy &amp; Data Handling</h2>
-        <div className="space-y-3 text-sm leading-6 text-text-secondary">
-          <p>Folium is local-first: documents, extracted text, metadata, and search indexes are stored in the deployment you or your administrator controls.</p>
-          <p>AI providers are optional. Whether document content may leave the deployment is controlled by the administrator-managed AI Policy. Local-only mode blocks remote AI transmission; other modes still apply the configured operation permissions and confirmation behavior.</p>
-          <p>Provider credentials are encrypted at rest and are never returned in full. Operational logs contain allowlisted application facts and are redacted; prompts, extracted document text, cookies, credentials, and authentication tokens are not intentionally persisted.</p>
-        </div>
-        {session?.user.is_admin ? (
-          <Link className="inline-flex text-sm font-medium text-accent hover:underline" to="/settings/artificial-intelligence?tab=controls#ai-policy">Review AI Policy →</Link>
-        ) : (
-          <p className="text-sm text-text-muted">AI Policy is managed by your Folium administrator.</p>
-        )}
-      </section>
+
+      <SettingsSection title="Privacy & data handling">
+        <SettingsCard>
+          <div className="space-y-3 text-sm leading-6 text-text-secondary">
+            <p>Folium stores your documents, text, metadata and search indexes on the system you or your administrator control. It is local-first by design.</p>
+            <p>AI is optional. If a remote AI provider is enabled, Folium may send document content according to the configured privacy policy.</p>
+            <p>Provider credentials are encrypted and never shown in full. Logs are redacted so prompts, document text, cookies and tokens are not kept.</p>
+          </div>
+          {session?.user.is_admin ? (
+            <Link
+              className="mt-4 inline-flex text-sm font-medium text-accent hover:underline"
+              to="/settings/artificial-intelligence?tab=controls#ai-policy"
+            >
+              Review AI Policy →
+            </Link>
+          ) : (
+            <p className="mt-4 text-sm text-text-muted">AI Policy is managed by your Folium administrator.</p>
+          )}
+        </SettingsCard>
+      </SettingsSection>
+
       {data && Object.keys(data.project_links).length > 0 && (
-        <section className="space-y-3 border-t border-surface-border pt-8" aria-labelledby="links-heading">
-          <h2 id="links-heading" className="text-lg font-semibold">Project links</h2>
-          <ul className="flex flex-wrap gap-4">
+        <SettingsSection title="Project links">
+          <div className="flex flex-wrap gap-2">
             {Object.entries(data.project_links).map(([label, url]) => (
-              <li key={label}><a href={url} target="_blank" rel="noreferrer" className="capitalize text-accent hover:underline">{label}</a></li>
+              <a
+                key={label}
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md border border-surface-border bg-surface px-3 py-1.5 text-sm capitalize text-text-primary hover:bg-surface-hover"
+              >
+                {label}
+              </a>
             ))}
-          </ul>
-        </section>
+          </div>
+        </SettingsSection>
       )}
-    </div>
+    </SettingsContent>
   );
 }

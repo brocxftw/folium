@@ -6,13 +6,22 @@ import {
 } from "@/lib/api/hooks";
 import { Button } from "@/components/ui/Button";
 import { formatBytes } from "@/lib/utils";
+import {
+  SettingsCard,
+  SettingsContent,
+  SettingsDisclosure,
+  SettingsEmptyState,
+  SettingsPageHeader,
+  SettingsSection,
+  SettingsStatusBadge,
+} from "@/features/settings/components";
 
-function Status({ value }: { value: string }) {
-  return (
-    <span className="inline-flex rounded-full bg-surface-muted px-2 py-0.5 text-xs capitalize text-text-secondary">
-      {value}
-    </span>
-  );
+function serviceTone(value: string): "success" | "warning" | "danger" | "neutral" {
+  const normalised = value.toLowerCase();
+  if (normalised === "healthy" || normalised === "ok" || normalised === "configured") return "success";
+  if (normalised === "degraded" || normalised === "warning") return "warning";
+  if (normalised === "unavailable" || normalised === "error" || normalised === "failed") return "danger";
+  return "neutral";
 }
 
 function StorageDonut({
@@ -50,8 +59,8 @@ function StorageDonut({
         <text x="60" y="73" textAnchor="middle" className="fill-text-muted text-[8px]">free</text>
       </svg>
       <div className="text-sm text-text-secondary">
-        <p><strong className="text-text-primary">{used == null ? "Unavailable" : formatBytes(used)}</strong> disk used</p>
-        <p>{total == null ? "Unavailable" : formatBytes(total)} filesystem total</p>
+        <p><strong className="text-text-primary">{used == null ? "Unavailable" : formatBytes(used)}</strong> used</p>
+        <p>{total == null ? "Unavailable" : formatBytes(total)} total</p>
         <p>{free == null ? "Unavailable" : formatBytes(free)} free</p>
       </div>
     </div>
@@ -68,83 +77,131 @@ export function SystemPage() {
     await navigator.clipboard.writeText(result.text);
     setCopyMessage("Diagnostics copied");
   };
-  if (isLoading) return <p className="p-6 text-text-muted">Loading system status…</p>;
-  if (error || !data) return <p role="alert" className="p-6 text-danger">System status is unavailable.</p>;
-  return (
-    <div className="mx-auto max-w-6xl space-y-10">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div><h1 className="text-xl font-semibold">System</h1><p className="mt-1 text-sm text-text-secondary">Truthful application and container-visible operational details.</p></div>
-        <div className="text-right">
-          <Button variant="secondary" onClick={() => void copyDiagnostics()} disabled={diagnostics.isPending}>Copy diagnostics</Button>
-          {copyMessage && <p aria-live="polite" className="mt-1 text-xs text-accent">{copyMessage}</p>}
-        </div>
-      </header>
 
-      <section id="application" aria-labelledby="application-heading" className="space-y-4">
-        <h2 id="application-heading" className="text-lg font-semibold">Application</h2>
-        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+  if (isLoading) {
+    return (
+      <SettingsContent>
+        <SettingsEmptyState>Loading system status…</SettingsEmptyState>
+      </SettingsContent>
+    );
+  }
+  if (error || !data) {
+    return (
+      <SettingsContent>
+        <p role="alert" className="text-danger">System status is unavailable.</p>
+      </SettingsContent>
+    );
+  }
+
+  return (
+    <SettingsContent>
+      <SettingsPageHeader
+        title="System"
+        description="View Folium's health, runtime and storage status."
+        actions={
+          <div className="text-right">
+            <Button variant="outline" onClick={() => void copyDiagnostics()} disabled={diagnostics.isPending}>
+              Copy diagnostics
+            </Button>
+            {copyMessage && <p aria-live="polite" className="mt-1 text-xs text-text-secondary">{copyMessage}</p>}
+          </div>
+        }
+      />
+
+      <SettingsSection id="application" title="Application health">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[
             ["Folium version", data.version],
-            ["Schema revision", data.schema_revision],
-            ["Process uptime", `${Math.floor(data.process_uptime_seconds / 60)} minutes`],
             ["Database", data.database_status],
             ["Storage", data.storage_status],
-            ["Worker heartbeat", data.worker_status],
-            ["Documents", data.document_count.toLocaleString()],
-            ["Indexed documents", data.indexed_document_count.toLocaleString()],
+            ["Worker", data.worker_status],
             ["Jobs", `${data.queued_jobs} queued · ${data.running_jobs} running`],
+            ["Documents", `${data.document_count.toLocaleString()} · ${data.indexed_document_count.toLocaleString()} indexed`],
           ].map(([label, value]) => (
-            <div key={label} className="border-b border-surface-border pb-3">
-              <dt className="text-xs text-text-muted">{label}</dt>
-              <dd className="mt-1 font-medium">{value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      <section id="runtime" aria-labelledby="runtime-heading" className="space-y-4">
-        <div><h2 id="runtime-heading" className="text-lg font-semibold">Runtime</h2><p className="text-sm text-text-secondary">{data.deployment_mode}. Docker Engine and Compose status are unavailable without host integration.</p></div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {Object.entries(data.services).map(([service, status]) => (
-            <div key={service} className="flex items-center justify-between rounded-md border border-surface-border p-3">
-              <span className="font-medium capitalize">{service}</span><Status value={status} />
-            </div>
+            <SettingsCard key={label} padding="sm">
+              <p className="text-xs text-text-muted">{label}</p>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <p className="font-semibold text-text-primary">{value}</p>
+                {label !== "Folium version" && label !== "Jobs" && label !== "Documents" && (
+                  <SettingsStatusBadge tone={serviceTone(String(value))}>{String(value)}</SettingsStatusBadge>
+                )}
+              </div>
+            </SettingsCard>
           ))}
         </div>
-        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+      </SettingsSection>
+
+      <SettingsSection id="runtime" title="Runtime" description={data.deployment_mode}>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {Object.entries(data.services).map(([service, status]) => (
+            <SettingsCard key={service} padding="sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold capitalize text-text-primary">{service}</span>
+                <SettingsStatusBadge tone={serviceTone(status)}>{status}</SettingsStatusBadge>
+              </div>
+            </SettingsCard>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection id="storage" title="Storage">
+        <SettingsCard>
+          <div className="grid gap-8 lg:grid-cols-2">
+            <StorageDonut
+              used={storage?.disk_used_bytes ?? null}
+              total={storage?.disk_total_bytes ?? null}
+              free={storage?.disk_free_bytes ?? null}
+            />
+            <dl className="space-y-3 text-sm">
+              <div>
+                <dt className="text-xs text-text-muted">Folium-owned files</dt>
+                <dd className="font-medium">{storage?.folium_bytes == null ? "Unavailable" : formatBytes(storage.folium_bytes)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-text-muted">Database</dt>
+                <dd className="font-medium">{storage?.database_bytes == null ? "Unavailable" : formatBytes(storage.database_bytes)}</dd>
+              </div>
+            </dl>
+          </div>
+          <ul className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {Object.entries(storage?.categories || {}).map(([category, bytes]) => (
+              <li key={category} className="rounded-md bg-surface-muted p-3 text-sm capitalize">
+                {category.replaceAll("_", " ")}
+                <strong className="block">{bytes == null ? "Unavailable" : formatBytes(bytes)}</strong>
+              </li>
+            ))}
+          </ul>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsDisclosure title="Advanced diagnostics">
+        <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-xs text-text-muted">Schema revision</dt>
+            <dd className="font-mono text-xs">{data.schema_revision}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-text-muted">Process uptime</dt>
+            <dd>{Math.floor(data.process_uptime_seconds / 60)} minutes</dd>
+          </div>
           {Object.entries(data.runtime).map(([label, value]) => (
             <div key={label}>
               <dt className="text-xs capitalize text-text-muted">{label.replaceAll("_", " ")}</dt>
               <dd className="mt-1">{value ?? "Unavailable"}</dd>
             </div>
           ))}
-        </dl>
-      </section>
-
-      <section id="storage" aria-labelledby="storage-heading" className="space-y-5">
-        <div><h2 id="storage-heading" className="text-lg font-semibold">Storage</h2><p className="text-sm text-text-secondary">{storage?.message}</p></div>
-        <div className="grid gap-8 lg:grid-cols-2">
-          <StorageDonut used={storage?.disk_used_bytes ?? null} total={storage?.disk_total_bytes ?? null} free={storage?.disk_free_bytes ?? null} />
-          <dl className="space-y-3">
-            <div><dt className="text-xs text-text-muted">Configured source</dt><dd>{storage?.configured_source || "Unavailable"}</dd></div>
-            <div className="flex items-center gap-2">
-              <div><dt className="text-xs text-text-muted">Container mount</dt><dd className="font-mono text-xs">{storage?.container_path || "Unavailable"}</dd></div>
-              {storage?.container_path && <Button size="sm" variant="ghost" onClick={() => navigator.clipboard.writeText(storage.container_path)}>Copy path</Button>}
-            </div>
-            <div><dt className="text-xs text-text-muted">Folium-owned files</dt><dd>{storage?.folium_bytes == null ? "Unavailable" : formatBytes(storage.folium_bytes)}</dd></div>
-            <div><dt className="text-xs text-text-muted">Database logical size</dt><dd>{storage?.database_bytes == null ? "Unavailable" : formatBytes(storage.database_bytes)}</dd></div>
-          </dl>
-        </div>
-        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {Object.entries(storage?.categories || {}).map(([category, bytes]) => (
-            <li key={category} className="rounded-md bg-surface-muted p-3 text-sm capitalize">
-              {category}<strong className="block">{bytes == null ? "Unavailable" : formatBytes(bytes)}</strong>
-            </li>
-          ))}
-        </ul>
-        {Object.keys(storage?.database_categories || {}).length > 0 && (
           <div>
-            <h3 className="mb-2 text-sm font-medium">Database relations (separate filesystem)</h3>
+            <dt className="text-xs text-text-muted">Configured source</dt>
+            <dd>{storage?.configured_source || "Unavailable"}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-text-muted">Container mount</dt>
+            <dd className="font-mono text-xs">{storage?.container_path || "Unavailable"}</dd>
+          </div>
+        </dl>
+        {Object.keys(storage?.database_categories || {}).length > 0 && (
+          <div className="mt-4">
+            <h3 className="mb-2 text-sm font-medium">Database relations</h3>
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {Object.entries(storage?.database_categories || {}).map(([category, bytes]) => (
                 <li key={category} className="rounded-md bg-surface-muted p-3 text-sm">
@@ -155,7 +212,7 @@ export function SystemPage() {
             </ul>
           </div>
         )}
-      </section>
-    </div>
+      </SettingsDisclosure>
+    </SettingsContent>
   );
 }

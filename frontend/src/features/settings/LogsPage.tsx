@@ -7,6 +7,24 @@ import { Input } from "@/components/ui/Input";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/Sheet";
+import {
+  SettingsContent,
+  SettingsEmptyState,
+  SettingsPageHeader,
+  SettingsStatusBadge,
+  SettingsTable,
+  SettingsTableBody,
+  SettingsTableCell,
+  SettingsTableHead,
+  SettingsTableHeaderCell,
+  SettingsTableRow,
+} from "@/features/settings/components";
+
+function levelTone(level: string): "neutral" | "warning" | "danger" {
+  if (level === "WARNING") return "warning";
+  if (level === "ERROR" || level === "CRITICAL") return "danger";
+  return "neutral";
+}
 
 export function LogsPage() {
   const [params, setParams] = useSearchParams();
@@ -32,71 +50,111 @@ export function LogsPage() {
       .filter(([key, value]) => key !== "page" && value)
       .map(([key, value]) => [key, String(value)]),
   )}`;
+
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div><h1 className="text-xl font-semibold">Logs</h1><p className="mt-1 text-sm text-text-secondary">Redacted Folium API and worker application events. Database outage events remain stdout-only.</p></div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => void refetch()}>Refresh</Button>
-          <Button variant="secondary" onClick={() => { window.location.href = exportUrl; }}>Export CSV</Button>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              if (window.confirm("Clear all persisted Folium application logs? This cannot be undone.")) clear.mutate();
-            }}
-            disabled={clear.isPending}
-          >
-            Clear
-          </Button>
-        </div>
-      </header>
-      <div className="flex flex-wrap items-end gap-3 rounded-md border border-surface-border bg-surface p-3">
+    <SettingsContent width="wide" className="space-y-5">
+      <SettingsPageHeader
+        title="Logs"
+        description="Review what Folium has been doing and what went wrong."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => void refetch()}>Refresh</Button>
+            <Button variant="outline" onClick={() => { window.location.href = exportUrl; }}>Export CSV</Button>
+            <Button
+              variant="ghost"
+              className="text-danger hover:text-danger"
+              onClick={() => {
+                if (window.confirm("Clear all persisted Folium application logs? This cannot be undone.")) clear.mutate();
+              }}
+              disabled={clear.isPending}
+            >
+              Clear
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-surface-border bg-surface p-3">
         <label className="min-w-56 flex-1 text-xs text-text-muted">Search
           <Input className="mt-1" value={filters.search || ""} onChange={(event) => update("search", event.target.value)} placeholder="Message, module, or request ID" />
         </label>
         <label className="text-xs text-text-muted">Level
           <Select value={filters.level || "all"} onValueChange={(value) => update("level", value === "all" ? "" : value)}>
             <SelectTrigger className="mt-1 w-32"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="all">All levels</SelectItem>{["INFO", "WARNING", "ERROR", "CRITICAL"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+            <SelectContent>
+              <SelectItem value="all">All levels</SelectItem>
+              {["INFO", "WARNING", "ERROR", "CRITICAL"].map((value) => (
+                <SelectItem key={value} value={value}>{value}</SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </label>
         <label className="text-xs text-text-muted">Service
           <Select value={filters.service || "all"} onValueChange={(value) => update("service", value === "all" ? "" : value)}>
             <SelectTrigger className="mt-1 w-32"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="all">All services</SelectItem><SelectItem value="api">API</SelectItem><SelectItem value="worker">Worker</SelectItem></SelectContent>
+            <SelectContent>
+              <SelectItem value="all">All services</SelectItem>
+              <SelectItem value="api">API</SelectItem>
+              <SelectItem value="worker">Worker</SelectItem>
+            </SelectContent>
           </Select>
         </label>
         <label className="text-xs text-text-muted">Range
           <Select value={filters.range} onValueChange={(value) => update("range", value)}>
             <SelectTrigger className="mt-1 w-28"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="1h">1 hour</SelectItem><SelectItem value="24h">24 hours</SelectItem><SelectItem value="7d">7 days</SelectItem><SelectItem value="30d">30 days</SelectItem></SelectContent>
+            <SelectContent>
+              <SelectItem value="1h">1 hour</SelectItem>
+              <SelectItem value="24h">24 hours</SelectItem>
+              <SelectItem value="7d">7 days</SelectItem>
+              <SelectItem value="30d">30 days</SelectItem>
+            </SelectContent>
           </Select>
         </label>
-        <label className="flex h-9 items-center gap-2 text-sm"><Checkbox checked={live} onCheckedChange={(value) => setLive(Boolean(value))} />Live polling</label>
+        <label className="flex h-9 items-center gap-2 text-sm">
+          <Checkbox checked={live} onCheckedChange={(value) => setLive(Boolean(value))} />
+          Live polling
+        </label>
       </div>
+
       {isLoading ? (
-        <p className="text-text-muted">Loading events…</p>
+        <SettingsEmptyState>Loading events…</SettingsEmptyState>
       ) : error ? (
         <p role="alert" className="text-danger">The log store is unavailable. Live polling has not been enabled automatically.</p>
       ) : !data?.items.length ? (
-        <p className="rounded-md border border-dashed border-surface-border p-10 text-center text-text-muted">
+        <SettingsEmptyState bordered>
           {Object.values(filters).some(Boolean) ? "No events match these filters." : "No application events have been persisted yet."}
-        </p>
+        </SettingsEmptyState>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-md border border-surface-border bg-surface">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead className="bg-surface-muted text-xs text-text-muted"><tr><th className="p-3">Timestamp</th><th className="p-3">Level</th><th className="p-3">Service</th><th className="p-3">Module</th><th className="p-3">Message</th></tr></thead>
-              <tbody className="divide-y divide-surface-border">
-                {data.items.map((item) => (
-                  <tr key={item.id} className="cursor-pointer hover:bg-surface-hover" tabIndex={0} onClick={() => setSelected(item)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelected(item); }}>
-                    <td className="whitespace-nowrap p-3 text-xs">{new Date(item.timestamp).toLocaleString()}</td>
-                    <td className="p-3 font-medium">{item.level}</td><td className="p-3">{item.service}</td><td className="max-w-48 truncate p-3">{item.module}</td><td className="max-w-xl truncate p-3">{item.message}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <SettingsTable minWidth="760px">
+            <SettingsTableHead>
+              {["Timestamp", "Level", "Service", "Module", "Message"].map((col) => (
+                <SettingsTableHeaderCell key={col}>{col}</SettingsTableHeaderCell>
+              ))}
+            </SettingsTableHead>
+            <SettingsTableBody>
+              {data.items.map((item) => (
+                <SettingsTableRow
+                  key={item.id}
+                  tabIndex={0}
+                  onClick={() => setSelected(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") setSelected(item);
+                  }}
+                >
+                  <SettingsTableCell className="whitespace-nowrap text-xs text-text-secondary">
+                    {new Date(item.timestamp).toLocaleString()}
+                  </SettingsTableCell>
+                  <SettingsTableCell>
+                    <SettingsStatusBadge tone={levelTone(item.level)}>{item.level}</SettingsStatusBadge>
+                  </SettingsTableCell>
+                  <SettingsTableCell>{item.service}</SettingsTableCell>
+                  <SettingsTableCell className="max-w-48 truncate font-mono text-xs">{item.module}</SettingsTableCell>
+                  <SettingsTableCell className="max-w-md truncate">{item.message}</SettingsTableCell>
+                </SettingsTableRow>
+              ))}
+            </SettingsTableBody>
+          </SettingsTable>
           <div className="flex items-center justify-between text-sm text-text-secondary">
             <span>{data.total.toLocaleString()} events · {data.retention_days}-day retention</span>
             <div className="flex gap-2">
@@ -106,17 +164,49 @@ export function LogsPage() {
           </div>
         </>
       )}
+
       <Sheet open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
         <SheetContent>
-          <SheetHeader><SheetTitle>Log event</SheetTitle><SheetDescription>Sanitized structured application context</SheetDescription></SheetHeader>
-          {selected && <div className="space-y-4 overflow-auto p-4 text-sm">
-            <dl className="space-y-2">{Object.entries({ Timestamp: new Date(selected.timestamp).toLocaleString(), Level: selected.level, Service: selected.service, Module: selected.module, "Request ID": selected.request_id || "Unavailable" }).map(([key, value]) => <div key={key}><dt className="text-xs text-text-muted">{key}</dt><dd className="break-words">{value}</dd></div>)}</dl>
-            <section><h3 className="text-xs font-medium text-text-muted">Message</h3><p className="mt-1 whitespace-pre-wrap">{selected.message}</p></section>
-            {Object.keys(selected.context).length > 0 && <section><h3 className="text-xs font-medium text-text-muted">Context</h3><pre className="mt-1 overflow-auto rounded bg-surface-muted p-3 text-xs">{JSON.stringify(selected.context, null, 2)}</pre></section>}
-            {selected.stack_trace && <section><h3 className="text-xs font-medium text-text-muted">Stack trace</h3><pre className="mt-1 overflow-auto whitespace-pre-wrap rounded bg-surface-muted p-3 text-xs">{selected.stack_trace}</pre></section>}
-          </div>}
+          <SheetHeader>
+            <SheetTitle>Log event</SheetTitle>
+            <SheetDescription>Sanitized structured application context</SheetDescription>
+          </SheetHeader>
+          {selected && (
+            <div className="space-y-4 overflow-auto p-4 text-sm">
+              <dl className="space-y-2">
+                {Object.entries({
+                  Timestamp: new Date(selected.timestamp).toLocaleString(),
+                  Level: selected.level,
+                  Service: selected.service,
+                  Module: selected.module,
+                  "Request ID": selected.request_id || "Unavailable",
+                }).map(([key, value]) => (
+                  <div key={key}>
+                    <dt className="text-xs text-text-muted">{key}</dt>
+                    <dd className="break-words">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <section>
+                <h3 className="text-xs font-medium text-text-muted">Message</h3>
+                <p className="mt-1 whitespace-pre-wrap">{selected.message}</p>
+              </section>
+              {Object.keys(selected.context).length > 0 && (
+                <section>
+                  <h3 className="text-xs font-medium text-text-muted">Context</h3>
+                  <pre className="mt-1 overflow-auto rounded bg-surface-muted p-3 text-xs">{JSON.stringify(selected.context, null, 2)}</pre>
+                </section>
+              )}
+              {selected.stack_trace && (
+                <section>
+                  <h3 className="text-xs font-medium text-text-muted">Stack trace</h3>
+                  <pre className="mt-1 overflow-auto whitespace-pre-wrap rounded bg-surface-muted p-3 text-xs">{selected.stack_trace}</pre>
+                </section>
+              )}
+            </div>
+          )}
         </SheetContent>
       </Sheet>
-    </div>
+    </SettingsContent>
   );
 }

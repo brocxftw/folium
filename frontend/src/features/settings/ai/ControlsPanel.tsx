@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Info } from "lucide-react";
 import { useAIPolicy, useUpdateAIPolicy } from "@/lib/api/hooks";
 import type { AIPolicyUpdate, AIProfile, PrivacyMode } from "@/lib/api/types";
 import { Button } from "@/components/ui/Button";
@@ -11,8 +10,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/Select";
+import {
+  SettingsCard,
+  SettingsDisclosure,
+  SettingsInfoBanner,
+  SettingsSection,
+} from "@/features/settings/components";
 import { AiProfileOption } from "./AiProfileOption";
-import { AiSectionCard } from "./AiSectionCard";
 import { AiToggleRow } from "./AiToggleRow";
 import { VisionAssignmentPanel } from "./VisionAssignmentPanel";
 import { PRIVACY_MODE_COPY, PROFILE_OPTIONS } from "./workloadCopy";
@@ -111,139 +115,140 @@ export function ControlsPanel() {
   }
 
   return (
-    <div id="ai-policy" className="scroll-mt-4 space-y-5">
-      <AiSectionCard
-        title="Privacy"
-        description="Decide when Folium may use remote AI and how privacy is enforced."
-      >
-        <div className="space-y-4">
-          <div className="max-w-sm">
-            <label className="text-xs font-medium text-text-muted">Privacy mode</label>
-            <Select
-              value={privacyMode}
-              onValueChange={(value) => setPrivacyMode(value as PrivacyMode)}
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local_only">{PRIVACY_MODE_COPY.local_only.label}</SelectItem>
-                <SelectItem value="private_hybrid">
-                  {PRIVACY_MODE_COPY.private_hybrid.label}
-                </SelectItem>
-                <SelectItem value="standard">{PRIVACY_MODE_COPY.standard.label}</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="mt-1.5 text-xs text-text-secondary">{privacyHelper}</p>
-          </div>
+    <div id="ai-policy" className="scroll-mt-4 space-y-6">
+      <SettingsSection title="Privacy" description="Decide when Folium may use remote AI.">
+        <SettingsCard>
+          <div className="space-y-4">
+            <div className="max-w-sm">
+              <label className="text-xs font-medium text-text-muted">Privacy mode</label>
+              <Select
+                value={privacyMode}
+                onValueChange={(value) => setPrivacyMode(value as PrivacyMode)}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="local_only">{PRIVACY_MODE_COPY.local_only.label}</SelectItem>
+                  <SelectItem value="private_hybrid">
+                    {PRIVACY_MODE_COPY.private_hybrid.label}
+                  </SelectItem>
+                  <SelectItem value="standard">{PRIVACY_MODE_COPY.standard.label}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="mt-1.5 text-xs text-text-secondary">{privacyHelper}</p>
+            </div>
 
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
+                Remote AI
+              </p>
+              <AiToggleRow
+                label="Ask Folium"
+                checked={remote.allow_remote_qa}
+                disabled={remoteLocked}
+                onCheckedChange={(checked) =>
+                  setRemote({ ...remote, allow_remote_qa: checked })
+                }
+              />
+              <AiToggleRow
+                label="Embeddings"
+                checked={remote.allow_remote_embeddings}
+                disabled={remoteLocked}
+                onCheckedChange={(checked) =>
+                  setRemote({ ...remote, allow_remote_embeddings: checked })
+                }
+              />
+              <AiToggleRow
+                label="Vision"
+                checked={remote.allow_remote_vision}
+                disabled={remoteLocked}
+                onCheckedChange={(checked) =>
+                  setRemote({ ...remote, allow_remote_vision: checked })
+                }
+              />
+            </div>
+
+            <AiToggleRow
+              label="Warn before sending documents remotely"
+              checked={remote.warn_before_remote}
+              onCheckedChange={(checked) =>
+                setRemote({ ...remote, warn_before_remote: checked })
+              }
+            />
+
+            <SettingsInfoBanner tone="muted">{policy.enforcement_note}</SettingsInfoBanner>
+          </div>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title="Automation" description="Optional AI behaviour during document ingestion.">
+        <SettingsCard>
           <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-              Remote AI
-            </p>
             <AiToggleRow
-              label="Ask Folium"
-              checked={remote.allow_remote_qa}
-              disabled={remoteLocked}
+              label="AI filing suggestions"
+              description="Generate title, folder, tag, type and correspondent suggestions."
+              checked={automation.auto_tagging}
               onCheckedChange={(checked) =>
-                setRemote({ ...remote, allow_remote_qa: checked })
+                setAutomation({ ...automation, auto_tagging: checked })
               }
             />
             <AiToggleRow
-              label="Embeddings"
-              checked={remote.allow_remote_embeddings}
-              disabled={remoteLocked}
+              label="AI enrichment"
+              description="Generate optional document summaries."
+              checked={automation.auto_enrichment}
               onCheckedChange={(checked) =>
-                setRemote({ ...remote, allow_remote_embeddings: checked })
-              }
-            />
-            <AiToggleRow
-              label="Vision"
-              checked={remote.allow_remote_vision}
-              disabled={remoteLocked}
-              onCheckedChange={(checked) =>
-                setRemote({ ...remote, allow_remote_vision: checked })
+                setAutomation({ ...automation, auto_enrichment: checked })
               }
             />
           </div>
+        </SettingsCard>
+      </SettingsSection>
 
-          <AiToggleRow
-            label="Warn before sending documents remotely"
-            checked={remote.warn_before_remote}
-            onCheckedChange={(checked) =>
-              setRemote({ ...remote, warn_before_remote: checked })
-            }
-          />
-
-          <div className="flex gap-2 rounded-md border border-surface-border bg-surface-muted p-3 text-xs leading-relaxed text-text-secondary">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden />
-            <p>{policy.enforcement_note}</p>
-          </div>
-        </div>
-      </AiSectionCard>
-
-      <AiSectionCard
-        title="Automation"
-        description="Control optional background AI behaviour during document ingestion."
-      >
-        <div className="space-y-2">
-          <AiToggleRow
-            label="AI filing suggestions"
-            description="Generate title, folder, tag, type and correspondent suggestions."
-            checked={automation.auto_tagging}
-            onCheckedChange={(checked) =>
-              setAutomation({ ...automation, auto_tagging: checked })
-            }
-          />
-          <AiToggleRow
-            label="AI enrichment"
-            description="Generate optional document summaries."
-            checked={automation.auto_enrichment}
-            onCheckedChange={(checked) =>
-              setAutomation({ ...automation, auto_enrichment: checked })
-            }
-          />
-        </div>
-      </AiSectionCard>
-
-      <AiSectionCard
+      <SettingsSection
         title="Response profile"
-        description="Controls Ask Folium retrieval depth, context and output limits. It does not choose which model is used."
+        description="Controls Ask Folium retrieval depth and output limits, not which model is used."
       >
-        <div className="space-y-2">
-          {PROFILE_OPTIONS.map((option) => (
-            <AiProfileOption
-              key={option.id}
-              label={option.label}
-              tagline={option.tagline}
-              spec={option.spec}
-              selected={profile === option.id}
-              onSelect={() => setProfile(option.id)}
-            />
-          ))}
-        </div>
-
-        {profile === "custom" && (
-          <div className="grid gap-3 pt-2 sm:grid-cols-2 lg:grid-cols-5">
-            {Object.entries(limits).map(([key, value]) => (
-              <label key={key} className="text-xs text-text-muted">
-                {key.replaceAll("_", " ")}
-                <Input
-                  type="number"
-                  min={1}
-                  className="mt-1"
-                  value={value}
-                  onChange={(event) =>
-                    setLimits({ ...limits, [key]: Number(event.target.value) })
-                  }
-                />
-              </label>
+        <SettingsCard>
+          <div className="space-y-2">
+            {PROFILE_OPTIONS.map((option) => (
+              <AiProfileOption
+                key={option.id}
+                label={option.label}
+                tagline={option.tagline}
+                spec={option.spec}
+                selected={profile === option.id}
+                onSelect={() => setProfile(option.id)}
+              />
             ))}
           </div>
-        )}
-      </AiSectionCard>
 
-      <VisionAssignmentPanel />
+          {profile === "custom" && (
+            <SettingsDisclosure title="Custom limits" defaultOpen className="mt-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                {Object.entries(limits).map(([key, value]) => (
+                  <label key={key} className="text-xs text-text-muted">
+                    {key.replaceAll("_", " ")}
+                    <Input
+                      type="number"
+                      min={1}
+                      className="mt-1"
+                      value={value}
+                      onChange={(event) =>
+                        setLimits({ ...limits, [key]: Number(event.target.value) })
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            </SettingsDisclosure>
+          )}
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsDisclosure title="Advanced: experimental vision">
+        <VisionAssignmentPanel />
+      </SettingsDisclosure>
 
       <div className="flex flex-wrap items-center justify-end gap-3">
         {saveError && (

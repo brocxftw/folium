@@ -11,7 +11,6 @@ import {
   Folder,
   FolderOpen,
   GitMerge,
-  Info,
   LoaderCircle,
   Pencil,
   Plus,
@@ -51,46 +50,27 @@ import {
 } from "@/components/ui/Dialog";
 import { TAG_COLOR_PRESETS } from "@/components/tags/TagList";
 import { cn, formatBytes } from "@/lib/utils";
-
-function KpiCard({
-  label,
-  value,
-  icon: Icon,
-  iconColour,
-  compact,
-}: {
-  label: string;
-  value: string;
-  icon: typeof FileText;
-  iconColour: string;
-  compact?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-3 rounded-lg border border-[#E2E8F0] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
-        compact ? "min-h-[68px]" : "min-h-[72px]",
-      )}
-    >
-      <div
-        className="flex h-8 w-8 shrink-0 items-center justify-center"
-        style={{ color: iconColour }}
-      >
-        <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[12px] font-medium leading-4 text-[#64748B]">{label}</p>
-        <p className="text-[20px] font-bold leading-6 text-[#0F172A]">{value}</p>
-      </div>
-    </div>
-  );
-}
+import {
+  SettingsCard,
+  SettingsContent,
+  SettingsEmptyState,
+  SettingsInfoBanner,
+  SettingsMetricCard,
+  SettingsPageHeader,
+  SettingsSection,
+  SettingsTable,
+  SettingsTableBody,
+  SettingsTableCell,
+  SettingsTableHead,
+  SettingsTableHeaderCell,
+  SettingsTableRow,
+} from "@/features/settings/components";
 
 function UsageBar({ percent }: { percent: number }) {
   return (
-    <div className="h-1 w-[54px] overflow-hidden rounded-full bg-[#E2E8F0]">
+    <div className="h-1 w-[54px] overflow-hidden rounded-full bg-surface-border">
       <div
-        className="h-full rounded-full bg-[#0D9488]"
+        className="h-full rounded-full bg-accent"
         style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
       />
     </div>
@@ -177,143 +157,132 @@ export function LibraryPage() {
   };
 
   if (isLoading) {
-    return <p className="text-text-muted">Loading library insights…</p>;
+    return (
+      <SettingsContent width="wide">
+        <SettingsEmptyState>Loading library insights…</SettingsEmptyState>
+      </SettingsContent>
+    );
   }
   if (error || !data) {
-    return <p role="alert" className="text-danger">Library insights are unavailable.</p>;
+    return (
+      <SettingsContent width="wide">
+        <p role="alert" className="text-danger">
+          Library insights are unavailable.
+        </p>
+      </SettingsContent>
+    );
   }
 
   const { activity, snapshot, file_types, health } = data;
 
   return (
-    <div className="mx-auto max-w-[1180px] bg-[#F8FAFC] pb-10 pt-7 px-7">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-[22px] font-bold leading-7 text-[#0F172A]">Library</h1>
-          <p className="mt-0.5 text-[13px] leading-5 text-[#64748B]">
-            Historical activity, current library insights, file types, and tag administration.
-          </p>
-        </div>
-        <Button
-          variant="secondary"
-          className="h-8 border-[#E2E8F0] px-3 text-[12px] font-semibold"
-          disabled={resetStats.isPending}
-          onClick={() => void resetStats.mutateAsync()}
-        >
-          <RotateCcw className="h-4 w-4" strokeWidth={1.75} />
-          Reset statistics
-        </Button>
-      </header>
+    <SettingsContent width="wide">
+      <SettingsPageHeader
+        title="Library"
+        description="Review your library activity, file composition, health and tags."
+        actions={
+          <Button
+            variant="outline"
+            disabled={resetStats.isPending}
+            onClick={() => void resetStats.mutateAsync()}
+          >
+            <RotateCcw className="h-4 w-4" strokeWidth={1.75} />
+            Reset statistics
+          </Button>
+        }
+      />
 
-      <section className="mb-7">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h2 className="text-[15px] font-bold leading-[22px] text-[#0F172A]">
-            1. Library Activity
-          </h2>
-          <span className="text-[12px] text-[#64748B]">Since {activity.since_label}</span>
+      <SettingsSection
+        title="Library activity"
+        description={`Since ${activity.since_label}`}
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SettingsMetricCard label="Documents ingested" value={activity.documents_ingested.toLocaleString()} icon={FileText} />
+          <SettingsMetricCard label="Data ingested" value={formatBytes(activity.bytes_ingested)} icon={Database} />
+          <SettingsMetricCard label="Pages processed" value={activity.pages_processed.toLocaleString()} icon={Files} />
+          <SettingsMetricCard label="Successful processing" value={activity.successful_processing.toLocaleString()} icon={CircleCheck} />
+          <SettingsMetricCard compact label="OCR pages" value={activity.ocr_pages.toLocaleString()} icon={ScanLine} />
+          <SettingsMetricCard
+            compact
+            label="Failed documents"
+            value={activity.failed_documents.toLocaleString()}
+            icon={CircleAlert}
+            tone="danger"
+          />
+          <SettingsMetricCard compact label="Duplicates rejected" value={activity.duplicates_rejected.toLocaleString()} icon={Copy} />
+          <SettingsMetricCard compact label="Purged documents" value={activity.purged_documents.toLocaleString()} icon={Trash2} />
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiCard label="Documents ingested" value={activity.documents_ingested.toLocaleString()} icon={FileText} iconColour="#0D9488" />
-          <KpiCard label="Data ingested" value={formatBytes(activity.bytes_ingested)} icon={Database} iconColour="#0D9488" />
-          <KpiCard label="Pages processed" value={activity.pages_processed.toLocaleString()} icon={Files} iconColour="#0D9488" />
-          <KpiCard label="Successful processing" value={activity.successful_processing.toLocaleString()} icon={CircleCheck} iconColour="#059669" />
-        </div>
-        <div className="mt-2.5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiCard compact label="OCR pages" value={activity.ocr_pages.toLocaleString()} icon={ScanLine} iconColour="#64748B" />
-          <KpiCard compact label="Failed documents" value={activity.failed_documents.toLocaleString()} icon={CircleAlert} iconColour="#DC2626" />
-          <KpiCard compact label="Duplicates rejected" value={activity.duplicates_rejected.toLocaleString()} icon={Copy} iconColour="#64748B" />
-          <KpiCard compact label="Purged documents" value={activity.purged_documents.toLocaleString()} icon={Trash2} iconColour="#64748B" />
-        </div>
-        <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-4 text-[#64748B]">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+        <SettingsInfoBanner tone="muted">
           Historical counters since last reset. Values do not decrease when documents are deleted.
-        </p>
-      </section>
+        </SettingsInfoBanner>
+      </SettingsSection>
 
-      <section className="mb-7">
-        <h2 className="text-[15px] font-bold leading-[22px] text-[#0F172A]">
-          2. Current Library Snapshot
-        </h2>
-        <div className="mt-3 grid min-h-[62px] grid-cols-2 divide-x divide-[#E2E8F0] rounded-lg border border-[#E2E8F0] bg-white sm:grid-cols-3 xl:grid-cols-6">
-          {[
-            { label: "Current documents", value: snapshot.current_documents.toLocaleString(), icon: FileText },
-            { label: "Library size", value: formatBytes(snapshot.library_size_bytes), icon: Database },
-            { label: "Folders", value: snapshot.folders.toLocaleString(), icon: Folder },
-            { label: "Tags", value: snapshot.tags.toLocaleString(), icon: Tag },
-            { label: "Archived", value: snapshot.archived.toLocaleString(), icon: Archive },
-            { label: "Unprocessed", value: snapshot.unprocessed.toLocaleString(), icon: LoaderCircle },
-          ].map(({ label, value, icon: Icon }) => (
-            <div key={label} className="flex items-center gap-2.5 px-3 py-3">
-              <Icon className="h-[18px] w-[18px] shrink-0 text-[#64748B]" strokeWidth={1.75} />
-              <div className="min-w-0">
-                <p className="text-[11px] text-[#64748B]">{label}</p>
-                <p className="text-[13px] font-bold text-[#0F172A]">{value}</p>
+      <SettingsSection title="Current library">
+        <SettingsCard padding="none">
+          <div className="grid grid-cols-2 divide-x divide-surface-border sm:grid-cols-3 xl:grid-cols-6">
+            {[
+              { label: "Current documents", value: snapshot.current_documents.toLocaleString(), icon: FileText },
+              { label: "Library size", value: formatBytes(snapshot.library_size_bytes), icon: Database },
+              { label: "Folders", value: snapshot.folders.toLocaleString(), icon: Folder },
+              { label: "Tags", value: snapshot.tags.toLocaleString(), icon: Tag },
+              { label: "Archived", value: snapshot.archived.toLocaleString(), icon: Archive },
+              { label: "Unprocessed", value: snapshot.unprocessed.toLocaleString(), icon: LoaderCircle },
+            ].map(({ label, value, icon: Icon }) => (
+              <div key={label} className="flex items-center gap-2.5 px-3 py-3">
+                <Icon className="h-[18px] w-[18px] shrink-0 text-text-secondary" strokeWidth={1.75} />
+                <div className="min-w-0">
+                  <p className="text-[11px] text-text-secondary">{label}</p>
+                  <p className="text-[13px] font-bold text-text-primary">{value}</p>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <div className="mb-7 grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <section>
-          <h2 className="text-[15px] font-bold leading-[22px] text-[#0F172A]">
-            3. File Type Breakdown
-          </h2>
-          <div className="mt-3 overflow-hidden rounded-lg border border-[#E2E8F0] bg-white">
-            <table className="w-full min-w-[480px] text-left">
-              <thead>
-                <tr className="border-b border-[#E2E8F0] bg-white">
-                  {["Type", "Documents", "Size", "% of library", "Usage"].map((col) => (
-                    <th
-                      key={col}
-                      className="px-3 py-2 text-[11px] font-semibold leading-4 text-[#64748B]"
-                    >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {fileTypeItems.map((row) => (
-                  <tr key={row.mime_type || row.type} className="border-b border-[#E2E8F0] last:border-0">
-                    <td className="px-3 py-2.5">
-                      <span className="inline-flex items-center gap-2 text-[12px] font-medium text-[#334155]">
-                        <FileText className="h-4 w-4" style={{ color: row.icon_colour }} strokeWidth={1.75} />
-                        {row.type}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-[12px] font-medium text-[#334155]">
-                      {row.documents.toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2.5 text-[12px] font-medium text-[#334155]">
-                      {formatBytes(row.size_bytes)}
-                    </td>
-                    <td className="px-3 py-2.5 text-[12px] font-medium text-[#334155]">
-                      {row.percentage.toFixed(1)}%
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <UsageBar percent={row.usage_percent} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {file_types.total_types > 6 && (
-              <button
-                type="button"
-                className="flex h-9 w-full items-center gap-1 px-3 text-[11px] font-semibold text-[#0F766E] hover:bg-[#F8FAFC]"
-                onClick={() => setShowAllFileTypes((v) => !v)}
-              >
-                View all file types ({file_types.total_types})
-                <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </button>
-            )}
+            ))}
           </div>
-        </section>
+        </SettingsCard>
+      </SettingsSection>
 
-        <section>
-          <h2 className="text-[15px] font-bold leading-[22px] text-[#0F172A]">4. Library Health</h2>
-          <div className="mt-3 overflow-hidden rounded-lg border border-[#E2E8F0] bg-white">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <SettingsSection title="File type breakdown">
+          <SettingsTable minWidth="480px">
+            <SettingsTableHead>
+              {["Type", "Documents", "Size", "% of library", "Usage"].map((col) => (
+                <SettingsTableHeaderCell key={col}>{col}</SettingsTableHeaderCell>
+              ))}
+            </SettingsTableHead>
+            <SettingsTableBody>
+              {fileTypeItems.map((row) => (
+                <SettingsTableRow key={row.mime_type || row.type}>
+                  <SettingsTableCell>
+                    <span className="inline-flex items-center gap-2 font-medium">
+                      <FileText className="h-4 w-4" style={{ color: row.icon_colour }} strokeWidth={1.75} />
+                      {row.type}
+                    </span>
+                  </SettingsTableCell>
+                  <SettingsTableCell className="font-medium">
+                    {row.documents.toLocaleString()}
+                  </SettingsTableCell>
+                  <SettingsTableCell className="font-medium">{formatBytes(row.size_bytes)}</SettingsTableCell>
+                  <SettingsTableCell className="font-medium">{row.percentage.toFixed(1)}%</SettingsTableCell>
+                  <SettingsTableCell>
+                    <UsageBar percent={row.usage_percent} />
+                  </SettingsTableCell>
+                </SettingsTableRow>
+              ))}
+            </SettingsTableBody>
+          </SettingsTable>
+          {file_types.total_types > 6 && (
+            <button
+              type="button"
+              className="flex h-9 w-full items-center gap-1 px-1 text-[11px] font-semibold text-accent hover:underline"
+              onClick={() => setShowAllFileTypes((v) => !v)}
+            >
+              {showAllFileTypes ? "Show fewer file types" : `View all file types (${file_types.total_types})`}
+              <ChevronRight className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
+          )}
+        </SettingsSection>
+
+        <SettingsSection title="Library health">
+          <SettingsCard padding="none">
             {[
               {
                 key: "needs_processing",
@@ -321,7 +290,7 @@ export function LibraryPage() {
                 description: "Documents awaiting processing",
                 count: health.needs_processing,
                 icon: LoaderCircle,
-                iconColour: "#64748B",
+                tone: "neutral" as const,
                 onClick: () => navigate("/documents?unprocessed=true"),
               },
               {
@@ -330,7 +299,7 @@ export function LibraryPage() {
                 description: "Require review or reprocessing",
                 count: health.failed_documents,
                 icon: CircleAlert,
-                iconColour: "#DC2626",
+                tone: "danger" as const,
                 onClick: () => navigate("/inbox?view=work"),
               },
               {
@@ -339,7 +308,7 @@ export function LibraryPage() {
                 description: "Files with no extracted text",
                 count: health.missing_text,
                 icon: ScanText,
-                iconColour: "#64748B",
+                tone: "neutral" as const,
                 onClick: undefined,
               },
               {
@@ -348,7 +317,7 @@ export function LibraryPage() {
                 description: "Tags with no associated documents",
                 count: health.unused_tags,
                 icon: Tag,
-                iconColour: "#16A34A",
+                tone: "neutral" as const,
                 onClick: undefined,
               },
               {
@@ -357,7 +326,7 @@ export function LibraryPage() {
                 description: "Rejected at ingest (same checksum)",
                 count: health.duplicate_content,
                 icon: Copy,
-                iconColour: "#64748B",
+                tone: "neutral" as const,
                 onClick: undefined,
               },
               {
@@ -366,28 +335,29 @@ export function LibraryPage() {
                 description: "Folders with no documents",
                 count: health.empty_folders,
                 icon: FolderOpen,
-                iconColour: "#64748B",
+                tone: "neutral" as const,
                 onClick: undefined,
               },
-            ]            .map((row) => {
+            ].map((row) => {
               const Icon = row.icon;
               const isLink = !!row.onClick;
+              const iconClass = row.tone === "danger" && row.count > 0 ? "text-danger" : "text-text-secondary";
               const inner = (
                 <>
-                  <Icon className="h-[18px] w-[18px] shrink-0" style={{ color: row.iconColour }} strokeWidth={1.75} />
+                  <Icon className={cn("h-[18px] w-[18px] shrink-0", iconClass)} strokeWidth={1.75} />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[12px] font-semibold text-[#0F172A]">{row.label}</p>
-                    <p className="text-[10px] text-[#64748B]">{row.description}</p>
+                    <p className="text-[12px] font-semibold text-text-primary">{row.label}</p>
+                    <p className="text-[10px] text-text-secondary">{row.description}</p>
                   </div>
-                  <span className="text-[12px] font-semibold text-[#334155]">{row.count.toLocaleString()}</span>
-                  {isLink && <ChevronRight className="h-4 w-4 text-[#64748B]" strokeWidth={1.75} />}
+                  <span className="text-[12px] font-semibold text-text-primary">{row.count.toLocaleString()}</span>
+                  {isLink && <ChevronRight className="h-4 w-4 text-text-muted" strokeWidth={1.75} />}
                 </>
               );
               return isLink ? (
                 <button
                   key={row.key}
                   type="button"
-                  className="grid w-full min-h-12 grid-cols-[28px_1fr_auto_16px] items-center gap-2 border-b border-[#E2E8F0] px-3 py-2 text-left last:border-0 hover:bg-[#F8FAFC]"
+                  className="grid w-full min-h-12 grid-cols-[28px_1fr_auto_16px] items-center gap-2 border-b border-surface-border px-3 py-2 text-left last:border-0 hover:bg-surface-hover"
                   onClick={row.onClick}
                 >
                   {inner}
@@ -395,22 +365,21 @@ export function LibraryPage() {
               ) : (
                 <div
                   key={row.key}
-                  className="grid min-h-12 grid-cols-[28px_1fr_auto] items-center gap-2 border-b border-[#E2E8F0] px-3 py-2 last:border-0"
+                  className="grid min-h-12 grid-cols-[28px_1fr_auto] items-center gap-2 border-b border-surface-border px-3 py-2 last:border-0"
                 >
                   {inner}
                 </div>
               );
             })}
-          </div>
-        </section>
+          </SettingsCard>
+        </SettingsSection>
       </div>
 
-      <section>
-        <h2 className="text-[15px] font-bold leading-[22px] text-[#0F172A]">5. Tag Management</h2>
-        <div className="mt-3 mb-2 flex flex-wrap items-center justify-between gap-3">
+      <SettingsSection title="Tag management">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative w-[220px]">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#94A3B8]" strokeWidth={1.75} />
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" strokeWidth={1.75} />
               <Input
                 value={tagSearch}
                 onChange={(e) => setTagSearch(e.target.value)}
@@ -431,80 +400,67 @@ export function LibraryPage() {
           <div className="flex items-center gap-2">
             {(data?.tags ?? []).some((t) => t.document_count === 0) && (
               <Button
-                variant="secondary"
-                className="h-8 border-[#E2E8F0] px-3 text-[12px] font-semibold text-[#DC2626]"
+                variant="outline"
+                className="text-danger"
                 onClick={() => openTagDialog({ type: "delete-unused" })}
               >
                 <Trash2 className="h-4 w-4" strokeWidth={1.75} />
                 Delete unused tags
               </Button>
             )}
-            <Button
-              className="h-8 bg-[#0F766E] px-3 text-[12px] font-semibold hover:bg-[#115E59]"
-              onClick={() => openTagDialog({ type: "new" })}
-            >
+            <Button onClick={() => openTagDialog({ type: "new" })}>
               <Plus className="h-4 w-4" strokeWidth={1.75} />
               New tag
             </Button>
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-[#E2E8F0] bg-white">
-          <table className="w-full min-w-[560px] text-left">
-            <thead>
-              <tr className="border-b border-[#E2E8F0]">
-                {["Colour", "Tag name", "Documents", "Actions"].map((col, i) => (
-                  <th
-                    key={col}
-                    className={cn(
-                      "px-3 py-2 text-[11px] font-semibold text-[#64748B]",
-                      i === 3 && "text-right",
-                    )}
-                  >
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTags.map((tag) => (
-                <tr key={tag.id} className="border-b border-[#E2E8F0] last:border-0 hover:bg-[#F8FAFC]">
-                  <td className="px-3 py-2.5">
-                    <span
-                      className="inline-block h-3.5 w-3.5 rounded-[3px] border border-[rgba(15,23,42,0.08)]"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                  </td>
-                  <td className="px-3 py-2.5 text-[12px] font-medium text-[#334155]">{tag.name}</td>
-                  <td className="px-3 py-2.5 text-[12px] font-medium text-[#334155]">
-                    {tag.document_count.toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex justify-end gap-1.5">
-                      {[
-                        { action: "edit" as const, icon: Pencil, colour: "#475569" },
-                        { action: "merge" as const, icon: GitMerge, colour: "#475569" },
-                        { action: "delete" as const, icon: Trash2, colour: "#DC2626" },
-                      ].map(({ action, icon: Icon, colour }) => (
-                        <button
-                          key={action}
-                          type="button"
-                          aria-label={`${action} tag ${tag.name}`}
-                          className="flex h-7 w-[30px] items-center justify-center rounded-md border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC]"
-                          style={{ color: colour }}
-                          onClick={() => openTagDialog({ type: action, tag })}
-                        >
-                          <Icon className="h-4 w-4" strokeWidth={1.75} />
-                        </button>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <SettingsTable minWidth="560px">
+          <SettingsTableHead>
+            {["Colour", "Tag name", "Documents", "Actions"].map((col, i) => (
+              <SettingsTableHeaderCell key={col} className={i === 3 ? "text-right" : undefined}>
+                {col}
+              </SettingsTableHeaderCell>
+            ))}
+          </SettingsTableHead>
+          <SettingsTableBody>
+            {filteredTags.map((tag) => (
+              <SettingsTableRow key={tag.id} className="hover:bg-surface-hover">
+                <SettingsTableCell>
+                  <span
+                    className="inline-block h-3.5 w-3.5 rounded-[3px] border border-surface-border"
+                    style={{ backgroundColor: tag.color }}
+                  />
+                </SettingsTableCell>
+                <SettingsTableCell className="font-medium">{tag.name}</SettingsTableCell>
+                <SettingsTableCell className="font-medium">{tag.document_count.toLocaleString()}</SettingsTableCell>
+                <SettingsTableCell>
+                  <div className="flex justify-end gap-1.5">
+                    {[
+                      { action: "edit" as const, icon: Pencil, destructive: false },
+                      { action: "merge" as const, icon: GitMerge, destructive: false },
+                      { action: "delete" as const, icon: Trash2, destructive: true },
+                    ].map(({ action, icon: Icon, destructive }) => (
+                      <button
+                        key={action}
+                        type="button"
+                        aria-label={`${action} tag ${tag.name}`}
+                        className={cn(
+                          "flex h-7 w-[30px] items-center justify-center rounded-md border border-surface-border bg-surface hover:bg-surface-hover",
+                          destructive ? "text-danger" : "text-text-secondary",
+                        )}
+                        onClick={() => openTagDialog({ type: action, tag })}
+                      >
+                        <Icon className="h-4 w-4" strokeWidth={1.75} />
+                      </button>
+                    ))}
+                  </div>
+                </SettingsTableCell>
+              </SettingsTableRow>
+            ))}
+          </SettingsTableBody>
+        </SettingsTable>
+      </SettingsSection>
 
       <Dialog open={tagDialog !== null} onOpenChange={(open) => !open && setTagDialog(null)}>
         <DialogContent>
@@ -544,7 +500,7 @@ export function LibraryPage() {
                     type="button"
                     className={cn(
                       "h-6 w-6 rounded-[3px] border",
-                      tagColor === c ? "ring-2 ring-accent ring-offset-1" : "border-[rgba(15,23,42,0.08)]",
+                      tagColor === c ? "ring-2 ring-accent ring-offset-1" : "border-surface-border",
                     )}
                     style={{ backgroundColor: c }}
                     onClick={() => setTagColor(c)}
@@ -587,11 +543,15 @@ export function LibraryPage() {
               }
               onClick={() => void submitTagDialog()}
             >
-              {tagDialog?.type === "delete" || tagDialog?.type === "delete-unused" ? "Delete" : tagDialog?.type === "merge" ? "Merge" : "Save"}
+              {tagDialog?.type === "delete" || tagDialog?.type === "delete-unused"
+                ? "Delete"
+                : tagDialog?.type === "merge"
+                  ? "Merge"
+                  : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </SettingsContent>
   );
 }

@@ -39,6 +39,22 @@ vi.mock("@/lib/api/hooks", () => ({
   }),
 }));
 
+describe("Profile settings chrome", () => {
+  it("keeps password and tokens behind actions and does not invent 2FA", () => {
+    render(
+      <MemoryRouter>
+        <ProfileSettings />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "Edit profile" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage sessions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage tokens" })).toBeInTheDocument();
+    expect(screen.queryByText(/two-factor|2FA/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Current password")).not.toBeInTheDocument();
+  });
+});
+
 describe("Profile API tokens", () => {
   beforeEach(() => {
     mockTokens = [];
@@ -73,6 +89,7 @@ describe("Profile API tokens", () => {
         <ProfileSettings />
       </MemoryRouter>,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Manage tokens" }));
     fireEvent.change(screen.getByLabelText("Token name"), { target: { value: "Cursor" } });
     fireEvent.click(screen.getByRole("button", { name: "Create token" }));
     expect(mutateAsync).toHaveBeenCalledWith("Cursor");
@@ -107,6 +124,7 @@ describe("Profile API tokens", () => {
         <ProfileSettings />
       </MemoryRouter>,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Manage tokens" }));
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
     expect(revokeMutate).toHaveBeenCalledWith("tok-1");
     rerender(

@@ -50,29 +50,29 @@ describe("Settings workspace navigation", () => {
     );
   }
 
-  it("shows exactly seven top-level entries to administrators", () => {
+  it("shows exactly seven top-level entries to administrators in dependency order", () => {
     renderLayout();
     const navigation = screen.getByRole("navigation", { name: "Settings sections" });
-    expect(within(navigation).getAllByRole("link")).toHaveLength(7);
-    for (const label of [
+    expect(within(navigation).getAllByRole("link").map((link) => (link.textContent || "").replace(/\s+/g, " ").trim())).toEqual([
       "Profile",
-      "Artificial Intelligence",
       "Library",
+      "Artificial Intelligence",
       "Backup & Restore",
       "System",
       "Logs",
       "About",
-    ]) {
-      expect(within(navigation).getByRole("link", { name: label })).toBeInTheDocument();
-    }
+    ]);
   });
 
   it("shows Profile, Library, and About to non-admin users", () => {
     mockIsAdmin = false;
     renderLayout();
     const navigation = screen.getByRole("navigation", { name: "Settings sections" });
-    expect(within(navigation).getAllByRole("link")).toHaveLength(3);
-    expect(within(navigation).getByRole("link", { name: "Library" })).toBeInTheDocument();
+    expect(within(navigation).getAllByRole("link").map((link) => (link.textContent || "").replace(/\s+/g, " ").trim())).toEqual([
+      "Profile",
+      "Library",
+      "About",
+    ]);
     expect(within(navigation).queryByText("System")).not.toBeInTheDocument();
   });
 });

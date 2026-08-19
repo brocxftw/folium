@@ -11,23 +11,21 @@ export function VisionAssignmentPanel() {
   if (!vision) return null;
 
   return (
-    <section className="rounded-lg border border-dashed border-surface-border bg-surface-muted/40 p-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-medium text-text-primary">Legacy vision assignment</h3>
-          <p className="mt-0.5 text-xs text-text-muted">
-            {vision.provider_name || "Not configured"} · {vision.model || "No model"} ·{" "}
-            {vision.status}
-          </p>
-          <p className="mt-2 text-xs text-text-secondary">
-            Vision remains experimental until a defined processing workflow is available.
-          </p>
-        </div>
-        <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-          Change vision model
-        </Button>
+    <div className="flex flex-wrap items-center gap-4">
+      <div className="min-w-0 flex-1">
+        <h3 className="text-sm font-medium text-text-primary">Legacy vision assignment</h3>
+        <p className="mt-0.5 text-xs text-text-muted">
+          {vision.provider_name || "Not configured"} · {vision.model || "No model"} ·{" "}
+          {vision.status}
+        </p>
+        <p className="mt-2 text-xs text-text-secondary">
+          Vision remains experimental until a defined processing workflow is available.
+        </p>
       </div>
+      <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+        Change vision model
+      </Button>
       {editing && <AssignmentDialog assignment={vision} onClose={() => setEditing(false)} />}
-    </section>
+    </div>
   );
 }

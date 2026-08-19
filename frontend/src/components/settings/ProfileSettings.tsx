@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import {
+  ChevronRight,
+  Gauge,
+  KeyRound,
+  Lock,
+  Mail,
+  Monitor,
+  Pencil,
+  RotateCcw,
+  Users,
+} from "lucide-react";
 import {
   useChangePassword,
   useDeleteAvatar,
@@ -18,6 +29,23 @@ import { api } from "@/lib/api/client";
 import { formatBytes, getInitials } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/Dialog";
+import {
+  SettingsCard,
+  SettingsContent,
+  SettingsInfoBanner,
+  SettingsPageHeader,
+  SettingsRow,
+  SettingsSection,
+  SettingsStatusBadge,
+} from "@/features/settings/components";
 
 export function ProfileSettings() {
   const navigate = useNavigate();
@@ -36,6 +64,7 @@ export function ProfileSettings() {
   const revokeApiToken = useRevokeApiToken();
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const [editing, setEditing] = useState(false);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -47,6 +76,9 @@ export function ProfileSettings() {
   const [tokenName, setTokenName] = useState("");
   const [newTokenSecret, setNewTokenSecret] = useState<string | null>(null);
   const [tokenMsg, setTokenMsg] = useState<string | null>(null);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [tokensOpen, setTokensOpen] = useState(false);
 
   useEffect(() => {
     if (session?.user) {
@@ -63,6 +95,7 @@ export function ProfileSettings() {
         display_name: displayName.trim(),
       });
       setProfileMsg("Profile updated");
+      setEditing(false);
     } catch (err) {
       setProfileMsg(err instanceof Error ? err.message : "Update failed");
     }
@@ -117,330 +150,458 @@ export function ProfileSettings() {
 
   const user = session?.user;
   const hasAvatar = !!user?.has_avatar;
+  const tokenCount = apiTokens.length;
+  const sessionCount = sessions.length;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      <div>
-        <h2 className="text-base font-semibold text-text-primary">Profile</h2>
-        <p className="text-sm text-text-secondary mt-1">
-          Manage your account details. Your documents stay private to you.
-        </p>
-      </div>
+    <SettingsContent>
+      <SettingsPageHeader
+        title="Profile"
+        description="Manage your account, security, sessions and API access."
+        actions={
+          <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)} disabled={editing}>
+            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Edit profile
+          </Button>
+        }
+      />
       {(location.state as { notice?: string } | null)?.notice && (
         <p role="status" className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
           {(location.state as { notice?: string }).notice}
         </p>
       )}
 
-      <section className="space-y-3">
-        <h3 className="text-sm font-medium text-text-primary">Account</h3>
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-muted text-lg font-medium text-text-primary ring-offset-2 hover:ring-2 hover:ring-accent"
-            onClick={() => fileRef.current?.click()}
-            title="Change profile picture"
-          >
-            {hasAvatar ? (
-              <img
-                src={api.avatarUrl(avatarBust)}
-                alt=""
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              getInitials(user?.display_name || user?.username || "?")
-            )}
-          </button>
-          <div className="min-w-0 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={
-                  user?.is_admin
-                    ? "rounded bg-accent-muted px-2 py-0.5 text-xs font-medium text-accent"
-                    : "rounded bg-surface-muted px-2 py-0.5 text-xs font-medium text-text-secondary"
-                }
-              >
-                {user?.is_admin ? "Admin" : "User"}
-              </span>
-              <span className="text-xs text-text-muted">Account type</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
+      <SettingsSection index={1} title="Account" description="Your identity in Folium.">
+        <SettingsCard>
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex items-center gap-4">
+              <button
                 type="button"
-                size="sm"
-                variant="secondary"
+                className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-muted text-lg font-medium text-text-primary ring-offset-2 hover:ring-2 hover:ring-accent"
                 onClick={() => fileRef.current?.click()}
-                disabled={uploadAvatar.isPending}
+                title="Change profile picture"
               >
-                Change picture
+                {hasAvatar ? (
+                  <img src={api.avatarUrl(avatarBust)} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  getInitials(user?.display_name || user?.username || "?")
+                )}
+              </button>
+              <div className="min-w-0 space-y-1.5">
+                <p className="truncate text-base font-semibold text-text-primary">
+                  {user?.display_name || user?.username}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <SettingsStatusBadge tone={user?.is_admin ? "info" : "neutral"}>
+                    {user?.is_admin ? "Administrator" : "User"}
+                  </SettingsStatusBadge>
+                  <span className="text-xs text-text-muted">
+                    {user?.is_admin ? "Full access to Folium administration." : "Standard account access."}
+                  </span>
+                </div>
+                {usage && (
+                  <p className="text-xs text-text-muted">
+                    Storage {formatBytes(usage.storage_used_bytes)}
+                    {usage.storage_quota_bytes != null
+                      ? ` / ${formatBytes(usage.storage_quota_bytes)}`
+                      : " · unlimited"}
+                    {" · "}
+                    AI {usage.ai_requests_this_month}
+                    {usage.ai_monthly_request_quota != null
+                      ? ` / ${usage.ai_monthly_request_quota} this month`
+                      : " requests this month · unlimited"}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploadAvatar.isPending}
+                  >
+                    Change picture
+                  </Button>
+                  {hasAvatar && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void removeAvatar()}
+                      disabled={deleteAvatar.isPending}
+                    >
+                      Use initials
+                    </Button>
+                  )}
+                </div>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => void onAvatarSelected(e.target.files?.[0])}
+                />
+              </div>
+            </div>
+            <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 lg:max-w-md">
+              <div>
+                <label className="text-xs text-text-secondary" htmlFor="profile-username">
+                  Username
+                </label>
+                <Input
+                  id="profile-username"
+                  className="mt-1"
+                  autoComplete="username"
+                  value={username}
+                  disabled={!editing}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-text-secondary" htmlFor="profile-display-name">
+                  Display name
+                </label>
+                <Input
+                  id="profile-display-name"
+                  className="mt-1"
+                  autoComplete="name"
+                  value={displayName}
+                  disabled={!editing}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          {profileMsg && <p className="mt-4 text-xs text-text-secondary">{profileMsg}</p>}
+          {editing && (
+            <div className="mt-5 flex justify-end">
+              <Button type="button" size="sm" onClick={() => void saveProfile()} disabled={updateProfile.isPending}>
+                Save changes
               </Button>
-              {hasAvatar && (
+            </div>
+          )}
+        </SettingsCard>
+      </SettingsSection>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SettingsSection index={2} title="Security" description="Protect this account.">
+          <SettingsCard>
+            <SettingsRow
+              icon={Lock}
+              title="Password"
+              description="You will be signed out after changing it."
+              action={
+                <Button type="button" variant="outline" size="sm" onClick={() => setPasswordOpen(true)}>
+                  Change password
+                </Button>
+              }
+            />
+            <div className="border-t border-surface-border" />
+            <SettingsRow
+              icon={Monitor}
+              title="Active sessions"
+              description={
+                sessionsLoading
+                  ? "Loading sessions…"
+                  : `${sessionCount} active session${sessionCount === 1 ? "" : "s"}`
+              }
+              action={
+                <Button type="button" variant="outline" size="sm" onClick={() => setSessionsOpen(true)}>
+                  Manage sessions
+                </Button>
+              }
+            />
+          </SettingsCard>
+        </SettingsSection>
+
+        <SettingsSection index={3} title="API Access" description="Tokens for non-browser clients.">
+          <SettingsCard>
+            <SettingsRow
+              icon={KeyRound}
+              title="API tokens"
+              description={
+                tokensLoading
+                  ? "Loading tokens…"
+                  : `${tokenCount} active token${tokenCount === 1 ? "" : "s"}`
+              }
+              action={
+                <Button type="button" variant="outline" size="sm" onClick={() => setTokensOpen(true)}>
+                  Manage tokens
+                </Button>
+              }
+            />
+            <SettingsInfoBanner className="mt-3" tone="muted">
+              Treat tokens like passwords. The secret is shown only once when a token is created.
+            </SettingsInfoBanner>
+          </SettingsCard>
+        </SettingsSection>
+      </div>
+
+      {user?.is_admin && (
+        <SettingsSection
+          index={4}
+          title="Administration"
+          description="Manage people and access for this deployment."
+          badge={<SettingsStatusBadge tone="info">Admin only</SettingsStatusBadge>}
+        >
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                to: "/settings/profile/users#users",
+                icon: Users,
+                title: "Users",
+                description: "Roles and account status",
+              },
+              {
+                to: "/settings/profile/users#invitations",
+                icon: Mail,
+                title: "Invitations",
+                description: "Invite people to Folium",
+              },
+              {
+                to: "/settings/profile/users#password-resets",
+                icon: RotateCcw,
+                title: "Password resets",
+                description: "Approve reset requests",
+              },
+              {
+                to: "/settings/profile/users#quotas",
+                icon: Gauge,
+                title: "Quotas",
+                description: "Storage and AI limits",
+              },
+            ].map((item) => (
+              <SettingsCard key={item.to} to={item.to} padding="sm" interactive>
+                <div className="flex items-start gap-3">
+                  <item.icon className="mt-0.5 h-[18px] w-[18px] text-text-secondary" strokeWidth={1.75} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-text-primary">{item.title}</p>
+                    <p className="mt-0.5 text-xs text-text-secondary">{item.description}</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-text-muted" strokeWidth={1.75} aria-hidden="true" />
+                </div>
+              </SettingsCard>
+            ))}
+          </div>
+        </SettingsSection>
+      )}
+
+      <Dialog
+        open={passwordOpen}
+        onOpenChange={(open) => {
+          setPasswordOpen(open);
+          if (!open) {
+            setCurrentPassword("");
+            setNewPassword("");
+            setConfirmPassword("");
+            setPasswordMsg(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change password</DialogTitle>
+            <DialogDescription>
+              After changing your password you will be signed out and must sign in again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-text-secondary">Current password</label>
+              <Input
+                type="password"
+                className="mt-1"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary">New password</label>
+              <Input
+                type="password"
+                className="mt-1"
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary">Confirm new password</label>
+              <Input
+                type="password"
+                className="mt-1"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+            {passwordMsg && <p className="text-xs text-danger">{passwordMsg}</p>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setPasswordOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void savePassword()}
+              disabled={
+                changePassword.isPending ||
+                !currentPassword ||
+                newPassword.length < 8 ||
+                !confirmPassword
+              }
+            >
+              Change password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={sessionsOpen} onOpenChange={setSessionsOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Active sessions</DialogTitle>
+            <DialogDescription>Review and revoke devices signed in to your account.</DialogDescription>
+          </DialogHeader>
+          {sessions.filter((item) => !item.current).length > 0 && (
+            <div className="mb-3 flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => signOutOthers.mutate()}
+                disabled={signOutOthers.isPending}
+              >
+                Sign out other sessions
+              </Button>
+            </div>
+          )}
+          {sessionsLoading ? (
+            <p className="text-sm text-text-muted">Loading sessions…</p>
+          ) : sessions.length === 0 ? (
+            <p className="text-sm text-text-muted">No active sessions found.</p>
+          ) : (
+            <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
+              {sessions.map((item) => (
+                <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-text-primary">
+                      {item.user_agent || "Unknown device"} {item.current && <strong>(current)</strong>}
+                    </p>
+                    <p className="text-xs text-text-muted">
+                      Last active {new Date(item.last_seen_at).toLocaleString()}
+                      {item.ip_address ? ` · ${item.ip_address}` : ""}
+                    </p>
+                  </div>
+                  {!item.current && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => revokeSession.mutate(item.id)}
+                      disabled={revokeSession.isPending}
+                    >
+                      Revoke
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={tokensOpen} onOpenChange={setTokensOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>API tokens</DialogTitle>
+            <DialogDescription>
+              Bearer tokens for MCP and other non-browser clients. The secret is shown only once.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <label className="text-xs text-text-secondary" htmlFor="token-name">
+                Token name
+              </label>
+              <Input
+                id="token-name"
+                className="mt-1"
+                aria-label="Token name"
+                value={tokenName}
+                onChange={(e) => setTokenName(e.target.value)}
+                placeholder="Cursor"
+              />
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={createApiToken.isPending || !tokenName.trim()}
+              onClick={() => {
+                void (async () => {
+                  setTokenMsg(null);
+                  try {
+                    const created = await createApiToken.mutateAsync(tokenName.trim());
+                    setNewTokenSecret(created.token);
+                    setTokenName("");
+                  } catch (err) {
+                    setTokenMsg(err instanceof Error ? err.message : "Could not create token");
+                  }
+                })();
+              }}
+            >
+              Create token
+            </Button>
+          </div>
+          {newTokenSecret && (
+            <div className="mt-3 rounded-md border border-accent/30 bg-accent-muted p-3 text-sm">
+              <p className="mb-2 text-xs text-text-muted">Copy this secret now. It will not be shown again.</p>
+              <code className="block break-all text-text-primary">{newTokenSecret}</code>
+              <div className="mt-2 flex gap-2">
                 <Button
                   type="button"
                   size="sm"
-                  variant="ghost"
-                  onClick={() => void removeAvatar()}
-                  disabled={deleteAvatar.isPending}
+                  variant="outline"
+                  onClick={() => void navigator.clipboard.writeText(newTokenSecret)}
                 >
-                  Use initials
+                  Copy
                 </Button>
-              )}
+                <Button type="button" size="sm" variant="ghost" onClick={() => setNewTokenSecret(null)}>
+                  Done
+                </Button>
+              </div>
             </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={(e) => void onAvatarSelected(e.target.files?.[0])}
-            />
-          </div>
-        </div>
-        <div>
-          <label className="text-xs text-text-secondary">Username</label>
-          <Input
-            className="mt-1"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-xs text-text-secondary">Display name</label>
-          <Input
-            className="mt-1"
-            autoComplete="name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
-        </div>
-        {profileMsg && <p className="text-xs text-text-secondary">{profileMsg}</p>}
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => void saveProfile()}
-          disabled={updateProfile.isPending}
-        >
-          Save profile
-        </Button>
-      </section>
-
-      <section className="space-y-3">
-        <h3 className="text-sm font-medium text-text-primary">Password</h3>
-        <p className="text-xs text-text-muted">
-          After changing your password you will be signed out and must sign in again.
-        </p>
-        <div>
-          <label className="text-xs text-text-secondary">Current password</label>
-          <Input
-            type="password"
-            className="mt-1"
-            autoComplete="current-password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-xs text-text-secondary">New password</label>
-          <Input
-            type="password"
-            className="mt-1"
-            autoComplete="new-password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-xs text-text-secondary">Confirm new password</label>
-          <Input
-            type="password"
-            className="mt-1"
-            autoComplete="new-password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-          />
-        </div>
-        {passwordMsg && <p className="text-xs text-danger">{passwordMsg}</p>}
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => void savePassword()}
-          disabled={
-            changePassword.isPending ||
-            !currentPassword ||
-            newPassword.length < 8 ||
-            !confirmPassword
-          }
-        >
-          Change password
-        </Button>
-      </section>
-
-      <section className="space-y-3 border-t border-surface-border pt-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-medium text-text-primary">Active sessions</h3>
-            <p className="text-xs text-text-muted">Review and revoke devices signed in to your account.</p>
-          </div>
-          {sessions.filter((item) => !item.current).length > 0 && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => signOutOthers.mutate()}
-              disabled={signOutOthers.isPending}
-            >
-              Sign out other sessions
-            </Button>
           )}
-        </div>
-        {sessionsLoading ? (
-          <p className="text-sm text-text-muted">Loading sessions…</p>
-        ) : sessions.length === 0 ? (
-          <p className="text-sm text-text-muted">No active sessions found.</p>
-        ) : (
-          <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
-            {sessions.map((item) => (
-              <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-text-primary">
-                    {item.user_agent || "Unknown device"} {item.current && <strong>(current)</strong>}
-                  </p>
-                  <p className="text-xs text-text-muted">
-                    Last active {new Date(item.last_seen_at).toLocaleString()}
-                    {item.ip_address ? ` · ${item.ip_address}` : ""}
-                  </p>
-                </div>
-                {!item.current && (
+          {tokenMsg && <p className="mt-2 text-xs text-danger">{tokenMsg}</p>}
+          {tokensLoading ? (
+            <p className="mt-3 text-sm text-text-muted">Loading tokens…</p>
+          ) : apiTokens.length === 0 ? (
+            <p className="mt-3 text-sm text-text-muted">No API tokens yet.</p>
+          ) : (
+            <ul className="mt-3 divide-y divide-surface-border rounded-md border border-surface-border">
+              {apiTokens.map((item) => (
+                <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-text-primary">
+                      {item.name} <span className="text-text-muted">({item.prefix}…)</span>
+                    </p>
+                    <p className="text-xs text-text-muted">
+                      Created {new Date(item.created_at).toLocaleString()}
+                    </p>
+                  </div>
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => revokeSession.mutate(item.id)}
-                    disabled={revokeSession.isPending}
+                    onClick={() => revokeApiToken.mutate(item.id)}
+                    disabled={revokeApiToken.isPending}
                   >
                     Revoke
                   </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="space-y-3 border-t border-surface-border pt-6">
-        <div>
-          <h3 className="text-sm font-medium text-text-primary">API tokens</h3>
-          <p className="text-xs text-text-muted">
-            Bearer tokens for MCP and other non-browser clients. The secret is shown only once.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <Input
-            aria-label="Token name"
-            value={tokenName}
-            onChange={(e) => setTokenName(e.target.value)}
-            placeholder="Cursor"
-          />
-          <Button
-            type="button"
-            size="sm"
-            disabled={createApiToken.isPending || !tokenName.trim()}
-            onClick={() => {
-              void (async () => {
-                setTokenMsg(null);
-                try {
-                  const created = await createApiToken.mutateAsync(tokenName.trim());
-                  setNewTokenSecret(created.token);
-                  setTokenName("");
-                } catch (err) {
-                  setTokenMsg(err instanceof Error ? err.message : "Could not create token");
-                }
-              })();
-            }}
-          >
-            Create token
-          </Button>
-        </div>
-        {newTokenSecret && (
-          <div className="rounded-md border border-accent/30 bg-accent-muted p-3 text-sm">
-            <p className="mb-2 text-xs text-text-muted">Copy this secret now. It will not be shown again.</p>
-            <code className="block break-all text-text-primary">{newTokenSecret}</code>
-            <div className="mt-2 flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => void navigator.clipboard.writeText(newTokenSecret)}
-              >
-                Copy
-              </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => setNewTokenSecret(null)}>
-                Done
-              </Button>
-            </div>
-          </div>
-        )}
-        {tokenMsg && <p className="text-xs text-danger">{tokenMsg}</p>}
-        {tokensLoading ? (
-          <p className="text-sm text-text-muted">Loading tokens…</p>
-        ) : apiTokens.length === 0 ? (
-          <p className="text-sm text-text-muted">No API tokens yet.</p>
-        ) : (
-          <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
-            {apiTokens.map((item) => (
-              <li key={item.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-text-primary">
-                    {item.name} <span className="text-text-muted">({item.prefix}…)</span>
-                  </p>
-                  <p className="text-xs text-text-muted">
-                    Created {new Date(item.created_at).toLocaleString()}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => revokeApiToken.mutate(item.id)}
-                  disabled={revokeApiToken.isPending}
-                >
-                  Revoke
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {user?.is_admin && (
-        <section className="border-t border-surface-border pt-6">
-          <Link
-            to="/settings/profile/users"
-            className="flex items-center justify-between rounded-md border border-surface-border p-4 text-sm hover:bg-surface-hover"
-          >
-            <span>
-              <strong className="block text-text-primary">User administration</strong>
-              <span className="text-text-muted">Manage invitations, roles, quotas, and password resets.</span>
-            </span>
-            <span aria-hidden="true">→</span>
-          </Link>
-        </section>
-      )}
-
-      {usage && (
-        <section className="space-y-2">
-          <h3 className="text-sm font-medium text-text-primary">Usage</h3>
-          <p className="text-sm text-text-secondary">
-            Storage: {formatBytes(usage.storage_used_bytes)}
-            {usage.storage_quota_bytes != null
-              ? ` / ${formatBytes(usage.storage_quota_bytes)}`
-              : " (unlimited)"}
-          </p>
-          <p className="text-sm text-text-secondary">
-            AI requests this month: {usage.ai_requests_this_month}
-            {usage.ai_monthly_request_quota != null
-              ? ` / ${usage.ai_monthly_request_quota}`
-              : " (unlimited)"}
-          </p>
-        </section>
-      )}
-    </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
+    </SettingsContent>
   );
 }

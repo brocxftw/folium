@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useAdminSetPassword,
   useAdminUsers,
@@ -21,6 +21,12 @@ import {
 } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import {
+  SettingsContent,
+  SettingsPageHeader,
+  SettingsSection,
+  SettingsStatusBadge,
+} from "@/features/settings/components";
 import {
   Dialog,
   DialogContent,
@@ -69,6 +75,12 @@ export function UsersSettings() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const selfId = session?.user.id;
+
+  useEffect(() => {
+    const hash = window.location.hash.replace(/^#/, "");
+    if (!hash) return;
+    document.getElementById(hash)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const handleCreateInvite = async () => {
     const invite = await createInvite.mutateAsync({});
@@ -131,33 +143,29 @@ export function UsersSettings() {
   };
 
   return (
-    <div className="max-w-3xl space-y-8">
-      <div>
-        <h2 className="text-base font-semibold text-text-primary">Users</h2>
-        <p className="text-sm text-text-secondary mt-1">
-          Invite people, set quotas, and manage admin access. Document libraries stay private.
-        </p>
-      </div>
+    <SettingsContent>
+      <SettingsPageHeader
+        title="Users"
+        description="Invite people, set quotas, and manage admin access."
+      />
 
-      <section className="space-y-3">
-        <h3 className="text-sm font-medium text-text-primary">
-          Password reset requests
-          {resetRequests.length > 0 && (
-            <span className="ml-2 rounded bg-accent-muted px-1.5 py-0.5 text-[10px] font-medium text-accent">
-              {resetRequests.length}
-            </span>
-          )}
-        </h3>
-        <p className="text-xs text-text-muted">
-          When you approve a request, copy the one-time reset link and share it with the user
-          out-of-band (email is not configured yet). Links expire after one hour.
-        </p>
+      <SettingsSection
+        id="password-resets"
+        title="Password reset requests"
+        description="Approve a request, then share the one-time link with the user. Links expire after one hour."
+        badge={
+          resetRequests.length > 0 ? (
+            <SettingsStatusBadge tone="info">{resetRequests.length} pending</SettingsStatusBadge>
+          ) : undefined
+        }
+        className="scroll-mt-4"
+      >
         {copiedResetLink && (
           <p className="text-xs text-text-secondary break-all rounded bg-surface-muted px-2 py-1.5">
             Reset link copied: {copiedResetLink}
           </p>
         )}
-        <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
+        <ul className="divide-y divide-surface-border rounded-lg border border-surface-border bg-surface">
           {resetRequests.length === 0 && (
             <li className="px-3 py-4 text-sm text-text-muted">No pending requests</li>
           )}
@@ -192,21 +200,25 @@ export function UsersSettings() {
             </li>
           ))}
         </ul>
-      </section>
+      </SettingsSection>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-medium text-text-primary">Invite links</h3>
+      <SettingsSection
+        id="invitations"
+        title="Invitations"
+        description="Create a link to invite someone to this deployment."
+        className="scroll-mt-4"
+        actions={
           <Button size="sm" onClick={() => void handleCreateInvite()} disabled={createInvite.isPending}>
             Create invite
           </Button>
-        </div>
+        }
+      >
         {lastInvite && (
           <p className="text-xs text-text-secondary break-all rounded bg-surface-muted px-2 py-1.5">
             Invite copied: {lastInvite}
           </p>
         )}
-        <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
+        <ul className="divide-y divide-surface-border rounded-lg border border-surface-border bg-surface">
           {invites.length === 0 && (
             <li className="px-3 py-4 text-sm text-text-muted">No invites yet</li>
           )}
@@ -230,14 +242,19 @@ export function UsersSettings() {
             </li>
           ))}
         </ul>
-      </section>
+      </SettingsSection>
 
-      <section className="space-y-3">
-        <h3 className="text-sm font-medium text-text-primary">Accounts</h3>
+      <SettingsSection
+        id="users"
+        title="Users"
+        description="Roles, status, and per-account limits."
+        className="scroll-mt-4"
+      >
+        <div id="quotas" className="scroll-mt-4">
         {isLoading ? (
           <p className="text-sm text-text-muted">Loading…</p>
         ) : (
-          <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
+          <ul className="divide-y divide-surface-border rounded-lg border border-surface-border bg-surface">
             {users.map((user) => {
               const isSelf = user.id === selfId;
               return (
@@ -352,7 +369,8 @@ export function UsersSettings() {
             })}
           </ul>
         )}
-      </section>
+        </div>
+      </SettingsSection>
 
       <Dialog
         open={!!confirm}
@@ -429,7 +447,7 @@ export function UsersSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </SettingsContent>
   );
 }
 
