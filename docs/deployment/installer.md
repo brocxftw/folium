@@ -36,7 +36,7 @@ bash installer/pack.sh /tmp/install-folium.sh
 2. Offers to install Docker Engine via `get.docker.com` only after confirmation.
 3. Detects an existing install and offers **Update** (pull a pinned release image), Reconfigure, Repair, or Exit. It never silently rewrites `.env` secrets.
 4. Chooses **pre-built GHCR images** (default) or **build from source** (clones the selected tag into `INSTALL_DIR/src`).
-5. Pins a real `vX.Y.Z` release. It never stores `latest` as the installed version.
+5. Pins a real `vX.Y.Z` or `vX.Y.Z-beta.N` release. It never stores `latest` or the moving `beta` image tag as the installed version.
 6. Writes `/opt/folium` by default (you may choose another directory; `/root` and `/tmp` are allowed at your own risk with a confirmation). Release `docker-compose.yml`, a small overlay (bind/port/`group_add` only), and `.env` (`chmod 600`). Backup files go to `$INSTALL_DIR/data/backups` (not the installer config snapshot folder).
 7. Publishes **only the UI port** (default **9398**). The API host port (default **9099**) is unpublished unless you opt in. Nginx in `web` already proxies `/api`, `/health`, and `/mcp`.
 8. Waits for `GET /health`, `/health/database`, `/health/storage`, and `/health/worker`. AI health is ignored.
@@ -134,4 +134,4 @@ Each `v*` GitHub Release includes:
 - `default.env.example` (compatibility alias; GitHub rejects a leading-dot `.env.example` asset name)
 - `checksums.txt`
 
-`releases/latest` and the installer version picker skip **prereleases** (`vX.Y.Z-beta.N`). Those are for testing; they do not replace the current stable GitHub latest release.
+The installer version picker lists **prereleases** (`vX.Y.Z-beta.N`, labelled Beta) as well as stable tags. GitHub `releases/latest` and the menu’s “Latest stable” entry still refer to the current **stable** release; prereleases do not replace it. The moving image tag `beta` is not a pin — choose the exact `vX.Y.Z-beta.N` tag.

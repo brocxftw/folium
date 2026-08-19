@@ -255,25 +255,28 @@ wizard_version() {
   local latest tags choice=""
   latest="$(github_latest_tag || true)"
   if [[ -z "${latest}" ]]; then
-    FOLIUM_VERSION_TAG="$(ui_input "Could not list GitHub Releases. Enter a version tag (for example v0.1.17):" "${FOLIUM_VERSION_TAG:-v0.1.17}")" || return "${UI_BACK}"
+    FOLIUM_VERSION_TAG="$(ui_input "Could not list GitHub Releases. Enter a version tag (for example v0.1.23 or v0.1.24-beta.1):" "${FOLIUM_VERSION_TAG:-v0.1.23}")" || return "${UI_BACK}"
   else
     tags="$(github_release_tags || printf '%s\n' "${latest}")"
+    local -a ordered=()
     local -a menu_items=()
     local tag
+    if [[ -n "${latest}" ]] && grep -qxF "${latest}" <<<"${tags}"; then
+      ordered+=("${latest}")
+    fi
     while IFS= read -r tag; do
-      [[ -n "${tag}" ]] || continue
-      if [[ "${tag}" == "${latest}" ]]; then
-        menu_items+=("${tag}" "Latest stable")
-      else
-        menu_items+=("${tag}" "${tag}")
-      fi
+      [[ -n "${tag}" && "${tag}" != "${latest}" ]] || continue
+      ordered+=("${tag}")
     done <<<"${tags}"
-    choice="$(ui_menu "Select a Folium release. The installer pins this version (never stores 'latest')." "${menu_items[@]}")" || return "${UI_BACK}"
+    for tag in "${ordered[@]}"; do
+      menu_items+=("${tag}" "$(github_release_menu_label "${tag}" "${latest}")")
+    done
+    choice="$(ui_menu "Select a Folium release. The installer pins this version (never stores 'latest'). Beta tags are prereleases." "${menu_items[@]}")" || return "${UI_BACK}"
     FOLIUM_VERSION_TAG="${choice}"
   fi
   FOLIUM_VERSION="$(config_strip_v_prefix "${FOLIUM_VERSION_TAG}")"
-  if [[ "${FOLIUM_VERSION}" == "latest" ]] || ! config_is_pinned_version "${FOLIUM_VERSION}"; then
-    ui_msgbox "Refusing to install an unpinned version (${FOLIUM_VERSION_TAG}). Choose a vX.Y.Z release."
+  if [[ "${FOLIUM_VERSION}" == "latest" || "${FOLIUM_VERSION}" == "beta" ]] || ! config_is_pinned_version "${FOLIUM_VERSION}"; then
+    ui_msgbox "Refusing to install an unpinned version (${FOLIUM_VERSION_TAG}). Choose a vX.Y.Z or vX.Y.Z-beta.N release."
     return 1
   fi
   return "${UI_OK}"
@@ -1036,7 +1039,7 @@ You can continue, but performance or disk space may be tight."
       fi
     fi
     FOLIUM_VERSION="$(config_strip_v_prefix "${FOLIUM_VERSION:-${FOLIUM_VERSION_TAG}}")"
-    if [[ "${FOLIUM_VERSION}" == "latest" ]] || ! config_is_pinned_version "${FOLIUM_VERSION}"; then
+    if [[ "${FOLIUM_VERSION}" == "latest" || "${FOLIUM_VERSION}" == "beta" ]] || ! config_is_pinned_version "${FOLIUM_VERSION}"; then
       abort "Non-interactive install requires a pinned FOLIUM_VERSION / FOLIUM_VERSION_TAG."
     fi
     FOLIUM_DOCS_PATH="${FOLIUM_DOCS_PATH:-${FOLIUM_INSTALL_DIR}/data/documents}"

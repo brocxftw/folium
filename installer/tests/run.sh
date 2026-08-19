@@ -63,8 +63,22 @@ assert_eq "strip v prefix" "$(config_strip_v_prefix "v0.1.16")" "0.1.16"
 assert_eq "strip already plain" "$(config_strip_v_prefix "0.1.16")" "0.1.16"
 assert_ok "pinned semver" config_is_pinned_version "0.1.16"
 assert_ok "pinned with v" config_is_pinned_version "v0.1.16"
+assert_ok "pinned beta" config_is_pinned_version "0.1.24-beta.1"
+assert_ok "pinned beta with v" config_is_pinned_version "v0.1.24-beta.1"
 assert_fail "reject latest" config_is_pinned_version "latest"
+assert_fail "reject moving beta tag" config_is_pinned_version "beta"
 assert_fail "reject empty" config_is_pinned_version ""
+
+assert_eq "menu latest stable" "$(github_release_menu_label "v0.1.23" "v0.1.23")" "Latest stable"
+assert_eq "menu beta" "$(github_release_menu_label "v0.1.24-beta.1" "v0.1.23")" "Beta"
+assert_eq "menu older stable" "$(github_release_menu_label "v0.1.22" "v0.1.23")" "v0.1.22"
+
+filtered_tags="$(printf '%s\n' '[
+  {"tag_name":"v0.1.24-beta.1","draft":false,"prerelease":true},
+  {"tag_name":"v0.1.23","draft":false,"prerelease":false},
+  {"tag_name":"v0.1.22","draft":true,"prerelease":false}
+]' | github_filter_release_tags)"
+assert_eq "filter keeps beta and stable" "$(printf '%s' "${filtered_tags}" | tr '\n' ' ')" "v0.1.24-beta.1 v0.1.23"
 
 assert_ok "forbid /" storage_is_critical_forbidden_path "/"
 assert_ok "forbid /etc" storage_is_critical_forbidden_path "/etc"

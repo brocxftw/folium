@@ -8,16 +8,39 @@ github_latest_tag() {
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])'
 }
 
-github_release_tags() {
-  curl -fsSL --max-time 20 \
-    -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/${FOLIUM_GITHUB_REPO}/releases?per_page=15" \
-    | python3 -c 'import json,sys
+# Published tags, including GitHub prereleases (vX.Y.Z-beta.N). Drafts are omitted.
+github_filter_release_tags() {
+  python3 -c 'import json,sys
 for rel in json.load(sys.stdin):
-    if rel.get("draft") or rel.get("prerelease"):
+    if rel.get("draft"):
         continue
     print(rel["tag_name"])
 '
+}
+
+github_release_tags() {
+  curl -fsSL --max-time 20 \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${FOLIUM_GITHUB_REPO}/releases?per_page=30" \
+    | github_filter_release_tags
+}
+
+github_tag_is_prerelease() {
+  local tag="${1:-}"
+  tag="$(config_strip_v_prefix "${tag}")"
+  [[ "${tag}" == *-* ]]
+}
+
+github_release_menu_label() {
+  local tag="${1:-}"
+  local latest="${2:-}"
+  if [[ -n "${latest}" && "${tag}" == "${latest}" ]]; then
+    printf 'Latest stable'
+  elif github_tag_is_prerelease "${tag}"; then
+    printf 'Beta'
+  else
+    printf '%s' "${tag}"
+  fi
 }
 
 github_asset_url() {
