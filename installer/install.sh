@@ -289,6 +289,10 @@ discover_existing_install() {
 }
 
 load_existing_defaults() {
+  # CLI --version / process env must win over install-state and .env (issue #65).
+  local prior_version="${FOLIUM_VERSION:-}"
+  local prior_version_tag="${FOLIUM_VERSION_TAG:-}"
+
   FOLIUM_INSTALL_DIR="${FOLIUM_INSTALL_DIR:-$(state_discover_dir || true)}"
   FOLIUM_INSTALL_DIR="${FOLIUM_INSTALL_DIR:-${FOLIUM_DEFAULT_INSTALL_DIR}}"
   if [[ -f "${FOLIUM_INSTALL_DIR}/install-state.json" ]]; then
@@ -326,6 +330,14 @@ load_existing_defaults() {
     FOLIUM_CONSUME_PATH="$(config_env_get FOLIUM_CONSUME_HOST || printf '%s' "${FOLIUM_CONSUME_PATH:-}")"
     FOLIUM_EXPORT_PATH="$(config_env_get FOLIUM_EXPORT_HOST || printf '%s' "${FOLIUM_EXPORT_PATH:-}")"
     FOLIUM_PADDLE_PATH="$(config_env_get FOLIUM_PADDLE_CACHE_HOST || printf '%s' "${FOLIUM_PADDLE_PATH:-}")"
+  fi
+
+  if [[ -n "${prior_version}" || -n "${prior_version_tag}" ]]; then
+    config_prefer_requested_version "${prior_version}" "${prior_version_tag}"
+  else
+    # .env may pin FOLIUM_VERSION while install-state still has an older version_tag;
+    # resolve prefers TAG, so keep the pair consistent when using persisted defaults.
+    config_sync_version_tag
   fi
 }
 

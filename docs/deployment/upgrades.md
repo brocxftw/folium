@@ -2,11 +2,24 @@
 
 Operators pull published GHCR images. `git pull` and `docker compose build` are for contributors, not production installs.
 
-## Update with the installer (primary)
+## Update with the host CLI (primary)
+
+On the Docker host / CT:
+
+```bash
+folium update                 # newest beta prerelease (default)
+folium update beta            # same
+folium update latest          # newest stable
+folium update v0.1.24-beta.5  # exact pin
+```
+
+`folium update` downloads a fresh `install-folium.sh` for that channel/tag and runs the noninteractive update path. Secrets, bind, ports, and storage paths are preserved.
+
+If `/usr/local/bin/folium` still stubs `update`, refresh the CLI once with the installer below, then use `folium update` afterward.
+
+## Update with the installer
 
 Re-run `install-folium.sh`. When it detects an existing install, choose **Update**. That keeps `.env` secrets and document data, pulls the pinned release images, and restarts the stack.
-
-The `folium update` CLI command is still a stub. Use the installer TUI.
 
 ```bash
 curl -fsSL -o install-folium.sh \
@@ -15,12 +28,35 @@ less install-folium.sh
 bash install-folium.sh
 ```
 
+Non-interactive updates (secrets and bind settings are preserved):
+
+```bash
+# Newest stable
+bash install-folium.sh --noninteractive --update --version latest --json
+
+# Newest prerelease
+bash install-folium.sh --noninteractive --update --version beta --json
+
+# Exact pin (stable or beta)
+bash install-folium.sh --noninteractive --update --version v0.1.24-beta.5 --json
+```
+
+`--version` overrides the currently installed version recorded in `install-state.json` / `.env`.
+
+To run the installer script from a specific prerelease asset (instead of `releases/latest`), download that tag’s `install-folium.sh` from [Releases](https://github.com/brocxftw/folium/releases).
+
 ## Update to a newer release (manual Compose)
 
 Edit `.env`:
 
 ```text
 FOLIUM_VERSION=0.2.0
+```
+
+For a prerelease pin, use the tag without the leading `v`:
+
+```text
+FOLIUM_VERSION=0.1.24-beta.5
 ```
 
 Then:
@@ -34,11 +70,11 @@ The API container runs `alembic upgrade head` before serving traffic. The worker
 
 `docker compose pull` + `up -d` does **not** remove the Postgres volume or host document binds.
 
-## Update using `latest`
+## Update using `latest` or `beta`
 
-If `FOLIUM_VERSION=latest`, `docker compose pull` fetches the most recent **stable** image tag (`vX.Y.Z` with no prerelease suffix). Prerelease tags (`vX.Y.Z-beta.N`) publish a moving `beta` tag instead and do not replace `latest`. The interactive installer can pin a specific beta tag; it does not store `latest` or `beta`.
+If `FOLIUM_VERSION=latest`, `docker compose pull` fetches the most recent **stable** image tag (`vX.Y.Z` with no prerelease suffix). Prerelease tags (`vX.Y.Z-beta.N`) publish a moving `beta` tag instead and do not replace `latest`.
 
-Prefer pinning `FOLIUM_VERSION` so the Compose file, `.env`, and images stay aligned.
+The installer and `folium update` accept aliases `latest` and `beta`, resolve them to a pinned release, and store that pin in `.env` / `install-state.json`. Prefer pinning `FOLIUM_VERSION` (for example `0.1.24-beta.5`) so the Compose file, `.env`, and images stay aligned.
 
 ## What is not an upgrade path
 

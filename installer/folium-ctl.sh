@@ -13,9 +13,17 @@ Usage: folium <command>
   restart    docker compose restart
   logs       docker compose logs (optional service names)
   doctor     System, storage, port, and health checks (does not print .env)
-  update     Not in v1
+  update     Upgrade install (default: newest beta; or latest / vX.Y.Z[-beta.N])
   uninstall  Not in v1
   help       Show this help
+
+Update examples:
+  folium update                 # newest beta prerelease
+  folium update beta            # same
+  folium update latest          # newest stable
+  folium update v0.1.24-beta.5  # exact pin
+
+Hosts still on an older CLI stub need one installer re-run before update exists.
 EOF
 }
 
@@ -70,6 +78,8 @@ load_libs() {
   source "${root}/lib/state.sh"
   # shellcheck source=lib/health.sh
   source "${root}/lib/health.sh"
+  # shellcheck source=lib/ctl_update.sh
+  source "${root}/lib/ctl_update.sh"
 }
 
 cmd_not_v1() {
@@ -122,12 +132,54 @@ cmd_doctor() {
   health_snapshot
 }
 
+# Download a fresh release installer and run noninteractive --update.
+cmd_update() {
+  local target
+  if ! target="$(ctl_update_normalize_target "${1:-}")"; then
+    echo "Invalid version '${1:-}'. Use beta, latest, or a pin like v0.1.24-beta.5." >&2
+    exit 2
+  fi
+  if [[ -n "${2:-}" ]]; then
+    echo "Unexpected argument: $2" >&2
+    usage
+    exit 2
+  fi
+  if [[ ! -f "${FOLIUM_INSTALL_DIR}/.env" ]]; then
+    echo "No .env in ${FOLIUM_INSTALL_DIR}." >&2
+    exit 1
+  fi
+  if [[ ! -f "${FOLIUM_INSTALL_DIR}/docker-compose.yml" ]]; then
+    echo "No docker-compose.yml in ${FOLIUM_INSTALL_DIR}." >&2
+    exit 1
+  fi
+
+  local url tmp rc=0
+  if ! url="$(ctl_update_installer_url "${target}")"; then
+    echo "Could not resolve installer download URL for '${target}'." >&2
+    exit 1
+  fi
+  tmp="$(mktemp)"
+  # shellcheck disable=SC2064
+  trap "rm -f '${tmp}'" EXIT
+  echo "Downloading installer: ${url}" >&2
+  if ! curl -fsSL --max-time 60 -o "${tmp}" "${url}"; then
+    echo "Failed to download installer from ${url}" >&2
+    exit 1
+  fi
+  chmod 700 "${tmp}"
+  echo "Updating ${FOLIUM_INSTALL_DIR} to ${target}..." >&2
+  FOLIUM_INSTALL_DIR="${FOLIUM_INSTALL_DIR}" bash "${tmp}" \
+    --noninteractive --update --version "${target}" --json || rc=$?
+  trap - EXIT
+  rm -f "${tmp}"
+  return "${rc}"
+}
+
 main() {
   local cmd="${1:-status}"
   shift || true
   case "${cmd}" in
     -h|--help|help) usage; exit 0 ;;
-    update) cmd_not_v1 update ;;
     uninstall) cmd_not_v1 uninstall ;;
   esac
   FOLIUM_INSTALL_DIR="$(discover_install_dir)" || {
@@ -151,6 +203,7 @@ main() {
     restart) folium_compose restart ;;
     logs) folium_compose logs "$@" ;;
     doctor) cmd_doctor ;;
+    update) cmd_update "$@" ;;
     *) usage; exit 2 ;;
   esac
 }

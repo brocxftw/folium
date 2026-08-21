@@ -17,6 +17,8 @@ End users must **not** run `docker login ghcr.io`.
 
 ## Install
 
+Stable (newest non-prerelease):
+
 ```bash
 mkdir folium
 cd folium
@@ -28,6 +30,28 @@ curl -fsSL -o env.example \
 
 cp env.example .env
 ```
+
+### Pre-release / beta
+
+`releases/latest` never points at a prerelease. Download assets from a specific prerelease tag instead:
+
+```bash
+TAG=v0.1.24-beta.5   # example — pick a tag from GitHub Releases
+
+mkdir folium
+cd folium
+
+curl -fsSL -o docker-compose.yml \
+  "https://github.com/brocxftw/folium/releases/download/${TAG}/docker-compose.yml"
+curl -fsSL -o env.example \
+  "https://github.com/brocxftw/folium/releases/download/${TAG}/env.example"
+
+cp env.example .env
+```
+
+Ensure `.env` sets `FOLIUM_VERSION` to the tag without the leading `v` (for example `0.1.24-beta.5`). Prefer that pin over the moving GHCR `beta` tag.
+
+For the installer-based beta path, see [installer.md](installer.md#pre-release--beta).
 
 Edit `.env`:
 

@@ -13,12 +13,40 @@ less install-folium.sh
 bash install-folium.sh
 ```
 
-Do not treat `| bash` as the only option. Pin a release by downloading that tag’s asset:
+`releases/latest` is the newest **stable** release. Do not treat `| bash` as the only option. Pin a release by downloading that tag’s asset:
 
 ```bash
 curl -fsSL -o install-folium.sh \
   https://github.com/brocxftw/folium/releases/download/v0.1.16/install-folium.sh
 ```
+
+### Pre-release / beta
+
+Prereleases use tags like `vX.Y.Z-beta.N`. They are published as GitHub **prereleases** and do not replace `releases/latest`.
+
+**Interactive:** download the installer from a prerelease tag, or use any recent installer and choose a **Beta**-labelled tag in the version picker:
+
+```bash
+curl -fsSL -o install-folium.sh \
+  https://github.com/brocxftw/folium/releases/download/v0.1.24-beta.5/install-folium.sh
+less install-folium.sh
+bash install-folium.sh
+```
+
+**Non-interactive** (fresh install or update):
+
+```bash
+# Newest prerelease
+bash install-folium.sh --noninteractive --version beta --json
+
+# Exact prerelease pin
+bash install-folium.sh --noninteractive --version v0.1.24-beta.5 --json
+
+# Update existing install to newest beta (preserves secrets / bind)
+bash install-folium.sh --noninteractive --update --version beta --json
+```
+
+CLI `--version` and process-environment `FOLIUM_VERSION` / `FOLIUM_VERSION_TAG` take precedence over the version already stored in `install-state.json` or `.env`. The installer still resolves aliases to a pinned `vX.Y.Z-beta.N` before writing state.
 
 The script is a packed copy of `installer/install.sh` plus its libraries. It starts a **whiptail** TUI and then downloads that release’s `docker-compose.yml`.
 
@@ -40,7 +68,7 @@ bash installer/pack.sh /tmp/install-folium.sh
 6. Writes `/opt/folium` by default (you may choose another directory; `/root` and `/tmp` are allowed at your own risk with a confirmation). Release `docker-compose.yml`, a small overlay (bind/port/`group_add` only), and `.env` (`chmod 600`). Backup files go to `$INSTALL_DIR/data/backups` (not the installer config snapshot folder).
 7. Publishes **only the UI port** (default **9398**). The API host port (default **9099**) is unpublished unless you opt in. Nginx in `web` already proxies `/api`, `/health`, and `/mcp`.
 8. Waits for `GET /health`, `/health/database`, `/health/storage`, and `/health/worker`. AI health is ignored.
-9. Installs `/usr/local/bin/folium` (`status`, `start`, `stop`, `restart`, `logs`, `doctor`). `update` and `uninstall` are stubs in v1.
+9. Installs `/usr/local/bin/folium` (`status`, `start`, `stop`, `restart`, `logs`, `doctor`, `update`). `uninstall` remains a stub in v1.
 
 Secrets are generated with `openssl rand`. The bootstrap admin password is shown **once** on the success screen and is not written to the installer log. The welcome screen shows the exact log file path for that run (for example `/tmp/folium-install-20260817-123456.log`).
 
@@ -79,9 +107,12 @@ folium stop
 folium restart
 folium logs
 folium doctor
+folium update                 # newest beta (default); also: latest | vX.Y.Z[-beta.N]
 ```
 
-Override the install directory with `FOLIUM_INSTALL_DIR`. The CLI also reads `/etc/folium/install-dir`.
+`folium update` downloads a fresh release installer and runs `--noninteractive --update`. Override the install directory with `FOLIUM_INSTALL_DIR`. The CLI also reads `/etc/folium/install-dir`.
+
+Hosts still on an older CLI stub need one installer re-run before `update` is available.
 
 ## Non-interactive (automation / CI / agents)
 
@@ -180,4 +211,4 @@ Each `v*` GitHub Release includes:
 - `default.env.example` (compatibility alias; GitHub rejects a leading-dot `.env.example` asset name)
 - `checksums.txt`
 
-The installer version picker lists **prereleases** (`vX.Y.Z-beta.N`, labelled Beta) as well as stable tags. GitHub `releases/latest` and the menu’s “Latest stable” entry still refer to the current **stable** release; prereleases do not replace it. The moving image tag `beta` is not a pin — choose the exact `vX.Y.Z-beta.N` tag.
+The installer version picker lists **prereleases** (`vX.Y.Z-beta.N`, labelled Beta) as well as stable tags. GitHub `releases/latest` and the menu’s “Latest stable” entry still refer to the current **stable** release; prereleases do not replace it. Prefer pinning an exact `vX.Y.Z-beta.N` tag (or `--version beta`, which resolves to one) rather than relying on the moving GHCR image tag `beta`.
