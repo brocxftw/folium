@@ -7,7 +7,9 @@ import {
   useTrashDocument,
   useUpdateDocumentMetadata,
 } from "@/lib/api/hooks";
+import { api } from "@/lib/api/client";
 import type { Document, Folder, Tag as TagType } from "@/lib/api/types";
+import { shareDocument } from "@/lib/shareDocument";
 import { MoveToFolderDialog } from "@/components/documents/MoveToFolderDialog";
 import { Button } from "@/components/ui/Button";
 import {
@@ -125,6 +127,25 @@ export function DocumentActionsMenu({
     }
   };
 
+  const handleDownload = () => {
+    const anchor = document.createElement("a");
+    anchor.href = api.downloadUrl(doc.id);
+    anchor.download = doc.original_filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
+
+  const handleShare = () => {
+    void shareDocument({
+      id: doc.id,
+      title: doc.title,
+      original_filename: doc.original_filename,
+      mime_type: doc.mime_type,
+    });
+  };
+
   return (
     <div className={cn("shrink-0", className)} data-document-actions>
       <DropdownMenu>
@@ -150,6 +171,9 @@ export function DocumentActionsMenu({
           align="end"
           onClick={(e) => e.stopPropagation()}
         >
+          <DropdownMenuItem onClick={handleDownload}>Download</DropdownMenuItem>
+          <DropdownMenuItem onClick={handleShare}>Share</DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={openRename}>Rename</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setMoveOpen(true)}>Move…</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setDialog("tags")}>
