@@ -78,7 +78,7 @@ Operators: [interactive installer](../deployment/installer.md), or download Rele
 
 ## Concurrency and isolation
 
-- One worker process per `worker` container; in-process asyncio semaphore = `JOB_CONCURRENCY` (default 2).
+- One worker process per `worker` container; in-process asyncio semaphore = `JOB_CONCURRENCY` (default 1). OCR holds an exclusive gate and runs Paddle in a short-lived subprocess by default.
 - Inbox **preflight** jobs are gated so only one still-preparing Inbox document is claimed at a time (oldest first).
 - Trashed-document jobs are skipped/cancelled so deletes do not starve the queue.
 - OCR uses a dedicated thread executor (Paddle constraint).

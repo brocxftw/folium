@@ -18,6 +18,7 @@ from folium.services import instance_state as instance_state_service
 from folium.services import jobs as job_service
 from folium.storage.service import StorageService
 from folium.workers.healthcheck import WORKER_HEARTBEAT_KEY
+from folium.workers.ocr_gate import ocr_exclusive_locked
 from folium.workers.processor import process_consume_file, process_job
 
 logger = get_logger(__name__)
@@ -41,6 +42,11 @@ async def _poll_jobs(wid: str, sem: asyncio.Semaphore) -> None:
         await job_service.requeue_stale_running(
             session, older_than_seconds=settings.job_stale_running_seconds
         )
+
+    # While OCR holds the exclusive gate, do not claim more work (even if
+    # JOB_CONCURRENCY > 1) so indexing/backup peaks do not stack on OCR RAM.
+    if ocr_exclusive_locked():
+        return
 
     # Acquire capacity BEFORE claiming so jobs are not marked running while waiting.
     # Do not use wait_for(acquire, timeout=0): it can take a permit then cancel,

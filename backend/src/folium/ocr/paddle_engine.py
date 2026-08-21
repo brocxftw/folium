@@ -63,12 +63,22 @@ def map_ocr_language(language: str | None) -> str:
 
 
 def paddle_ocr_available() -> bool:
-    """True when paddleocr can be imported."""
+    """True when the paddleocr package is installed.
+
+    Uses ``find_spec`` so the parent worker does not import PaddleOCR (which
+    would permanently inflate RSS). Actual import happens only inside the OCR
+    subprocess (or when ``OCR_IN_PROCESS`` forces in-process OCR).
+    """
     global _import_error
     try:
-        import paddleocr  # noqa: F401
+        import importlib.util
+
+        spec = importlib.util.find_spec("paddleocr")
     except Exception as exc:  # pragma: no cover - env dependent
         _import_error = str(exc)
+        return False
+    if spec is None:
+        _import_error = "paddleocr is not installed"
         return False
     return True
 

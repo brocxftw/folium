@@ -60,8 +60,8 @@ from folium.ocr.extractor import (
     extract_document,
     pages_need_ocr,
 )
-from folium.ocr.paddle_engine import get_ocr_executor
 from folium.ocr.previews import persist_previews
+from folium.workers.ocr_gate import ocr_exclusive_section
 from folium.search.fts import (
     refresh_document_search_vector,
     refresh_page_search_vectors,
@@ -111,6 +111,28 @@ async def commit_ocr_progress(
         )
 
 
+async def commit_ocr_page(
+    document_id: uuid.UUID, page_number: int, text: str
+) -> None:
+    """Persist one OCR page as soon as it is ready (separate session)."""
+    async with session_scope() as session:
+        session.add(
+            DocumentPage(
+                document_id=document_id,
+                page_number=page_number,
+                text=text,
+            )
+        )
+
+
+async def clear_document_pages(document_id: uuid.UUID) -> None:
+    """Delete all pages for a document and commit (required before streamed inserts)."""
+    async with session_scope() as session:
+        await session.execute(
+            delete(DocumentPage).where(DocumentPage.document_id == document_id)
+        )
+
+
 def _ocr_progress_callback(loop: asyncio.AbstractEventLoop, document_id: uuid.UUID):
     def _on_progress(done: int, total: int) -> None:
         try:
@@ -125,6 +147,31 @@ def _ocr_progress_callback(loop: asyncio.AbstractEventLoop, document_id: uuid.UU
             )
 
     return _on_progress
+
+
+def _ocr_page_callback(
+    loop: asyncio.AbstractEventLoop,
+    document_id: uuid.UUID,
+    full_text_parts: list[str],
+):
+    def _on_page(page_number: int, text: str) -> None:
+        try:
+            fut = asyncio.run_coroutine_threadsafe(
+                commit_ocr_page(document_id, page_number, text),
+                loop,
+            )
+            fut.result(timeout=30)
+        except Exception:
+            logger.exception(
+                "OCR page persist failed for doc=%s page=%s",
+                document_id,
+                page_number,
+            )
+            raise
+        if text.strip():
+            full_text_parts.append(text)
+
+    return _on_page
 
 
 async def _has_open_preflight_jobs(
@@ -332,43 +379,60 @@ async def process_text_extraction(session: AsyncSession, job: Job) -> dict:
     # PDFs: native text only here. OCR is a separate job so AI can wait on it.
     # Images still OCR inline (that is their only text source).
     is_pdf = doc.mime_type == "application/pdf"
-    extract_fn = partial(
-        extract_document,
-        path,
-        doc.mime_type,
-        settings=settings,
-        language=doc.language,
-        allow_ocr=not is_pdf,
-    )
-    # Paddle must run on its dedicated thread; native PDF extract can use the
-    # default pool.
-    if is_pdf:
-        extracted = await asyncio.to_thread(extract_fn)
-    else:
-        loop = asyncio.get_running_loop()
-        await commit_ocr_progress(doc.id, 0, 1)
-        extract_fn = partial(
-            extract_document,
-            path,
-            doc.mime_type,
-            settings=settings,
-            language=doc.language,
-            allow_ocr=True,
-            on_ocr_progress=_ocr_progress_callback(loop, doc.id),
-        )
-        extracted = await loop.run_in_executor(get_ocr_executor(), extract_fn)
-    await session.execute(delete(DocumentPage).where(DocumentPage.document_id == doc.id))
+    await clear_document_pages(doc.id)
 
     full_text_parts: list[str] = []
-    for page_data in extracted.pages:
-        page = DocumentPage(
-            document_id=doc.id,
-            page_number=page_data.page_number,
-            text=page_data.text,
+    loop = asyncio.get_running_loop()
+
+    if is_pdf:
+        extracted = await asyncio.to_thread(
+            partial(
+                extract_document,
+                path,
+                doc.mime_type,
+                settings=settings,
+                language=doc.language,
+                allow_ocr=False,
+            )
         )
-        session.add(page)
-        if page_data.text.strip():
-            full_text_parts.append(page_data.text)
+        for page_data in extracted.pages:
+            session.add(
+                DocumentPage(
+                    document_id=doc.id,
+                    page_number=page_data.page_number,
+                    text=page_data.text,
+                )
+            )
+            if page_data.text.strip():
+                full_text_parts.append(page_data.text)
+    else:
+        await commit_ocr_progress(doc.id, 0, 1)
+        async with ocr_exclusive_section():
+            extracted = await asyncio.to_thread(
+                partial(
+                    extract_document,
+                    path,
+                    doc.mime_type,
+                    settings=settings,
+                    language=doc.language,
+                    allow_ocr=True,
+                    on_ocr_progress=_ocr_progress_callback(loop, doc.id),
+                    on_ocr_page=_ocr_page_callback(loop, doc.id, full_text_parts),
+                )
+            )
+        # Pages already persisted via on_ocr_page for paddle path; pillow fallback
+        # may not emit pages — ensure rows exist.
+        if not full_text_parts and extracted.pages:
+            for page_data in extracted.pages:
+                session.add(
+                    DocumentPage(
+                        document_id=doc.id,
+                        page_number=page_data.page_number,
+                        text=page_data.text,
+                    )
+                )
+                if page_data.text.strip():
+                    full_text_parts.append(page_data.text)
 
     doc.page_count = extracted.page_count or len(extracted.pages)
     doc.extracted_text = "\n\n".join(full_text_parts)
@@ -437,7 +501,6 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
     settings = get_settings()
     prior_page_count = doc.page_count or 0
 
-    # PP-OCRv6 must stay on the dedicated OCR thread (Paddle is not pool-safe).
     loop = asyncio.get_running_loop()
     try:
         with pymupdf.open(path) as pdf:
@@ -446,31 +509,37 @@ async def process_ocr(session: AsyncSession, job: Job) -> dict:
         page_total = prior_page_count or 0
     if page_total:
         await commit_ocr_progress(doc.id, 0, page_total)
-    extracted = await loop.run_in_executor(
-        get_ocr_executor(),
-        partial(
-            extract_document,
-            path,
-            doc.mime_type,
-            settings=settings,
-            language=doc.language,
-            force_ocr=True,
-            on_ocr_progress=_ocr_progress_callback(loop, doc.id),
-        ),
-    )
-    await session.execute(delete(DocumentPage).where(DocumentPage.document_id == doc.id))
+
+    await clear_document_pages(doc.id)
 
     full_text_parts: list[str] = []
-    for page_data in extracted.pages:
-        session.add(
-            DocumentPage(
-                document_id=doc.id,
-                page_number=page_data.page_number,
-                text=page_data.text,
+    # Paddle runs in a short-lived subprocess (default); exclusive gate prevents
+    # stacking other jobs on top when JOB_CONCURRENCY > 1.
+    async with ocr_exclusive_section():
+        extracted = await asyncio.to_thread(
+            partial(
+                extract_document,
+                path,
+                doc.mime_type,
+                settings=settings,
+                language=doc.language,
+                force_ocr=True,
+                on_ocr_progress=_ocr_progress_callback(loop, doc.id),
+                on_ocr_page=_ocr_page_callback(loop, doc.id, full_text_parts),
             )
         )
-        if page_data.text.strip():
-            full_text_parts.append(page_data.text)
+
+    if not full_text_parts and extracted.pages:
+        for page_data in extracted.pages:
+            session.add(
+                DocumentPage(
+                    document_id=doc.id,
+                    page_number=page_data.page_number,
+                    text=page_data.text,
+                )
+            )
+            if page_data.text.strip():
+                full_text_parts.append(page_data.text)
 
     doc.extracted_text = "\n\n".join(full_text_parts)
     doc.text_extracted = True

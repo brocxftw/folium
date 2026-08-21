@@ -77,8 +77,18 @@ class Settings(BaseSettings):
     # Folium/legacy Tesseract-style codes (eng, chi_sim, …); mapped to PaddleOCR lang.
     ocr_language: str = Field(default="eng", alias="OCR_LANGUAGE")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
+    # PDF page render DPI for OCR (lower = less RAM; 150 is the memory-safe default).
+    ocr_dpi: int = Field(default=150, alias="OCR_DPI", ge=72, le=400)
+    # When true, load Paddle in the worker process (tests/debug). Production uses a
+    # short-lived subprocess so model RAM is reclaimed after each OCR job.
+    ocr_in_process: bool = Field(default=False, alias="OCR_IN_PROCESS")
+    # Soft timeout for one OCR subprocess (large multi-page PDFs).
+    ocr_subprocess_timeout_seconds: float = Field(
+        default=3600.0, alias="OCR_SUBPROCESS_TIMEOUT_SECONDS", ge=60.0
+    )
 
-    job_concurrency: int = Field(default=2, alias="JOB_CONCURRENCY")
+    # Default 1 so OCR/indexing peaks do not stack in one worker process.
+    job_concurrency: int = Field(default=1, alias="JOB_CONCURRENCY", ge=1)
     consume_poll_interval_seconds: float = Field(default=5.0, alias="CONSUME_POLL_INTERVAL_SECONDS")
     job_poll_interval_seconds: float = Field(default=2.0, alias="JOB_POLL_INTERVAL_SECONDS")
     # RUNNING jobs without a lock heartbeat older than this are re-queued.

@@ -33,7 +33,10 @@ Legend: **Required** means “must be set to a non-default secret in any real de
 | `ALLOWED_MIME_TYPES` | No | pdf/png/jpeg/txt/md/docx | api | MIME allow-list | No |
 | `OCR_LANGUAGE` | No | `eng` | worker | Mapped to Paddle language | No |
 | `OCR_ENABLED` | No | `true` | worker | Dedicated OCR jobs | No |
-| `JOB_CONCURRENCY` | No | `2` | worker | In-process job slots | No |
+| `OCR_DPI` | No | `150` | worker | PDF page render DPI for OCR (lower = less RAM) | No |
+| `OCR_IN_PROCESS` | No | `false` | worker | Load Paddle in the worker process (tests/debug); production uses a subprocess | No |
+| `OCR_SUBPROCESS_TIMEOUT_SECONDS` | No | `3600` | worker | Soft timeout for one OCR child process | No |
+| `JOB_CONCURRENCY` | No | `1` | worker | In-process job slots; OCR also takes an exclusive gate | No |
 | `CONSUME_POLL_INTERVAL_SECONDS` | No | `5` | worker | Consume poll / stability wait | No |
 | `JOB_POLL_INTERVAL_SECONDS` | No | `2` | worker | Main loop sleep | No |
 | `JOB_STALE_RUNNING_SECONDS` | No | `600` | worker | Requeue stale RUNNING | No |
