@@ -237,6 +237,16 @@ describe("AppShell top navbar", () => {
     expect(screen.queryByRole("button", { name: "Ask Folium AI" })).not.toBeInTheDocument();
   });
 
+  it("hides the Ask Folium button in Settings", () => {
+    renderShell("/settings");
+    expect(screen.queryByRole("button", { name: "Ask Folium AI" })).not.toBeInTheDocument();
+  });
+
+  it("hides the Ask Folium button on nested Settings routes", () => {
+    renderShell("/settings/library");
+    expect(screen.queryByRole("button", { name: "Ask Folium AI" })).not.toBeInTheDocument();
+  });
+
   it("opens a compact Ask dock with in-composer context and send", () => {
     renderShell("/documents");
     fireEvent.click(screen.getByRole("button", { name: "Ask Folium AI" }));

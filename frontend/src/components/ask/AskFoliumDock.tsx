@@ -11,10 +11,12 @@ export function AskFoliumDock() {
   const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
   const inboxWorkspace = pathname.startsWith("/inbox");
+  const settingsWorkspace = pathname.startsWith("/settings");
+  const hideFab = inboxWorkspace || settingsWorkspace;
 
   useEffect(() => {
-    if (inboxWorkspace) setOpen(false);
-  }, [inboxWorkspace]);
+    if (hideFab) setOpen(false);
+  }, [hideFab]);
 
   useEffect(() => {
     if (!open) return;
@@ -36,7 +38,7 @@ export function AskFoliumDock() {
 
   return (
     <>
-      {!open && !inboxWorkspace && (
+      {!open && !hideFab && (
         <AskFoliumFab
           onClick={() => setOpen(true)}
           className="fixed right-5 bottom-5 z-40"

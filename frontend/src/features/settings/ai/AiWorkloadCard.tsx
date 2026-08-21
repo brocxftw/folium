@@ -1,18 +1,18 @@
+import { ChevronRight, HardDrive, Server } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import type { AIAssignment } from "@/lib/api/types";
+import { SettingsCard, SettingsStatusBadge } from "@/features/settings/components";
 import { cn } from "@/lib/utils";
 import { WORKLOAD_COPY } from "./workloadCopy";
 
-function statusBadgeClass(status: AIAssignment["status"]): string {
+function statusTone(status: AIAssignment["status"]): "success" | "warning" | "neutral" {
   switch (status) {
     case "configured":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+      return "success";
     case "offline":
-      return "bg-amber-50 text-amber-700 border-amber-200";
-    case "disabled":
-      return "bg-surface-muted text-text-muted border-surface-border";
+      return "warning";
     default:
-      return "bg-surface-muted text-text-secondary border-surface-border";
+      return "neutral";
   }
 }
 
@@ -31,6 +31,20 @@ function statusLabel(status: AIAssignment["status"]): string {
   }
 }
 
+function StatusDot({ tone }: { tone: "success" | "warning" | "neutral" }) {
+  return (
+    <span
+      className={cn(
+        "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+        tone === "success" && "bg-emerald-500",
+        tone === "warning" && "bg-amber-500",
+        tone === "neutral" && "bg-text-muted",
+      )}
+      aria-hidden
+    />
+  );
+}
+
 export function AiWorkloadCard({
   assignment,
   onChangeModel,
@@ -41,48 +55,62 @@ export function AiWorkloadCard({
   const copy = WORKLOAD_COPY[assignment.role];
   const Icon = copy.icon;
   const configured = assignment.status === "configured" && assignment.model;
-
-  const providerLine = [
-    assignment.provider_name || "Not configured",
-    assignment.is_local == null ? null : assignment.is_local ? "Local" : "Remote",
-    assignment.embedding_dimension ? `${assignment.embedding_dimension} dimensions` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const tone = statusTone(assignment.status);
 
   return (
-    <div className="flex flex-wrap items-start gap-4 rounded-lg border border-surface-border bg-surface p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-5">
-      <div
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-muted"
-        style={{ color: copy.iconColour }}
-      >
-        <Icon className="h-5 w-5" strokeWidth={1.75} />
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-semibold text-text-primary">{copy.title}</h3>
-          <span
-            className={cn(
-              "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-              statusBadgeClass(assignment.status),
-            )}
-          >
-            {statusLabel(assignment.status)}
-          </span>
+    <SettingsCard padding="sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-muted text-text-secondary">
+            <Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-text-primary">{copy.title}</h3>
+              <SettingsStatusBadge tone={tone}>
+                <StatusDot tone={tone} />
+                {statusLabel(assignment.status)}
+              </SettingsStatusBadge>
+            </div>
+            <p className="text-xs leading-5 text-text-secondary">{copy.subtitle}</p>
+          </div>
         </div>
-        <p className="text-xs text-text-secondary">{copy.subtitle}</p>
-        {configured ? (
-          <>
-            <p className="pt-1 text-base font-semibold text-text-primary">{assignment.model}</p>
-            <p className="text-xs text-text-muted">{providerLine}</p>
-          </>
-        ) : (
-          <p className="pt-1 text-sm text-text-muted">No model assigned yet.</p>
-        )}
+
+        <div className="min-w-0 flex-1 lg:max-w-xs">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Model</p>
+          {configured ? (
+            <>
+              <p className="mt-0.5 truncate font-mono text-sm font-semibold text-text-primary">
+                {assignment.model}
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
+                <span className="inline-flex items-center gap-1 truncate">
+                  <Server className="h-3 w-3 shrink-0 text-text-muted" strokeWidth={1.75} aria-hidden />
+                  {assignment.provider_name || "Unknown provider"}
+                </span>
+                {assignment.is_local != null && (
+                  <span className="inline-flex items-center gap-1">
+                    <HardDrive className="h-3 w-3 shrink-0 text-text-muted" strokeWidth={1.75} aria-hidden />
+                    {assignment.is_local ? "Local" : "Remote"}
+                  </span>
+                )}
+                {assignment.embedding_dimension != null && (
+                  <span>{assignment.embedding_dimension} dimensions</span>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="mt-0.5 text-sm text-text-muted">No model assigned yet.</p>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1 lg:justify-end">
+          <Button size="sm" variant="outline" onClick={onChangeModel}>
+            Change model
+          </Button>
+          <ChevronRight className="hidden h-4 w-4 text-text-muted sm:block" strokeWidth={1.75} aria-hidden />
+        </div>
       </div>
-      <Button size="sm" variant="secondary" onClick={onChangeModel}>
-        Change model
-      </Button>
-    </div>
+    </SettingsCard>
   );
 }

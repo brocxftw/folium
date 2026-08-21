@@ -1,4 +1,14 @@
-import { MoreHorizontal, Pencil, Trash2, Zap } from "lucide-react";
+import {
+  Cloud,
+  Monitor,
+  MoreHorizontal,
+  Network,
+  Pencil,
+  Server,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import {
   DropdownMenu,
@@ -6,10 +16,50 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/DropdownMenu";
-import type { AIProvider } from "@/lib/api/types";
+import type { AIProvider, AIProviderKind } from "@/lib/api/types";
+import { SettingsCard, SettingsStatusBadge } from "@/features/settings/components";
 import { cn } from "@/lib/utils";
 
-function probeStatusLabel(status: string | null | undefined): { label: string; tone: "success" | "neutral" | "warning" } {
+const KIND_META: Record<
+  AIProviderKind,
+  { label: string; icon: LucideIcon; iconWrap: string }
+> = {
+  ollama: {
+    label: "Ollama",
+    icon: Server,
+    iconWrap: "bg-emerald-50 text-emerald-700",
+  },
+  openai_compatible: {
+    label: "OpenAI Compatible",
+    icon: Monitor,
+    iconWrap: "bg-violet-50 text-violet-700",
+  },
+  openai: {
+    label: "OpenAI",
+    icon: Sparkles,
+    iconWrap: "bg-emerald-50 text-emerald-700",
+  },
+  openrouter: {
+    label: "OpenRouter",
+    icon: Network,
+    iconWrap: "bg-slate-100 text-slate-600",
+  },
+  anthropic: {
+    label: "Anthropic",
+    icon: Cloud,
+    iconWrap: "bg-orange-50 text-orange-700",
+  },
+  gemini: {
+    label: "Google Gemini",
+    icon: Sparkles,
+    iconWrap: "bg-sky-50 text-sky-700",
+  },
+};
+
+function probeStatus(status: string | null | undefined): {
+  label: string;
+  tone: "success" | "neutral" | "warning";
+} {
   if (!status || status === "not tested") {
     return { label: "Not tested", tone: "neutral" };
   }
@@ -17,6 +67,20 @@ function probeStatusLabel(status: string | null | undefined): { label: string; t
     return { label: "Available", tone: "success" };
   }
   return { label: status, tone: "warning" };
+}
+
+function StatusDot({ tone }: { tone: "success" | "neutral" | "warning" }) {
+  return (
+    <span
+      className={cn(
+        "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+        tone === "success" && "bg-emerald-500",
+        tone === "neutral" && "bg-text-muted",
+        tone === "warning" && "bg-amber-500",
+      )}
+      aria-hidden
+    />
+  );
 }
 
 export function AiProviderCard({
@@ -40,72 +104,73 @@ export function AiProviderCard({
   testMessage?: string;
   testOk?: boolean;
 }) {
-  const health = probeStatusLabel(provider.last_probe_status);
+  const health = probeStatus(provider.last_probe_status);
+  const kind = KIND_META[provider.kind as AIProviderKind] ?? {
+    label: provider.kind.replace(/_/g, " "),
+    icon: Server,
+    iconWrap: "bg-surface-muted text-text-secondary",
+  };
+  const KindIcon = kind.icon;
+  const usedByLine = [
+    `Used by: ${usedBy.length > 0 ? usedBy.join(", ") : "None"}`,
+    provider.last_probe_latency_ms != null ? `${provider.last_probe_latency_ms} ms` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <div className="rounded-lg border border-surface-border bg-surface p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <SettingsCard padding="sm">
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1 space-y-2">
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
+            kind.iconWrap,
+          )}
+        >
+          <KindIcon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+        </div>
+
+        <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-text-primary">{provider.name}</span>
-            <span className="text-xs capitalize text-text-muted">
-              {provider.kind.replace(/_/g, " ")}
-            </span>
-            {provider.is_local && (
-              <span className="rounded bg-accent-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-accent">
-                local
-              </span>
-            )}
-            {!provider.enabled && (
-              <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] text-text-muted">
-                disabled
-              </span>
-            )}
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                health.tone === "success" && "border-emerald-200 bg-emerald-50 text-emerald-700",
-                health.tone === "neutral" && "border-surface-border bg-surface-muted text-text-secondary",
-                health.tone === "warning" && "border-amber-200 bg-amber-50 text-amber-700",
-              )}
-            >
-              <span
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  health.tone === "success" && "bg-emerald-500",
-                  health.tone === "neutral" && "bg-text-muted",
-                  health.tone === "warning" && "bg-amber-500",
-                )}
-              />
+            <span className="text-sm font-semibold text-text-primary">{provider.name}</span>
+            <SettingsStatusBadge tone="info">{kind.label}</SettingsStatusBadge>
+            {provider.is_local && <SettingsStatusBadge>Local</SettingsStatusBadge>}
+            {!provider.enabled && <SettingsStatusBadge>Disabled</SettingsStatusBadge>}
+            <SettingsStatusBadge tone={health.tone}>
+              <StatusDot tone={health.tone} />
               {health.label}
-            </span>
+            </SettingsStatusBadge>
           </div>
-          <p className="truncate font-mono text-xs text-text-muted">{provider.base_url}</p>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
-            <span>
-              Used by:{" "}
-              {usedBy.length > 0 ? usedBy.join(", ") : "None"}
-            </span>
-            {provider.last_probe_latency_ms != null && (
-              <span>{provider.last_probe_latency_ms} ms</span>
-            )}
-          </div>
+
+          <a
+            href={provider.base_url}
+            target="_blank"
+            rel="noreferrer"
+            className="block truncate font-mono text-xs text-accent hover:underline"
+          >
+            {provider.base_url}
+          </a>
+
+          <p className="text-xs text-text-secondary">{usedByLine}</p>
+
           {testMessage && (
-            <p className={cn("text-xs", testOk ? "text-accent" : "text-danger")}>{testMessage}</p>
+            <p className={cn("text-xs", testOk ? "text-emerald-700" : "text-danger")}>
+              {testMessage}
+            </p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={onTest} disabled={testing}>
-            <Zap className="mr-1 h-3.5 w-3.5" />
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button variant="outline" size="sm" onClick={onTest} disabled={testing}>
             Test
           </Button>
-          <Button variant="ghost" size="sm" onClick={onEdit}>
-            <Pencil className="mr-1 h-3.5 w-3.5" />
+          <Button variant="outline" size="sm" onClick={onEdit}>
+            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
             Edit
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label={`More actions for ${provider.name}`}>
+              <Button variant="outline" size="icon" aria-label={`More actions for ${provider.name}`}>
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -121,6 +186,6 @@ export function AiProviderCard({
           </DropdownMenu>
         </div>
       </div>
-    </div>
+    </SettingsCard>
   );
 }

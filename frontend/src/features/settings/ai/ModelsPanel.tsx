@@ -1,4 +1,8 @@
 import { useMemo, useState } from "react";
+import {
+  SettingsInfoBanner,
+  SettingsSection,
+} from "@/features/settings/components";
 import { useAIAssignments } from "@/lib/api/hooks";
 import type { AIAssignment } from "@/lib/api/types";
 import { AiWorkloadCard } from "./AiWorkloadCard";
@@ -24,15 +28,11 @@ export function ModelsPanel() {
   }
 
   return (
-    <section aria-labelledby="workloads-heading" className="space-y-4">
-      <div>
-        <h2 id="workloads-heading" className="text-base font-semibold text-text-primary">
-          AI workloads
-        </h2>
-        <p className="mt-1 text-sm text-text-secondary">
-          Each workload routes independently. No fallback is configured.
-        </p>
-      </div>
+    <SettingsSection
+      id="workloads"
+      title="AI workloads"
+      description="Choose which model Folium uses for each AI capability."
+    >
       <div className="space-y-3">
         {visible.map((assignment) => (
           <AiWorkloadCard
@@ -42,9 +42,18 @@ export function ModelsPanel() {
           />
         ))}
       </div>
+
+      <SettingsInfoBanner tone="info" className="mt-1">
+        <p className="font-medium text-text-primary">About workloads</p>
+        <p className="mt-0.5">
+          Each workload routes independently to its assigned provider and model. There is no automatic
+          fallback between workloads.
+        </p>
+      </SettingsInfoBanner>
+
       {editing && (
         <AssignmentDialog assignment={editing} onClose={() => setEditing(null)} />
       )}
-    </section>
+    </SettingsSection>
   );
 }

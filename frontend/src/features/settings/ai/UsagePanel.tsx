@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/Select";
 import { AiBreakdownPanel } from "./AiBreakdownPanel";
-import { AiKpiCard } from "./AiKpiCard";
+import { SettingsCard, SettingsEmptyState, SettingsMetricCard } from "@/features/settings/components";
 import { workloadDisplayLabel } from "./workloadCopy";
 
 type UsageRange = "today" | "7d" | "30d" | "month";
@@ -41,7 +41,7 @@ function UsageAreaChart({ points }: { points: Array<{ bucket: string; requests: 
       : "";
 
   return (
-    <div className="rounded-lg border border-surface-border bg-surface p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <SettingsCard padding="sm">
       <h3 className="text-sm font-semibold text-text-primary">Requests over time</h3>
       <svg
         viewBox={`0 0 ${width} ${height}`}
@@ -75,7 +75,7 @@ function UsageAreaChart({ points }: { points: Array<{ bucket: string; requests: 
           </li>
         ))}
       </ul>
-    </div>
+    </SettingsCard>
   );
 }
 
@@ -98,7 +98,7 @@ function PerformanceCard({
   countValue: string;
 }) {
   return (
-    <div className="rounded-lg border border-surface-border bg-surface p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <SettingsCard padding="sm">
       <h4 className="text-sm font-semibold text-text-primary">{title}</h4>
       <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
         <div>
@@ -110,7 +110,7 @@ function PerformanceCard({
           <dd className="font-medium text-text-primary">{countValue}</dd>
         </div>
       </dl>
-    </div>
+    </SettingsCard>
   );
 }
 
@@ -205,13 +205,13 @@ export function UsagePanel() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <AiKpiCard
+        <SettingsMetricCard
           label="Requests"
           value={totals.requests.toLocaleString()}
           secondary="In selected period"
           icon={Activity}
         />
-        <AiKpiCard
+        <SettingsMetricCard
           label="Tokens"
           value={
             totals.input_tokens == null && totals.output_tokens == null
@@ -221,7 +221,7 @@ export function UsagePanel() {
           secondary="Total tokens processed"
           icon={Layers}
         />
-        <AiKpiCard
+        <SettingsMetricCard
           label="AI time"
           value={
             totals.duration_ms == null
@@ -231,7 +231,7 @@ export function UsagePanel() {
           secondary={avgPerRequest ? `avg ${avgPerRequest} / request` : "Processing time"}
           icon={Clock}
         />
-        <AiKpiCard
+        <SettingsMetricCard
           label="Estimated cost"
           value={costPrimary}
           secondary={costSecondary}
@@ -240,9 +240,9 @@ export function UsagePanel() {
       </div>
 
       {totals.requests === 0 ? (
-        <p className="rounded-lg border border-dashed border-surface-border bg-surface p-10 text-center text-sm text-text-muted">
+        <SettingsEmptyState bordered>
           No AI requests yet for this period. Document management continues to work without AI activity.
-        </p>
+        </SettingsEmptyState>
       ) : (
         <UsageAreaChart points={data.time_series} />
       )}

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { cn } from "@/lib/utils";
+import { SettingsContent, SettingsPageHeader } from "@/features/settings/components";
 import { AiStatusBanner } from "./AiStatusBanner";
 import {
   AI_SETTINGS_TABS,
@@ -21,11 +22,8 @@ export function AiSettingsShell({
   const description = AI_TAB_DESCRIPTIONS[tab];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
-      <header>
-        <h1 className="text-xl font-semibold text-text-primary">Artificial Intelligence</h1>
-        <p className="mt-1 text-sm text-text-secondary">{description}</p>
-      </header>
+    <SettingsContent className="space-y-5">
+      <SettingsPageHeader title="Artificial Intelligence" description={description} />
 
       <Tabs
         value={tab}
@@ -33,7 +31,7 @@ export function AiSettingsShell({
           setSearchParams(value === "usage" ? {} : { tab: value })
         }
       >
-        <TabsList className="h-auto max-w-full gap-1 overflow-x-auto rounded-lg bg-surface-muted p-1">
+        <TabsList className="h-auto max-w-full gap-1 overflow-x-auto rounded-lg bg-surface p-1">
           {AI_SETTINGS_TABS.map((value) => (
             <TabsTrigger
               key={value}
@@ -58,6 +56,6 @@ export function AiSettingsShell({
           </TabsContent>
         ))}
       </Tabs>
-    </div>
+    </SettingsContent>
   );
 }

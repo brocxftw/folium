@@ -15,31 +15,27 @@ export function workloadDisplayLabel(key: string, fallback?: string): string {
 
 export const WORKLOAD_COPY: Record<
   AIWorkloadRole,
-  { title: string; subtitle: string; icon: LucideIcon; iconColour: string }
+  { title: string; subtitle: string; icon: LucideIcon }
 > = {
   indexing: {
     title: "Filing suggestions",
     subtitle: "Title, folder, tags, type and correspondent suggestions",
     icon: FileText,
-    iconColour: "#059669",
   },
   embedding: {
     title: "Embeddings",
     subtitle: "Semantic and hybrid retrieval",
     icon: Layers,
-    iconColour: "#7C3AED",
   },
   chat: {
     title: "Ask Folium",
     subtitle: "Answers questions using retrieved evidence",
     icon: MessageCircleQuestion,
-    iconColour: "#EA580C",
   },
   vision: {
     title: "Vision",
     subtitle: "Legacy/experimental assignment",
     icon: Eye,
-    iconColour: "#64748B",
   },
 };
 

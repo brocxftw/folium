@@ -148,8 +148,13 @@ describe("Artificial Intelligence settings tabs", () => {
   it("places workloads and providers in separate Models sections", () => {
     renderPage("?tab=models");
     expect(screen.getByRole("tab", { name: "Models" })).toHaveAttribute("data-state", "active");
-    expect(screen.getByRole("heading", { name: "AI workloads" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Providers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI workloads" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Providers" }).compareDocumentPosition(
+        screen.getByRole("heading", { name: "AI workloads" }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.getByText("Filing suggestions")).toBeInTheDocument();
     expect(screen.getByText("Ask Folium")).toBeInTheDocument();
     expect(document.getElementById("providers")).toBeTruthy();

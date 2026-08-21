@@ -1,4 +1,5 @@
 import { workloadDisplayLabel } from "./workloadCopy";
+import { SettingsCard } from "@/features/settings/components";
 
 export function AiBreakdownPanel({
   title,
@@ -13,7 +14,7 @@ export function AiBreakdownPanel({
   const total = totalRequests || values.reduce((sum, item) => sum + item.requests, 0);
 
   return (
-    <div className="rounded-lg border border-surface-border bg-surface p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <SettingsCard padding="sm">
       <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
       {values.length === 0 ? (
         <p className="mt-4 text-sm text-text-muted">No requests in this period.</p>
@@ -44,6 +45,6 @@ export function AiBreakdownPanel({
       <p className="mt-4 border-t border-surface-border pt-3 text-xs text-text-muted">
         Total requests: {total.toLocaleString()}
       </p>
-    </div>
+    </SettingsCard>
   );
 }

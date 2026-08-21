@@ -12,10 +12,10 @@ export function ArtificialIntelligenceSettingsPage() {
         if (tab === "models") {
           return (
             <div className="space-y-8">
-              <ModelsPanel />
               <section id="providers" className="scroll-mt-4" aria-label="Providers">
                 <AIProvidersSettings />
               </section>
+              <ModelsPanel />
             </div>
           );
         }
