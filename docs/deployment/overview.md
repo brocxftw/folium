@@ -11,7 +11,7 @@ configure .env
 docker compose up -d
 ```
 
-Step-by-step: [Installer](installer.md) or [manual install](install.md).
+Step-by-step: [Installer](installer.md) (including [pre-release / beta](installer.md#pre-release--beta)) or [manual install](install.md).
 
 Postgres is pulled from Docker Hub (`pgvector/pgvector:pg17`). Folium `api`/`worker`/`web` are pulled from GHCR.
 

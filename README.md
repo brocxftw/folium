@@ -373,6 +373,8 @@ less install-folium.sh
 bash install-folium.sh
 ```
 
+`releases/latest` is the newest **stable** release. The installer can still list beta tags in the version picker after it starts.
+
 The installer can:
 
 * Check deployment prerequisites
@@ -400,11 +402,76 @@ folium start
 folium stop
 folium logs
 folium doctor
+folium update                 # newest beta (default)
 ```
 
 Installer documentation:
 
 [`docs/deployment/installer.md`](docs/deployment/installer.md)
+
+---
+
+## Pre-release / beta
+
+Folium publishes GitHub **prereleases** (`vX.Y.Z-beta.N`). They do **not** replace `releases/latest` or the moving GHCR `latest` tag.
+
+### Interactive
+
+1. Download the installer from a prerelease tag (or use the stable installer and pick a **Beta** entry in the version menu):
+
+```bash
+# Replace the tag with a prerelease from
+# https://github.com/brocxftw/folium/releases
+curl -fsSL -o install-folium.sh \
+  https://github.com/brocxftw/folium/releases/download/v0.1.24-beta.5/install-folium.sh
+
+less install-folium.sh
+bash install-folium.sh
+```
+
+2. In the version picker, choose the matching `vX.Y.Z-beta.N` (labelled **Beta**), or another listed beta.
+
+### Non-interactive
+
+From the host/CT shell (after the management CLI is installed):
+
+```bash
+folium update                 # newest beta prerelease (default)
+folium update latest          # newest stable
+folium update v0.1.24-beta.5  # exact pin
+```
+
+Or run the installer directly:
+
+```bash
+# Fresh install of the newest prerelease
+bash install-folium.sh --noninteractive --version beta --json
+
+# Or pin an exact prerelease
+bash install-folium.sh --noninteractive --version v0.1.24-beta.5 --json
+
+# Update an existing install to the newest beta (secrets/bind kept)
+bash install-folium.sh --noninteractive --update --version beta --json
+```
+
+`--version` (and `FOLIUM_VERSION` / `FOLIUM_VERSION_TAG` in the process environment) overrides the version already recorded in `install-state.json` / `.env`.
+
+If `folium update` still says it is unavailable, re-run the installer once to refresh `/usr/local/bin/folium`.
+
+### Manual Compose
+
+Download Compose assets from the same prerelease tag (not `releases/latest`):
+
+```bash
+TAG=v0.1.24-beta.5   # example — use a real prerelease tag
+
+curl -fsSL -o docker-compose.yml \
+  "https://github.com/brocxftw/folium/releases/download/${TAG}/docker-compose.yml"
+curl -fsSL -o env.example \
+  "https://github.com/brocxftw/folium/releases/download/${TAG}/env.example"
+```
+
+Set `FOLIUM_VERSION` to the tag **without** the leading `v` (for example `0.1.24-beta.5`). Prefer that pin over the moving GHCR `beta` image tag.
 
 ---
 
@@ -424,7 +491,7 @@ See the installer documentation for the supported command-line contract:
 
 Prefer to manage Compose yourself?
 
-Download the release assets:
+Download the **stable** release assets:
 
 ```bash
 mkdir folium
@@ -438,6 +505,8 @@ curl -fsSL -o env.example \
 
 cp env.example .env
 ```
+
+For a prerelease, download the same filenames from that tag’s release assets instead (see [Pre-release / beta](#pre-release--beta)).
 
 Configure at minimum:
 
@@ -500,6 +569,20 @@ Full manual installation guide:
 
 # Updating
 
+## Host CLI (primary)
+
+On the Docker host / CT where Folium is installed:
+
+```bash
+folium update                 # newest beta prerelease (default)
+folium update latest          # newest stable
+folium update v0.1.24-beta.5  # exact pin
+```
+
+`folium update` downloads a fresh release installer and runs the noninteractive update path (secrets, bind, ports, and storage paths are preserved).
+
+If the CLI still reports that update is unavailable, refresh it once with the installer (below), then use `folium update` afterward.
+
 ## Installer deployment
 
 Re-run the installer:
@@ -513,9 +596,16 @@ less install-folium.sh
 bash install-folium.sh
 ```
 
-When Folium detects the existing installation, choose **Update**.
+When Folium detects the existing installation, choose **Update**, then pick the target release (stable or beta).
 
 Your secrets and document storage remain in place while the selected release images are pulled and the stack is recreated.
+
+Non-interactive update to newest stable or beta:
+
+```bash
+bash install-folium.sh --noninteractive --update --version latest --json
+bash install-folium.sh --noninteractive --update --version beta --json
+```
 
 ## Manual Compose deployment
 
@@ -739,7 +829,14 @@ Folium is currently a **pre-1.0 project** and is evolving quickly.
 
 Published GitHub releases are the deployment boundary. Operators should run versioned GHCR images rather than building the current `main` branch for production use.
 
-The installer can expose both stable releases and explicitly marked beta releases while keeping the stable channel separate.
+| Channel | GitHub | GHCR image tags | Installer |
+|---------|--------|-----------------|-----------|
+| Stable | `releases/latest`, tags `vX.Y.Z` | `X.Y.Z`, `X.Y`, `latest` | `--version latest` or a stable pin |
+| Beta / prerelease | Prerelease tags `vX.Y.Z-beta.N` | `X.Y.Z-beta.N`, moving `beta` | `--version beta` or a beta pin |
+
+Prereleases do not move `latest`. Prefer pinning `vX.Y.Z-beta.N` / `FOLIUM_VERSION=X.Y.Z-beta.N` over the moving `beta` image tag.
+
+Install and update steps: [Pre-release / beta](#pre-release--beta).
 
 See:
 

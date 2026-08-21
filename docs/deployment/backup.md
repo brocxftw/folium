@@ -87,4 +87,4 @@ During restore the worker idles. The Library becomes available after canonical r
 - No Folium-managed NFS/CIFS mounting
 - No browser upload of backup files
 - No backup-bundle encryption UI
-- `folium update` CLI is still not an updater; backups are in-app
+- Host upgrades use `folium update` / the installer; backups remain in-app (not part of the CLI update path)

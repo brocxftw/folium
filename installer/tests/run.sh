@@ -19,6 +19,8 @@ source "${ROOT}/lib/config.sh"
 source "${ROOT}/lib/state.sh"
 # shellcheck source=../lib/docker.sh
 source "${ROOT}/lib/docker.sh"
+# shellcheck source=../lib/ctl_update.sh
+source "${ROOT}/lib/ctl_update.sh"
 
 FOLIUM_LOG_FILE="/dev/null"
 FAILED=0
@@ -102,6 +104,65 @@ FOLIUM_VERSION=""
 FOLIUM_VERSION_TAG="v0.1.19-beta.1"
 assert_ok "resolve from version_tag" config_resolve_version_tag
 assert_eq "resolve from tag version" "${FOLIUM_VERSION}" "0.1.19-beta.1"
+
+# Explicit request wins over values hydrated from install-state / .env (issue #65).
+FOLIUM_VERSION="0.1.24-beta.2"
+FOLIUM_VERSION_TAG="v0.1.24-beta.2"
+config_prefer_requested_version "beta" "beta"
+assert_eq "prefer requested version" "${FOLIUM_VERSION}" "beta"
+assert_eq "prefer requested tag" "${FOLIUM_VERSION_TAG}" "beta"
+assert_ok "resolve preferred beta alias" config_resolve_version_tag
+assert_eq "preferred beta resolves version" "${FOLIUM_VERSION}" "0.1.24-beta.2"
+assert_eq "preferred beta resolves tag" "${FOLIUM_VERSION_TAG}" "v0.1.24-beta.2"
+
+FOLIUM_VERSION="0.1.24-beta.2"
+FOLIUM_VERSION_TAG="v0.1.24-beta.2"
+config_prefer_requested_version "0.1.24-beta.5" "v0.1.24-beta.5"
+assert_eq "prefer pinned version" "${FOLIUM_VERSION}" "0.1.24-beta.5"
+assert_eq "prefer pinned tag" "${FOLIUM_VERSION_TAG}" "v0.1.24-beta.5"
+
+FOLIUM_VERSION="0.1.24-beta.2"
+FOLIUM_VERSION_TAG="v0.1.24-beta.2"
+config_prefer_requested_version "" ""
+assert_eq "empty prior keeps hydrated version" "${FOLIUM_VERSION}" "0.1.24-beta.2"
+assert_eq "empty prior keeps hydrated tag" "${FOLIUM_VERSION_TAG}" "v0.1.24-beta.2"
+
+# .env may bump FOLIUM_VERSION while install-state still has the old version_tag.
+FOLIUM_VERSION="0.1.24-beta.5"
+FOLIUM_VERSION_TAG="v0.1.24-beta.2"
+config_sync_version_tag
+assert_eq "sync version from env pin" "${FOLIUM_VERSION}" "0.1.24-beta.5"
+assert_eq "sync tag from env pin" "${FOLIUM_VERSION_TAG}" "v0.1.24-beta.5"
+
+FOLIUM_VERSION="beta"
+FOLIUM_VERSION_TAG="v0.1.24-beta.2"
+config_sync_version_tag
+assert_eq "sync alias version" "${FOLIUM_VERSION}" "beta"
+assert_eq "sync alias tag" "${FOLIUM_VERSION_TAG}" "beta"
+
+# folium update: default target + installer asset URL selection
+assert_eq "update default version" "$(ctl_update_default_version)" "beta"
+assert_eq "update normalize empty" "$(ctl_update_normalize_target "")" "beta"
+assert_eq "update normalize beta" "$(ctl_update_normalize_target "beta")" "beta"
+assert_eq "update normalize latest" "$(ctl_update_normalize_target "latest")" "latest"
+assert_eq "update normalize pin plain" "$(ctl_update_normalize_target "0.1.24-beta.5")" "v0.1.24-beta.5"
+assert_eq "update normalize pin v" "$(ctl_update_normalize_target "v0.1.24-beta.5")" "v0.1.24-beta.5"
+assert_fail "update normalize junk" ctl_update_normalize_target "not-a-version"
+
+# shellcheck disable=SC2317
+ctl_update_latest_prerelease_tag() { printf 'v0.1.24-beta.5\n'; }
+assert_eq "update url latest" \
+  "$(ctl_update_installer_url "latest")" \
+  "https://github.com/brocxftw/folium/releases/latest/download/install-folium.sh"
+assert_eq "update url beta" \
+  "$(ctl_update_installer_url "beta")" \
+  "https://github.com/brocxftw/folium/releases/download/v0.1.24-beta.5/install-folium.sh"
+assert_eq "update url pin" \
+  "$(ctl_update_installer_url "v0.1.20")" \
+  "https://github.com/brocxftw/folium/releases/download/v0.1.20/install-folium.sh"
+unset -f ctl_update_latest_prerelease_tag
+# shellcheck source=../lib/ctl_update.sh
+source "${ROOT}/lib/ctl_update.sh"
 
 # Restore real helpers for later tests that may call GitHub (none currently).
 unset -f github_latest_tag github_latest_prerelease_tag
@@ -285,7 +346,8 @@ else
 fi
 if grep -q '^FOLIUM_PACKED=1$' "${PACK}" \
   && grep -q 'folium_install_packed_ctl' "${PACK}" \
-  && grep -q 'Folium interactive installer' "${PACK}"; then
+  && grep -q 'Folium interactive installer' "${PACK}" \
+  && grep -q 'ctl_update_installer_url' "${PACK}"; then
   PASSED=$((PASSED + 1))
   printf 'ok  packed installer is standalone\n'
 else

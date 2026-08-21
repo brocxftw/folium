@@ -44,6 +44,35 @@ github_latest_prerelease_tag() {
   return 1
 }
 
+# Keep FOLIUM_VERSION_TAG aligned with FOLIUM_VERSION.
+# Aliases (latest/beta) stay unprefixed so config_resolve_version_tag can expand them.
+config_sync_version_tag() {
+  local stripped
+  stripped="$(config_strip_v_prefix "${FOLIUM_VERSION:-}")"
+  [[ -n "${stripped}" ]] || return 0
+  case "${stripped}" in
+    latest|beta)
+      FOLIUM_VERSION="${stripped}"
+      FOLIUM_VERSION_TAG="${stripped}"
+      ;;
+    *)
+      FOLIUM_VERSION="${stripped}"
+      FOLIUM_VERSION_TAG="v${stripped}"
+      ;;
+  esac
+}
+
+# Restore a version already chosen via CLI (--version) or process environment.
+# Empty prior values mean "use whatever load_existing_defaults hydrated".
+config_prefer_requested_version() {
+  local prior_version="${1:-}"
+  local prior_version_tag="${2:-}"
+  if [[ -n "${prior_version}" || -n "${prior_version_tag}" ]]; then
+    FOLIUM_VERSION="${prior_version}"
+    FOLIUM_VERSION_TAG="${prior_version_tag}"
+  fi
+}
+
 # Resolve FOLIUM_VERSION / FOLIUM_VERSION_TAG to a pinned release.
 # Accepts pinned semver, or the moving aliases "latest" (stable) and "beta" (newest prerelease).
 # Sets FOLIUM_VERSION_TAG (with v prefix) and FOLIUM_VERSION (without). Returns 0 on success.

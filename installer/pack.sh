@@ -31,6 +31,7 @@ CTL_LIBS=(
   lib/network.sh
   lib/state.sh
   lib/health.sh
+  lib/ctl_update.sh
 )
 
 emit_lib() {
