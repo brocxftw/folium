@@ -1,213 +1,799 @@
 # Folium
 
-Self-hosted **document management** for homelabs and private Docker hosts. Organisation, OCR, and keyword search are core. Embeddings, filing suggestions, and Ask Folium are **optional**.
+> **Self-hosted document management for homelabs, NAS-backed servers, and private Docker deployments.**
 
-> Document management first. AI is an enhancement, not infrastructure.
 
-Engineering detail lives in [`docs/`](docs/README.md). This README is the front door, not the source of truth.
+Folium gives you a searchable, organised home for your documents with local OCR, structured filing, full-text search, and human-controlled ingestion. Add embeddings and an LLM if you want semantic search, filing suggestions, and **Ask Folium** — or run the entire document-management workflow without AI.
 
-## Why Folium
 
-- **Self-hosted** — Compose stack; your storage and PostgreSQL
-- **Document management first** — Inbox, folders, tags, trash work without an LLM
-- **AI optional** — no provider required for ingest, OCR, or keyword search
-- **Privacy-conscious** — application-enforced privacy modes; provider “no training” flags are claims, not guarantees
-- **Human-controlled filing** — Process is the Inbox gate to final chunk indexing
+<p align="center">
+  <img src="assets/login.png" alt="Folium Login" width="1000">
+</p>
 
-## Features
+**Document management first. RAG and AI second.**
 
-### Document management
+[![Release](https://img.shields.io/github/v/release/brocxftw/folium?include_prereleases\&label=release)](https://github.com/brocxftw/folium/releases)
+[![License](https://img.shields.io/github/license/brocxftw/folium)](LICENSE)
+[![Container](https://img.shields.io/badge/container-GHCR-2496ED?logo=docker\&logoColor=white)](https://github.com/brocxftw/folium/pkgs/container/folium)
+![Platform](https://img.shields.io/badge/platform-linux%2Famd64-lightgrey)
 
-- Per-owner library: logical folders, tags, document types, correspondents
-- Inbox review queue and explicit **Process**
-- Archive flag vs Trash (soft-delete + retention purge)
-- Bulk move / tag / trash / archive
-- Multi-user accounts, invites, quotas, admin-approved password reset
+---
 
-### OCR and ingestion
+## Why Folium?
 
-- Upload and `/consume` drop folder
-- Content-addressed originals (SHA-256); duplicates by checksum
-- PDF text (PyMuPDF), DOCX, text/markdown, images
-- Local **PaddleOCR PP-OCRv6** (CPU) for scans — no LLM required
+Most document-management systems solve storage and organisation. AI document tools often solve a different problem entirely — and require handing your documents to a model before they become useful.
 
-### Search and retrieval
+Folium is built around a simpler idea:
 
-- **Browse** empty-query lists vs **evidence search** (`POST /api/search`)
-- Keyword (PostgreSQL FTS) always
-- Semantic / hybrid (RRF) when embeddings exist; otherwise **keyword fallback**
+* Store and organise documents
+* Extract text and OCR scans locally
+* Search with PostgreSQL full-text search
+* File documents into folders and tags
+* Review metadata before committing it
+* Manage multiple users and quotas
+* Archive, trash, restore, and purge documents
 
-### Optional AI
+AI capabilities sit **on top** of that foundation, with support for both local providers and OpenAI-compatible APIs (cloud or self-hosted).
 
-- Filing **suggestions** (not canonical until accepted)
-- Chunk **embeddings** for hybrid search and Ask
-- **Ask Folium** with validated chunk citations
-- Document Ask can persist a thread; workspace Ask does not
-- OpenAI-compatible, Anthropic, Gemini adapters; local or remote subject to policy
+When configured, Folium can additionally:
 
-### Administration
+* Suggest titles, folders, tags, document types, and correspondents
+* Generate chunk embeddings
+* Add semantic and hybrid retrieval
+* Answer questions over your documents with **Ask Folium**
+* Return citations back to the supporting evidence
 
-- Settings: Profile, Artificial Intelligence, Library, System, Logs, About
-- Jobs view and cancel
-- Application logs in PostgreSQL
-- Health: `/health`, `/health/database`, `/health/storage`
-- **MCP** at `/mcp` (Bearer API token from Settings → Profile): search evidence, search documents, read a document, browse folders. Read-only; Ask Folium is not an MCP tool.
+No AI provider? Folium remains a document-management system.
 
-## How it works
+---
+
+## At a glance
+
+| Features            | Folium                                        |
+| ------------------- | --------------------------------------------- |
+| **Deployment**      | Self-hosted Docker Compose                    |
+| **Storage**         | Local disk, bind mounts, host-mounted NAS/NFS |
+| **Database**        | PostgreSQL + pgvector                         |
+| **OCR**             | Local PaddleOCR PP-OCRv6                      |
+| **Keyword search**  | PostgreSQL full-text search                   |
+| **Semantic search** | Optional embeddings                           |
+| **AI providers**    | Local or remote, policy controlled            |
+| **Filing**          | Human-controlled Inbox → Process workflow     |
+| **Originals**       | Content-addressed SHA-256 storage             |
+| **Users**           | Multi-user with owner isolation and quotas    |
+| **API**             | FastAPI + OpenAPI                             |
+| **MCP**             | Read-only document/search integration         |
+| **Licence**         | GNU AGPL v3.0                                 |
+
+---
+
+# What Folium does
+
+## 📥 Ingest and review
+
+Documents can enter Folium through drag and drop or folder/individual files selection.
+
+Folium then prepares them before they enter the final library:
 
 ```text
 Upload / Consume
-  → Extract / OCR
-  → Inbox
-  → Review
-  → Process
-  → Index (chunks)
-  → Optional embeddings
-  → Search / Ask
+        ↓
+Text extraction
+        ↓
+      OCR
+        ↓
+Optional AI suggestions
+        ↓
+      Inbox
+        ↓
+Human review
+        ↓
+     Process
+        ↓
+Final indexing
+        ↓
+Optional embeddings
+        ↓
+ Search / Ask
 ```
 
-Library uploads that already specify a folder can skip Inbox and index after preflight.
+<p align="center">
+  <img src="assets/ingestion_2.png" alt="Folium Login" width="1000">
+</p>
 
-Architecture: [`docs/architecture/overview.md`](docs/architecture/overview.md)
+The **Process** action is intentional.
+
+OCR completing does not silently decide where a document belongs. AI suggestions remain suggestions until you accept them, and documents can be reviewed manually when AI is disabled.
+
+Uploads that already have an explicit library destination can bypass the Inbox where appropriate.
+
+---
+
+## 🗂️ Organise your library
+
+Folium treats organisation as first-class document metadata.
+
+You can manage:
+
+* Nested logical folders
+* Tags
+* Document types
+* Correspondents
+* Titles and notes
+* Created and effective dates
+* Archive serials
+* Custom metadata
+* Bulk move, tag, archive, trash, and restore actions
+
+
+<p align="center">
+  <img src="assets/library.png" alt="Folium Library" width="1000">
+</p>
+
+
+Logical folders do **not** physically move the stored original.
+
+Original files live in content-addressed storage keyed by SHA-256, while folders and filing information remain database metadata.
+
+That keeps storage predictable and lets Folium reorganise documents without constantly moving files around your filesystem.
+
+---
+
+## 🔎 Find documents quickly
+
+Folium separates **finding evidence** from **asking AI about evidence**.
+
+### Quick Search
+
+Press:
 
 ```text
-Browser → web (nginx) → api (FastAPI) → PostgreSQL + files
-                              ↓
-                         jobs table → worker (OCR, index, embed)
+Ctrl + K
 ```
 
-## AI is optional
+or:
 
-Without chat, embeddings, or remote APIs, Folium still:
+```text
+Cmd + K
+```
 
-- Ingests and OCRs documents
-- Files via Inbox / Process
-- Searches with **keyword** FTS
+to open Quick Search from anywhere in the application.
 
-Ask, semantic search, auto-suggestions, and summaries need configured providers and privacy flags. Unreachable AI does **not** fail `/health`.
+<p align="center">
+  <img src="assets/search.png" alt="Folium Search" width="1000">
+</p>
 
-Details: [`docs/backend/ai-and-rag.md`](docs/backend/ai-and-rag.md)
 
-## Installation
+### Keyword search
 
-**Primary path:** interactive installer (one file). Review it, then run it:
+Works without AI.
+
+Folium uses PostgreSQL full-text search across document and page content so OCRed and extracted text remains searchable even with no embedding provider configured.
+
+### Semantic search
+
+When embeddings are configured, Folium can retrieve document chunks by meaning rather than exact wording.
+
+### Hybrid search
+
+
+Folium combines keyword and semantic retrieval using reciprocal rank fusion.
+
+If semantic retrieval is unavailable, search can fall back to keyword retrieval rather than making the library unusable.
+
+> **Search retrieves evidence. Ask Folium generates an answer from evidence.**
+
+They are deliberately separate operations.
+
+---
+
+## ✨ Ask Folium
+
+Ask questions against:
+
+* The entire library
+* A folder
+* A folder and its descendants
+* Selected documents
+* The current document
+* A frozen set of search results
+
+Folium retrieves relevant document chunks first, then sends that evidence to the configured chat model.
+
+<p align="center">
+  <img src="assets/document_preview.png" alt="Document Preview" width="1000">
+</p>
+
+Answers are tied back to retrieved evidence using validated citations.
+
+```text
+Question
+   ↓
+Resolve scope
+   ↓
+Keyword / semantic retrieval
+   ↓
+Rank evidence
+   ↓
+Build bounded context
+   ↓
+Chat model
+   ↓
+Answer + citations
+```
+
+If the available evidence cannot support an answer, Folium can return an **insufficient evidence** result rather than pretending the library contains an answer.
+
+Ask Folium currently focuses on a bounded, single-turn evidence workflow rather than behaving like a general-purpose chatbot.
+
+---
+
+## 🤖 AI — optional by design
+
+Folium separates AI responsibilities rather than assuming one model must do everything.
+
+<p align="center">
+  <img src="assets/ai_features.png" alt="Document Preview" width="1000">
+</p>
+
+Providers can be assigned independently for:
+
+* **Filing** — metadata and organisation suggestions
+* **Embeddings** — semantic retrieval
+* **Chat** — Ask Folium
+* **Vision** — where configured
+
+Providers may be local or remote depending on your deployment and privacy policy.
+
+### Without AI
+
+Folium still supports:
+
+* Upload and consume
+* Text extraction
+* Local OCR
+* Inbox review
+* Manual filing
+* Folder and tag organisation
+* Chunk indexing
+* Keyword search
+* Library management
+* Trash and retention
+
+### With AI
+
+You can add:
+
+* Filing suggestions
+* Embeddings
+* Semantic search
+* Hybrid search
+* Ask Folium
+* AI-assisted document understanding
+
+Folium also distinguishes between provider claims such as **no training** or **zero retention** and privacy controls actually enforced by the application.
+
+---
+
+## 🔐 Privacy controls
+
+Folium supports application-level privacy policies for AI workloads.
+
+Deployment policies can control whether document content may be sent to remote providers, including separate controls for embeddings, Q&A, and vision workloads.
+
+Typical modes include:
+
+* **Local only** — document content stays with local AI providers
+* **Private hybrid** — prefer local providers and permit remote use according to policy
+* **Standard** — use configured providers subject to the configured controls
+
+Remote-provider confirmation and blocking policies can be applied separately.
+
+Self-hosting alone does not automatically make every configured AI provider private — Folium makes that boundary explicit.
+
+---
+
+## 📤 Share original documents
+
+Documents can be shared directly from the viewer and document menus.
+
+On browsers supporting the Web Share API, Folium hands the **original file** to the operating system's native share sheet — useful for sending a document through applications such as mail or messaging clients.
+
+<p align="center">
+  <img src="assets/share.png" alt="Share" width="1000">
+</p>
+
+Where native file sharing is unavailable, Folium falls back to downloading the original.
+
+No third-party messaging integration or vendor API is required.
+
+---
+
+## 🧾 OCR built in
+
+Folium uses local **PaddleOCR PP-OCRv6** for scanned PDFs and images.
+
+Supported ingestion includes:
+
+* PDFs with embedded text
+* Scanned PDFs
+* Images
+* DOCX
+* Plain text
+* Markdown
+
+OCR runs in the worker rather than requiring an external LLM service.
+
+The OCR execution path is isolated so large OCR workloads do not permanently retain PaddleOCR model memory inside the long-running worker process.
+
+---
+
+## 🗄️ Storage that stays understandable
+
+Folium uses three main filesystem concepts:
+
+```text
+/documents    persistent document storage
+/consume      watched ingestion directory
+/export       export destination
+```
+
+Originals are content-addressed:
+
+```text
+/documents/originals/{aa}/{sha256}.{ext}
+```
+
+This means the logical library hierarchy is independent of the physical blob location.
+
+### NAS / NFS
+
+Mount your NAS or NFS share on the Docker host, then bind-mount that host directory into Folium.
+
+Keep PostgreSQL on local Docker volume storage.
+
+See [`docs/architecture/storage.md`](docs/architecture/storage.md).
+
+---
+
+# Installation
+
+The recommended deployment path uses the published GHCR images and the interactive installer.
+
+## Interactive installer
+
+Download the installer, review it, then run it:
 
 ```bash
 curl -fsSL -o install-folium.sh \
   https://github.com/brocxftw/folium/releases/latest/download/install-folium.sh
+
 less install-folium.sh
+
 bash install-folium.sh
 ```
 
-This writes `/opt/folium`, pulls GHCR images, and installs `folium` (`status` / `start` / `stop` / `logs` / `doctor`). Guide: [`docs/deployment/installer.md`](docs/deployment/installer.md).
+The installer can:
 
-Manual Compose (no TUI): [`docs/deployment/install.md`](docs/deployment/install.md)
+* Check deployment prerequisites
+* Configure Folium
+* Set up storage
+* Configure network exposure
+* Select a published release
+* Offer stable or beta releases where available
+* Pull versioned GHCR images
+* Create the Compose deployment
+* Wait for Folium to become healthy
+* Detect an existing installation and offer an update path
+
+The default installation lives under:
+
+```text
+/opt/folium
+```
+
+and includes the `folium` management command:
 
 ```bash
-mkdir folium && cd folium
+folium status
+folium start
+folium stop
+folium logs
+folium doctor
+```
+
+Installer documentation:
+
+[`docs/deployment/installer.md`](docs/deployment/installer.md)
+
+---
+
+## Automation / non-interactive installation
+
+The installer also supports a non-interactive path intended for repeatable deployment and automation.
+
+Existing installations can be detected and updated while preserving secrets and storage configuration.
+
+See the installer documentation for the supported command-line contract:
+
+[`docs/deployment/installer.md`](docs/deployment/installer.md)
+
+---
+
+## Manual Docker Compose
+
+Prefer to manage Compose yourself?
+
+Download the release assets:
+
+```bash
+mkdir folium
+cd folium
+
 curl -fsSL -o docker-compose.yml \
   https://github.com/brocxftw/folium/releases/latest/download/docker-compose.yml
+
 curl -fsSL -o env.example \
   https://github.com/brocxftw/folium/releases/latest/download/env.example
+
 cp env.example .env
-# set FOLIUM_SECRET_KEY, FOLIUM_ENCRYPTION_KEY, POSTGRES_PASSWORD, FOLIUM_ADMIN_PASSWORD
-mkdir -p data/documents data/consume data/export data/paddleocr
-sudo chown -R 1000:1000 data/documents data/consume data/export data/paddleocr
+```
+
+Configure at minimum:
+
+```text
+FOLIUM_SECRET_KEY
+FOLIUM_ENCRYPTION_KEY
+POSTGRES_PASSWORD
+FOLIUM_ADMIN_PASSWORD
+```
+
+Create storage:
+
+```bash
+mkdir -p \
+  data/documents \
+  data/consume \
+  data/export \
+  data/paddleocr
+
+sudo chown -R 1000:1000 \
+  data/documents \
+  data/consume \
+  data/export \
+  data/paddleocr
+```
+
+Then start Folium:
+
+```bash
 docker compose up -d
 ```
 
-UI: http://localhost:9398 — bootstrap admin from `.env` **on first start only**.  
-OpenAPI is proxied at http://localhost:9398/docs (host API port 9099 is unpublished unless you opt in). MCP: http://localhost:9398/mcp.
+Open:
 
-Locked out of every admin: `docker compose exec -it api folium reset-admin-password`
+```text
+http://localhost:9398
+```
 
-### Updating
+The bootstrap administrator configured in `.env` is created on the **first start only**.
 
-Operators pull published GHCR images. Do not `git pull` or `docker compose build` on a production install.
+OpenAPI:
 
-**1. Installer (primary).** Re-run the same script. When it detects `/opt/folium` (or your install dir), choose **Update**. Secrets and document data stay in place; Compose pulls the pinned release images and restarts. The `folium update` CLI command is still a stub — use the installer TUI.
+```text
+http://localhost:9398/docs
+```
+
+MCP:
+
+```text
+http://localhost:9398/mcp
+```
+
+The backend API port is not published directly unless you explicitly configure it.
+
+Full manual installation guide:
+
+[`docs/deployment/install.md`](docs/deployment/install.md)
+
+---
+
+# Updating
+
+## Installer deployment
+
+Re-run the installer:
 
 ```bash
 curl -fsSL -o install-folium.sh \
   https://github.com/brocxftw/folium/releases/latest/download/install-folium.sh
+
 less install-folium.sh
+
 bash install-folium.sh
 ```
 
-**2. Manual Compose.** In the directory with `docker-compose.yml` and `.env`, pin the release and recreate:
+When Folium detects the existing installation, choose **Update**.
+
+Your secrets and document storage remain in place while the selected release images are pulled and the stack is recreated.
+
+## Manual Compose deployment
+
+Choose the version you want from [Releases](../../releases), set that release in `.env`, then:
 
 ```bash
-# in .env
-FOLIUM_VERSION=0.1.22
-
 docker compose pull
 docker compose up -d
 ```
 
-Do not `docker compose down -v`. The API runs migrations on start. Confirm with `curl -sS http://localhost:9398/health` (`"version"` should match the pin). Full notes and rollback limits: [`docs/deployment/upgrades.md`](docs/deployment/upgrades.md).
-
-Contributors building from source: [`docs/development/local-development.md`](docs/development/local-development.md)
-
-Deployment: [`docs/deployment/`](docs/deployment/overview.md)
-
-## Configuration
-
-Copy `.env.example`. Compose builds `DATABASE_URL` from `POSTGRES_*`. AI policy env vars **seed** the database once; later changes are in Settings.
-
-Verified reference: [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md)
-
-## Storage
-
-Logical folders are metadata. Blobs stay under `/documents/originals/{aa}/{checksum}.ext`.  
-Folium does **not** mount NFS — bind-mount host paths (optionally NFS-mounted on the host). Keep PostgreSQL on a **local** Docker volume.
-
-[`docs/architecture/storage.md`](docs/architecture/storage.md)
-
-## Documentation
-
-**Start here:** [`docs/README.md`](docs/README.md)
-
-Vocabulary: [`ubiquitous-language.md`](ubiquitous-language.md)
-
-## Development
-
-Host API + Vite, or Compose. See [`docs/development/local-development.md`](docs/development/local-development.md).
+Do **not** use:
 
 ```bash
-make test          # backend pytest + frontend vitest/build + installer helpers
+docker compose down -v
 ```
 
-## Repository structure
+unless you explicitly intend to remove persistent Docker volumes.
+
+The API applies database migrations during startup.
+
+Verify the deployment:
+
+```bash
+curl -sS http://localhost:9398/health
+```
+
+Upgrade and rollback notes:
+
+[`docs/deployment/upgrades.md`](docs/deployment/upgrades.md)
+
+---
+
+# Backup and restore
+
+Folium can create full `.folium` backup bundles containing the state required to restore an installation.
+
+The current backup implementation focuses on full local backups rather than incremental or cloud-native backup strategies.
+
+Fresh installations can use the restore workflow to recover an existing Folium deployment.
+
+See:
+
+[`docs/deployment/backup.md`](docs/deployment/backup.md)
+
+For important deployments, Folium's built-in backup should still be part of a wider host/NAS backup strategy rather than your only copy of the data.
+
+---
+
+# MCP integration
+
+Folium exposes a read-only MCP endpoint at:
 
 ```text
-backend/     FastAPI, worker, Alembic, tests
-frontend/    React SPA
-docker/      Dockerfiles, nginx
-installer/   Whiptail TUI, bootstrap, management CLI
-docs/        Architecture and operations
+/mcp
 ```
 
-## Current limitations / project status
+Create an API token from:
 
-- GHCR images are **linux/amd64**; ARM is untested ([`production-readiness.md`](docs/deployment/production-readiness.md))
-- Packages must be **public** on GHCR after the first publish (one-time maintainer step)
-- `/export` is mounted but unused for document export
-- Backup V1 is full local `.folium` bundles only (no incremental/cloud/browser upload)
-- No SMTP; password reset is admin-approved
-- No browser end-to-end test suite
-- `classification` job type exists without a handler
-- Database migrations are forward-only; image rollback does not undo schema changes
+```text
+Settings → Profile
+```
 
-## Contributing
+The MCP surface can be used by compatible external tools and agents to:
+
+* Search evidence
+* Search documents
+* Read document content
+* Browse folders
+
+The MCP integration is intentionally read-only.
+
+Ask Folium itself is not exposed as an MCP tool.
+
+---
+
+# Administration
+
+Folium includes administration surfaces for:
+
+* User profiles
+* AI providers and workload assignments
+* AI privacy controls
+* Library settings
+* User administration
+* Storage and system information
+* Backup and restore
+* Application logs
+* About and project information
+
+Multi-user deployments include:
+
+* Owner-isolated libraries
+* Invites
+* Storage quotas
+* Monthly AI request quotas
+* Administrator controls
+* Administrator-assisted password reset
+
+---
+
+# Architecture
+
+Folium is a Docker Compose application built around a deliberately conventional architecture:
+
+```text
+                     ┌──────────────┐
+                     │   Browser    │
+                     └──────┬───────┘
+                            │
+                     ┌──────▼───────┐
+                     │  web / nginx │
+                     └──────┬───────┘
+                            │
+                     ┌──────▼───────┐
+                     │   FastAPI    │
+                     │     API      │
+                     └───┬──────┬───┘
+                         │      │
+                ┌────────▼─┐  ┌─▼──────────────┐
+                │PostgreSQL│  │ Document files │
+                │+ pgvector│  │ / NAS storage  │
+                └─────┬────┘  └────────────────┘
+                      │
+                ┌─────▼─────┐
+                │ Jobs table │
+                └─────┬─────┘
+                      │
+                ┌─────▼─────┐
+                │   Worker   │
+                │ OCR / index│
+                │ / embed    │
+                └────────────┘
+```
+
+The database-backed worker queue handles long-running document work such as OCR, indexing, embeddings, thumbnails, and metadata suggestions.
+
+Architecture documentation:
+
+[`docs/architecture/overview.md`](docs/architecture/overview.md)
+
+---
+
+# Health and operations
+
+Application health endpoints include:
+
+```text
+/health
+/health/database
+/health/storage
+```
+
+AI provider availability is intentionally separate from core application health.
+
+An unavailable LLM should not make a functioning document-management deployment appear dead.
+
+The Jobs workspace exposes background work and cancellation controls, while application logs are persisted in PostgreSQL for inspection through the UI.
+
+---
+
+# Development
+
+Folium consists of:
+
+```text
+backend/     FastAPI, workers, domain services, Alembic, tests
+frontend/    React + TypeScript application
+docker/      Container definitions and nginx
+installer/   Whiptail installer and management tooling
+docs/        Architecture, development and operations documentation
+```
+
+Run the project test suite with:
+
+```bash
+make test
+```
+
+This covers the backend, frontend build/tests, and installer helpers.
+
+Start here for development:
+
+[`docs/development/local-development.md`](docs/development/local-development.md)
+
+Contributing:
 
 [`docs/development/contributing.md`](docs/development/contributing.md)
 
-## Licence
+---
+
+# Documentation
+
+The root README is intentionally the project's front door.
+
+The detailed source of truth lives under [`docs/`](docs/README.md).
+
+| Area               | Documentation                                                |
+| ------------------ | ------------------------------------------------------------ |
+| Architecture       | [`docs/architecture/`](docs/architecture/overview.md)        |
+| Backend            | [`docs/backend/`](docs/backend/overview.md)                  |
+| Frontend           | [`docs/frontend/`](docs/frontend/overview.md)                |
+| Deployment         | [`docs/deployment/`](docs/deployment/overview.md)            |
+| Development        | [`docs/development/`](docs/development/local-development.md) |
+| Product vocabulary | [`ubiquitous-language.md`](ubiquitous-language.md)           |
+
+A useful rule for the project is:
+
+```text
+CODE → docs/ → README.md
+```
+
+The README should explain Folium.
+
+The documentation should explain how Folium works.
+
+---
+
+# Release channels
+
+Folium is currently a **pre-1.0 project** and is evolving quickly.
+
+Published GitHub releases are the deployment boundary. Operators should run versioned GHCR images rather than building the current `main` branch for production use.
+
+The installer can expose both stable releases and explicitly marked beta releases while keeping the stable channel separate.
+
+See:
+
+[GitHub Releases](../../releases)
+
+---
+
+# Current limitations
+
+Folium is actively developed. Important limitations currently include:
+
+* Published images currently target **linux/amd64**
+* ARM deployments are not yet a supported release target
+* `/export` is mounted but document export functionality remains limited
+* Backup V1 uses full local `.folium` bundles rather than incremental/cloud backups
+* Password reset is administrator-assisted; SMTP recovery is not currently provided
+* Browser end-to-end test coverage is still limited
+* Multi-turn conversational Ask is not yet the primary Ask workflow
+* Database migrations are forward-moving; reverting an image does not automatically reverse schema migrations
+* Semantic capabilities depend on embedding-provider availability and coverage
+* AI quality depends on the models and context limits configured by the operator
+
+For release-readiness details:
+
+[`docs/deployment/production-readiness.md`](docs/deployment/production-readiness.md)
+
+---
+
+# Licence
 
 Folium is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
-This matches the copyleft terms of PyMuPDF, which Folium uses for PDF text extraction and rendering. See also the dependency notes in [`docs/deployment/production-readiness.md`](docs/deployment/production-readiness.md). This is not legal advice.
+The project uses PyMuPDF for PDF text extraction and rendering, and the project licence reflects the resulting copyleft requirements.
 
-## Acknowledgements
+See the dependency and licensing notes in:
 
-Built with FastAPI, PostgreSQL, [pgvector](https://github.com/pgvector/pgvector), React, PaddleOCR, PyMuPDF, and nginx. Inspired by the operational shape of self-hosted document managers such as Paperless-ngx, without being a fork of that project.
+[`docs/deployment/production-readiness.md`](docs/deployment/production-readiness.md)
+
+This is not legal advice.
+
+---
+
+# Acknowledgements
+
+Folium is built with:
+
+* FastAPI
+* PostgreSQL
+* pgvector
+* React
+* PaddleOCR
+* PyMuPDF
+* nginx
+* Docker
+
+Its operational shape is inspired by mature self-hosted document-management projects such as Paperless-ngx, while Folium remains an independent implementation rather than a fork.
+
