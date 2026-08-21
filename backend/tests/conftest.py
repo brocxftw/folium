@@ -31,6 +31,9 @@ os.environ["FRONTEND_ORIGIN"] = "http://test"
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://folium:folium@localhost:5433/folium_test"
 os.environ["DATABASE_URL_SYNC"] = "postgresql+psycopg://folium:folium@localhost:5433/folium_test"
 os.environ["OCR_ENABLED"] = "false"
+# Unit tests mock Paddle in-process; production default is subprocess OCR.
+os.environ["OCR_IN_PROCESS"] = "true"
+os.environ["JOB_CONCURRENCY"] = "1"
 
 from folium.bootstrap import bootstrap  # noqa: E402
 from folium.core.config import get_settings  # noqa: E402

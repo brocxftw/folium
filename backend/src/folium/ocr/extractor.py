@@ -17,11 +17,15 @@ from PIL import Image
 from folium.core.config import Settings, get_settings
 from folium.core.exceptions import ValidationError
 from folium.ocr.paddle_engine import ocr_image, paddle_ocr_available
+from folium.ocr.subprocess_client import OcrSubprocessError, run_ocr_subprocess
 
 logger = logging.getLogger(__name__)
 
 _MIN_CHARS_PER_PAGE = 32
-_OCR_DPI = 200
+_DEFAULT_OCR_DPI = 150
+
+OnOcrProgress = Callable[[int, int], None]
+OnOcrPage = Callable[[int, str], None]
 
 
 @dataclass(frozen=True)
@@ -49,7 +53,8 @@ def extract_document(
     language: str | None = None,
     allow_ocr: bool = True,
     force_ocr: bool = False,
-    on_ocr_progress: Callable[[int, int], None] | None = None,
+    on_ocr_progress: OnOcrProgress | None = None,
+    on_ocr_page: OnOcrPage | None = None,
 ) -> ExtractedDocument:
     """Extract text from a supported document on disk.
 
@@ -57,6 +62,10 @@ def extract_document(
     - ``allow_ocr=False``: native text only (fast pre-flight extract)
     - ``force_ocr=True``: always run OCR (dedicated OCR job)
     - default: OCR when native text looks too thin
+
+    When ``on_ocr_page`` is provided, each OCR page is reported as it completes
+    (for incremental persistence). Returned ``pages`` still includes all pages
+    unless the caller only needs the stream.
     """
     settings = settings or get_settings()
     lang = language or settings.ocr_language
@@ -73,6 +82,7 @@ def extract_document(
             allow_ocr=allow_ocr,
             force_ocr=force_ocr,
             on_ocr_progress=on_ocr_progress,
+            on_ocr_page=on_ocr_page,
         )
     if mime in {"image/png", "image/jpeg"}:
         return _extract_image(
@@ -80,6 +90,7 @@ def extract_document(
             settings=settings,
             language=lang,
             on_ocr_progress=on_ocr_progress,
+            on_ocr_page=on_ocr_page,
         )
     if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         return _extract_docx(path)
@@ -139,7 +150,8 @@ def _extract_pdf(
     language: str,
     allow_ocr: bool = True,
     force_ocr: bool = False,
-    on_ocr_progress: Callable[[int, int], None] | None = None,
+    on_ocr_progress: OnOcrProgress | None = None,
+    on_ocr_page: OnOcrPage | None = None,
 ) -> ExtractedDocument:
     pages = _pdf_text_pages(path)
     should_ocr = (
@@ -149,9 +161,15 @@ def _extract_pdf(
     )
     if should_ocr:
         if paddle_ocr_available():
-            ocr_kwargs: dict[str, Any] = {"language": language}
+            ocr_kwargs: dict[str, Any] = {
+                "language": language,
+                "dpi": settings.ocr_dpi,
+                "settings": settings,
+            }
             if on_ocr_progress is not None:
                 ocr_kwargs["on_progress"] = on_ocr_progress
+            if on_ocr_page is not None:
+                ocr_kwargs["on_page"] = on_ocr_page
             pages = _ocr_pdf_pages_paddle(path, **ocr_kwargs)
             method = "pymupdf+paddleocr"
         else:
@@ -201,17 +219,44 @@ def _extract_image(
     *,
     settings: Settings,
     language: str,
-    on_ocr_progress: Callable[[int, int], None] | None = None,
+    on_ocr_progress: OnOcrProgress | None = None,
+    on_ocr_page: OnOcrPage | None = None,
 ) -> ExtractedDocument:
     text = ""
     method = "pillow"
     if settings.ocr_enabled and paddle_ocr_available():
-        if on_ocr_progress is not None:
-            on_ocr_progress(0, 1)
-        text = ocr_image(path, language=language)
-        method = "paddleocr"
-        if on_ocr_progress is not None:
-            on_ocr_progress(1, 1)
+        if settings.ocr_in_process:
+            if on_ocr_progress is not None:
+                on_ocr_progress(0, 1)
+            text = ocr_image(path, language=language)
+            method = "paddleocr"
+            if on_ocr_page is not None:
+                on_ocr_page(1, text)
+            if on_ocr_progress is not None:
+                on_ocr_progress(1, 1)
+        else:
+            captured: list[str] = []
+
+            def _collect(page_number: int, page_text: str) -> None:
+                captured.append(page_text)
+                if on_ocr_page is not None:
+                    on_ocr_page(page_number, page_text)
+
+            try:
+                done = run_ocr_subprocess(
+                    mode="image",
+                    path=path,
+                    language=language,
+                    dpi=settings.ocr_dpi,
+                    timeout_seconds=settings.ocr_subprocess_timeout_seconds,
+                    on_progress=on_ocr_progress,
+                    on_page=_collect,
+                )
+            except OcrSubprocessError:
+                logger.exception("OCR subprocess failed for image %s", path)
+                raise
+            method = done.method
+            text = captured[0] if captured else ""
     else:
         with Image.open(path) as img:
             # Metadata-only fallback when OCR is unavailable.
@@ -229,8 +274,9 @@ def _extract_image(
                     path,
                 )
 
+    page = ExtractedPage(page_number=1, text=text.strip())
     return ExtractedDocument(
-        pages=[ExtractedPage(page_number=1, text=text.strip())],
+        pages=[page],
         page_count=1,
         language=language if method == "paddleocr" else None,
         method=method,
@@ -241,7 +287,61 @@ def _ocr_pdf_pages_paddle(
     path: Path,
     *,
     language: str,
-    on_progress: Callable[[int, int], None] | None = None,
+    dpi: int | None = None,
+    settings: Settings | None = None,
+    on_progress: OnOcrProgress | None = None,
+    on_page: OnOcrPage | None = None,
+) -> list[ExtractedPage]:
+    settings = settings or get_settings()
+    render_dpi = int(dpi if dpi is not None else getattr(settings, "ocr_dpi", _DEFAULT_OCR_DPI))
+
+    if settings.ocr_in_process:
+        return _ocr_pdf_pages_paddle_inprocess(
+            path,
+            language=language,
+            dpi=render_dpi,
+            on_progress=on_progress,
+            on_page=on_page,
+        )
+
+    pages: list[ExtractedPage] = []
+
+    def _collect(page_number: int, text: str) -> None:
+        pages.append(ExtractedPage(page_number=page_number, text=text))
+        if on_page is not None:
+            on_page(page_number, text)
+
+    try:
+        done = run_ocr_subprocess(
+            mode="pdf",
+            path=path,
+            language=language,
+            dpi=render_dpi,
+            timeout_seconds=settings.ocr_subprocess_timeout_seconds,
+            on_progress=on_progress,
+            on_page=_collect,
+        )
+    except OcrSubprocessError:
+        logger.exception("OCR subprocess failed for PDF %s", path)
+        raise
+
+    if done.page_count and len(pages) != done.page_count:
+        logger.warning(
+            "OCR page count mismatch for %s: events=%s done=%s",
+            path,
+            len(pages),
+            done.page_count,
+        )
+    return pages
+
+
+def _ocr_pdf_pages_paddle_inprocess(
+    path: Path,
+    *,
+    language: str,
+    dpi: int,
+    on_progress: OnOcrProgress | None = None,
+    on_page: OnOcrPage | None = None,
 ) -> list[ExtractedPage]:
     pages: list[ExtractedPage] = []
     with pymupdf.open(path) as doc:
@@ -250,17 +350,21 @@ def _ocr_pdf_pages_paddle(
             on_progress(0, total)
         for index in range(total):
             page = doc.load_page(index)
-            pix = page.get_pixmap(dpi=_OCR_DPI, alpha=False)
+            pix = page.get_pixmap(dpi=dpi, alpha=False)
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
                 tmp_path = Path(tmp.name)
             try:
                 pix.save(str(tmp_path))
+                del pix
                 text = ocr_image(tmp_path, language=language)
             finally:
                 tmp_path.unlink(missing_ok=True)
-            pages.append(ExtractedPage(page_number=index + 1, text=text))
+            page_number = index + 1
+            pages.append(ExtractedPage(page_number=page_number, text=text))
+            if on_page is not None:
+                on_page(page_number, text)
             if on_progress is not None:
-                on_progress(index + 1, total)
+                on_progress(page_number, total)
     return pages
 
 

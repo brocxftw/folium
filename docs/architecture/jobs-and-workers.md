@@ -24,7 +24,11 @@ queued → running → completed
 
 ## Concurrency
 
-`JOB_CONCURRENCY` (default 2) is an asyncio semaphore **inside one worker process**.
+`JOB_CONCURRENCY` (default 1) is an asyncio semaphore **inside one worker process**.
+
+OCR takes an **exclusive gate**: while a Paddle OCR job (PDF OCR or image extract) is running, the worker does not claim additional jobs. This prevents indexing/backup peaks from stacking on OCR RAM even if concurrency is raised above 1.
+
+PaddleOCR runs in a **short-lived subprocess** by default (`OCR_IN_PROCESS=false`). The parent worker stays lean; when the child exits, the kernel reclaims model RAM. PDF pages are rendered at `OCR_DPI` (default 150) and streamed to the parent as NDJSON page events for incremental persistence.
 
 **Inbox preflight gate:** extract/OCR/thumbnail/metadata_suggestion for still-preparing Inbox docs are claimed for **one document at a time** (oldest `added_date`). Ready Inbox docs (e.g. suggestion retry) use normal ordering.
 

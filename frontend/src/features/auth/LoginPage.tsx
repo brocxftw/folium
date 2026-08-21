@@ -209,13 +209,7 @@ export function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-5 mb-4 flex items-center gap-3">
-          <span className="h-px flex-1 bg-[rgba(148,163,184,0.20)]" />
-          <span className="text-sm text-[#94A3B8]">or</span>
-          <span className="h-px flex-1 bg-[rgba(148,163,184,0.20)]" />
-        </div>
-
-        <p className="text-center text-sm font-normal text-[#94A3B8]">
+        <p className="mt-5 text-center text-sm font-normal text-[#94A3B8]">
           Self-hosted. Your data stays under your control.
         </p>
 
