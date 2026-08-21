@@ -34,8 +34,10 @@ fi
 
 FOLIUM_NONINTERACTIVE="${FOLIUM_NONINTERACTIVE:-0}"
 FOLIUM_KEEP_SECRETS="${FOLIUM_KEEP_SECRETS:-0}"
+FOLIUM_JSON="${FOLIUM_JSON:-0}"
 FOLIUM_MODE="${FOLIUM_MODE:-install}"
 SHOW_ADMIN_PASSWORD=0
+FOLIUM_HEALTHY="${FOLIUM_HEALTHY:-1}"
 
 on_interrupt() {
   # Set the flag first so any UI retry loop stops immediately.
@@ -54,12 +56,43 @@ on_interrupt() {
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--noninteractive] [--help]
+Usage: install.sh [options]
 
 Interactive (default): whiptail TUI that writes an install directory,
 Compose overlay, and .env, then pulls or builds images and waits for health.
 
-Non-interactive: set FOLIUM_* variables (see docs/deployment/installer.md).
+Options:
+  --noninteractive       Run without TUI (automation / CI / agents)
+  --update               Update an existing install (implies --noninteractive)
+  --version <tag>        Pin or alias: vX.Y.Z, X.Y.Z-beta.N, latest, beta
+  --preserve-secrets     Keep existing .env secrets (default on update)
+  --json                 Print one JSON summary line on completion
+  -h, --help             Show this help
+
+Non-interactive environment variables (also see docs/deployment/installer.md):
+  FOLIUM_VERSION / FOLIUM_VERSION_TAG   pinned release, or latest / beta
+  FOLIUM_INSTALL_DIR                    install root (default /opt/folium)
+  FOLIUM_KEEP_SECRETS=1                 preserve secrets when .env exists
+  FOLIUM_MODE=update|install            force update vs fresh install
+  FOLIUM_BIND, FOLIUM_HTTP_PORT, FOLIUM_API_PORT, FOLIUM_EXPOSE_API
+  FRONTEND_ORIGIN / FOLIUM_FRONTEND_ORIGIN
+  FOLIUM_DOCUMENTS_HOST, FOLIUM_CONSUME_HOST, FOLIUM_EXPORT_HOST, FOLIUM_PADDLE_CACHE_HOST
+  FOLIUM_SECRET_KEY, FOLIUM_ENCRYPTION_KEY, POSTGRES_PASSWORD, FOLIUM_ADMIN_*
+  COMPOSE_PROJECT_NAME, FOLIUM_ACCEPT_RISKY_PATH=1, FOLIUM_SKIP_CLI=1
+
+Examples:
+  # Fresh install of latest stable
+  bash install-folium.sh --noninteractive --version latest
+
+  # Update existing install to newest beta (secrets/bind preserved)
+  bash install-folium.sh --noninteractive --update --version beta --json
+
+Exit codes:
+  0  success and healthy
+  1  install/update failed
+  2  bad arguments / config
+  3  completed but health checks failed
+  130 interrupted
 EOF
 }
 
@@ -70,6 +103,38 @@ parse_args() {
         FOLIUM_NONINTERACTIVE=1
         FOLIUM_UI=none
         export FOLIUM_UI
+        shift
+        ;;
+      --update)
+        FOLIUM_NONINTERACTIVE=1
+        FOLIUM_UI=none
+        export FOLIUM_UI
+        FOLIUM_MODE=update
+        shift
+        ;;
+      --version)
+        if [[ $# -lt 2 || -z "${2:-}" ]]; then
+          echo "Missing value for --version" >&2
+          usage
+          exit 2
+        fi
+        FOLIUM_VERSION="$2"
+        FOLIUM_VERSION_TAG="v$(config_strip_v_prefix "$2")"
+        # Allow aliases to pass through resolve later (vlatest / vbeta are wrong).
+        case "$(config_strip_v_prefix "$2")" in
+          latest|beta)
+            FOLIUM_VERSION="$(config_strip_v_prefix "$2")"
+            FOLIUM_VERSION_TAG="${FOLIUM_VERSION}"
+            ;;
+        esac
+        shift 2
+        ;;
+      --preserve-secrets)
+        FOLIUM_KEEP_SECRETS=1
+        shift
+        ;;
+      --json)
+        FOLIUM_JSON=1
         shift
         ;;
       -h|--help)
@@ -83,6 +148,37 @@ parse_args() {
         ;;
     esac
   done
+}
+
+emit_json_summary() {
+  [[ "${FOLIUM_JSON}" == "1" ]] || return 0
+  local healthy_json="false"
+  [[ "${FOLIUM_HEALTHY:-0}" == "1" ]] && healthy_json="true"
+  FOLIUM_SUMMARY_HEALTHY="${healthy_json}" \
+  FOLIUM_VERSION="${FOLIUM_VERSION:-}" \
+  FOLIUM_VERSION_TAG="${FOLIUM_VERSION_TAG:-}" \
+  FOLIUM_INSTALL_DIR="${FOLIUM_INSTALL_DIR:-}" \
+  FOLIUM_FRONTEND_ORIGIN="${FOLIUM_FRONTEND_ORIGIN:-}" \
+  FOLIUM_MODE="${FOLIUM_MODE:-install}" \
+  python3 -c 'import json,os
+print(json.dumps({
+  "version": os.environ.get("FOLIUM_VERSION",""),
+  "version_tag": os.environ.get("FOLIUM_VERSION_TAG",""),
+  "healthy": os.environ.get("FOLIUM_SUMMARY_HEALTHY","false") == "true",
+  "install_dir": os.environ.get("FOLIUM_INSTALL_DIR",""),
+  "frontend_origin": os.environ.get("FOLIUM_FRONTEND_ORIGIN",""),
+  "mode": os.environ.get("FOLIUM_MODE","install"),
+}, separators=(",", ":")))'
+}
+
+# Print summary (and optional JSON), then exit with the health-aware status code.
+finish_noninteractive() {
+  success_screen
+  emit_json_summary
+  if [[ "${FOLIUM_HEALTHY:-0}" == "1" ]]; then
+    exit 0
+  fi
+  exit 3
 }
 
 ensure_whiptail() {
@@ -835,6 +931,7 @@ update_install() {
   [[ -f "${FOLIUM_INSTALL_DIR}/.env" ]] || abort "No .env in ${FOLIUM_INSTALL_DIR}."
   [[ -f "${FOLIUM_INSTALL_DIR}/docker-compose.yml" ]] || abort "No docker-compose.yml in ${FOLIUM_INSTALL_DIR}."
 
+  FOLIUM_MODE=update
   FOLIUM_METHOD=image
   SHOW_ADMIN_PASSWORD=0
   FOLIUM_BIND="${FOLIUM_BIND:-0.0.0.0}"
@@ -847,39 +944,47 @@ update_install() {
   FOLIUM_CONSUME_PATH="$(config_env_get FOLIUM_CONSUME_HOST || printf '%s' "${FOLIUM_CONSUME_PATH:-${FOLIUM_INSTALL_DIR}/data/consume}")"
   FOLIUM_EXPORT_PATH="$(config_env_get FOLIUM_EXPORT_HOST || printf '%s' "${FOLIUM_EXPORT_PATH:-${FOLIUM_INSTALL_DIR}/data/export}")"
   FOLIUM_PADDLE_PATH="$(config_env_get FOLIUM_PADDLE_CACHE_HOST || printf '%s' "${FOLIUM_PADDLE_PATH:-${FOLIUM_INSTALL_DIR}/data/paddleocr}")"
-  local rc=0
-  while true; do
-    rc=0
-    wizard_version || rc=$?
-    case "${rc}" in
-      0) break ;;
-      1) continue ;;
-      2)
-        prompt_existing "${FOLIUM_INSTALL_DIR}"
-        case "${FOLIUM_MODE}" in
-          update) continue ;;
-          repair) repair_install; return 0 ;;
-          reconfigure) return 2 ;;
-          *) return 0 ;;
-        esac
-        ;;
-      130) exit 130 ;;
-      *) abort "Unexpected update state (${rc})." ;;
-    esac
-  done
 
-  local go=""
-  go="$(ui_menu "Update Folium to ${FOLIUM_VERSION_TAG} (image tag ${FOLIUM_VERSION})?
+  if [[ "${FOLIUM_NONINTERACTIVE}" == "1" ]]; then
+    if ! config_resolve_version_tag; then
+      abort "Could not resolve FOLIUM_VERSION / FOLIUM_VERSION_TAG to a pinned release."
+    fi
+    log_info "noninteractive update to ${FOLIUM_VERSION_TAG}"
+  else
+    local rc=0
+    while true; do
+      rc=0
+      wizard_version || rc=$?
+      case "${rc}" in
+        0) break ;;
+        1) continue ;;
+        2)
+          prompt_existing "${FOLIUM_INSTALL_DIR}"
+          case "${FOLIUM_MODE}" in
+            update) continue ;;
+            repair) repair_install; return 0 ;;
+            reconfigure) return 2 ;;
+            *) return 0 ;;
+          esac
+          ;;
+        130) exit 130 ;;
+        *) abort "Unexpected update state (${rc})." ;;
+      esac
+    done
+
+    local go=""
+    go="$(ui_menu "Update Folium to ${FOLIUM_VERSION_TAG} (image tag ${FOLIUM_VERSION})?
 
 Install dir: ${FOLIUM_INSTALL_DIR}
 Secrets and document data are kept. Compose will pull release images and restart.
 
 Log file:
 ${FOLIUM_LOG_FILE}" \
-    update "Update now" \
-    back "Back")" || return 2
-  if [[ "${go}" != "update" ]]; then
-    return 2
+      update "Update now" \
+      back "Back")" || return 2
+    if [[ "${go}" != "update" ]]; then
+      return 2
+    fi
   fi
 
   config_backup_install_dir
@@ -920,7 +1025,9 @@ ${FOLIUM_LOG_FILE}" \
   ui_gauge_stop
   FOLIUM_HEALTHY="${healthy}"
   FOLIUM_FRONTEND_ORIGIN="$(config_env_get FRONTEND_ORIGIN || printf '%s' "${FOLIUM_FRONTEND_ORIGIN:-}")"
-  success_screen
+  if [[ "${FOLIUM_NONINTERACTIVE}" != "1" ]]; then
+    success_screen
+  fi
   return 0
 }
 
@@ -1026,21 +1133,46 @@ You can continue, but performance or disk space may be tight."
     if ! storage_validate_install_path "${FOLIUM_INSTALL_DIR}"; then
       abort "Refusing risky install path ${FOLIUM_INSTALL_DIR}. Set FOLIUM_ACCEPT_RISKY_PATH=1 to allow /root or /tmp."
     fi
+
+    # Prefer discovered install path when updating (or when one already exists).
+    if [[ -z "${discovered}" ]]; then
+      discovered="$(discover_existing_install || true)"
+    fi
+    if [[ -z "${discovered}" \
+      && -f "${FOLIUM_INSTALL_DIR}/.env" \
+      && -f "${FOLIUM_INSTALL_DIR}/docker-compose.yml" ]]; then
+      discovered="${FOLIUM_INSTALL_DIR}"
+    fi
+    local want_update=0
+    if [[ "${FOLIUM_MODE}" == "update" ]]; then
+      want_update=1
+    elif [[ -n "${discovered}" ]]; then
+      # Default: existing install → update (preserve secrets/bind).
+      want_update=1
+    fi
+
+    if [[ "${want_update}" == "1" ]]; then
+      if [[ -z "${discovered}" ]]; then
+        abort "No existing Folium install found to update. Set FOLIUM_INSTALL_DIR or install first."
+      fi
+      FOLIUM_INSTALL_DIR="${discovered}"
+      FOLIUM_MODE=update
+      update_install
+      finish_noninteractive
+    fi
+
+    FOLIUM_MODE=install
+    # Fresh install defaults (only applied when not already set via env / --preserve-secrets path).
+    if [[ -f "${FOLIUM_INSTALL_DIR}/.env" ]]; then
+      load_existing_defaults
+    fi
     FOLIUM_BIND="${FOLIUM_BIND:-127.0.0.1}"
     FOLIUM_HTTP_PORT="${FOLIUM_HTTP_PORT:-${FOLIUM_DEFAULT_HTTP_PORT}}"
     FOLIUM_API_PORT="${FOLIUM_API_PORT:-${FOLIUM_DEFAULT_API_PORT}}"
     FOLIUM_EXPOSE_API="${FOLIUM_EXPOSE_API:-0}"
     FOLIUM_COMPOSE_PROJECT="${FOLIUM_COMPOSE_PROJECT:-${FOLIUM_DEFAULT_PROJECT}}"
-    if [[ -z "${FOLIUM_VERSION_TAG:-}" ]]; then
-      if [[ -n "${FOLIUM_VERSION:-}" ]]; then
-        FOLIUM_VERSION_TAG="v$(config_strip_v_prefix "${FOLIUM_VERSION}")"
-      else
-        FOLIUM_VERSION_TAG="$(github_latest_tag)"
-      fi
-    fi
-    FOLIUM_VERSION="$(config_strip_v_prefix "${FOLIUM_VERSION:-${FOLIUM_VERSION_TAG}}")"
-    if [[ "${FOLIUM_VERSION}" == "latest" || "${FOLIUM_VERSION}" == "beta" ]] || ! config_is_pinned_version "${FOLIUM_VERSION}"; then
-      abort "Non-interactive install requires a pinned FOLIUM_VERSION / FOLIUM_VERSION_TAG."
+    if ! config_resolve_version_tag; then
+      abort "Non-interactive install requires a pinned FOLIUM_VERSION / FOLIUM_VERSION_TAG (or latest/beta)."
     fi
     FOLIUM_DOCS_PATH="${FOLIUM_DOCS_PATH:-${FOLIUM_INSTALL_DIR}/data/documents}"
     FOLIUM_CONSUME_PATH="${FOLIUM_CONSUME_PATH:-${FOLIUM_INSTALL_DIR}/data/consume}"
@@ -1055,8 +1187,7 @@ You can continue, but performance or disk space may be tight."
     FOLIUM_FRONTEND_ORIGIN="${FOLIUM_FRONTEND_ORIGIN:-$(network_origin_for "${FOLIUM_BIND}" "${FOLIUM_HTTP_PORT}" "")}"
     wizard_secrets
     execute_install
-    success_screen
-    return 0
+    finish_noninteractive
   fi
 
   # Prefer the path discovered on the welcome screen; re-check after Docker is ready.
