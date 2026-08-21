@@ -16,6 +16,7 @@ import type {
   AIAssignment,
   AICapabilities,
   AIHealth,
+  AIProviderModels,
   AIWorkloadRole,
   About,
   ApplicationLogList,
@@ -1094,10 +1095,7 @@ export function useUpdateAIAssignment() {
 export function useProviderModels(providerId: string | null) {
   return useQuery({
     queryKey: ["ai", "providers", providerId, "models"],
-    queryFn: () =>
-      api.get<{ models: string[]; discoverable: boolean; message: string | null }>(
-        `/api/ai/providers/${providerId}/models`,
-      ),
+    queryFn: () => api.get<AIProviderModels>(`/api/ai/providers/${providerId}/models`),
     enabled: Boolean(providerId),
     retry: false,
   });

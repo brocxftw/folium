@@ -1,8 +1,5 @@
 import { useMemo, useState } from "react";
-import {
-  SettingsInfoBanner,
-  SettingsSection,
-} from "@/features/settings/components";
+import { SettingsSection } from "@/features/settings/components";
 import { useAIAssignments } from "@/lib/api/hooks";
 import type { AIAssignment } from "@/lib/api/types";
 import { AiWorkloadCard } from "./AiWorkloadCard";
@@ -42,14 +39,6 @@ export function ModelsPanel() {
           />
         ))}
       </div>
-
-      <SettingsInfoBanner tone="info" className="mt-1">
-        <p className="font-medium text-text-primary">About workloads</p>
-        <p className="mt-0.5">
-          Each workload routes independently to its assigned provider and model. There is no automatic
-          fallback between workloads.
-        </p>
-      </SettingsInfoBanner>
 
       {editing && (
         <AssignmentDialog assignment={editing} onClose={() => setEditing(null)} />

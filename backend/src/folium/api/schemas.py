@@ -651,8 +651,13 @@ class AIProviderProbeOut(BaseModel):
     message: str
 
 
+class AIProviderModelOut(BaseModel):
+    id: str
+    kind: Literal["embedding", "chat", "other"]
+
+
 class AIProviderModelsOut(BaseModel):
-    models: list[str]
+    models: list[AIProviderModelOut]
     discoverable: bool
     message: str | None = None
 

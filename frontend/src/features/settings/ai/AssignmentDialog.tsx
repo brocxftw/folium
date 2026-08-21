@@ -1,12 +1,16 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   useAIProviders,
   useProviderModels,
   useUpdateAIAssignment,
 } from "@/lib/api/hooks";
-import type { AIAssignment } from "@/lib/api/types";
+import type {
+  AIAssignment,
+  AIDiscoveredModel,
+  AIDiscoveredModelKind,
+  AIWorkloadRole,
+} from "@/lib/api/types";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +33,49 @@ export function assignmentProviderChoices<T extends { enabled: boolean }>(
   return providers.filter((provider) => provider.enabled);
 }
 
+function kindRank(kind: AIDiscoveredModelKind, role: AIWorkloadRole): number {
+  if (role === "embedding") {
+    if (kind === "embedding") return 0;
+    if (kind === "other") return 1;
+    return 2;
+  }
+  if (kind === "chat") return 0;
+  if (kind === "other") return 1;
+  return 2;
+}
+
+export function rankDiscoveredModels(
+  models: AIDiscoveredModel[],
+  role: AIWorkloadRole,
+): AIDiscoveredModel[] {
+  return [...models].sort((a, b) => {
+    const rankDiff = kindRank(a.kind, role) - kindRank(b.kind, role);
+    if (rankDiff !== 0) return rankDiff;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function kindLabel(kind: AIDiscoveredModelKind): string {
+  switch (kind) {
+    case "embedding":
+      return "Embedding";
+    case "chat":
+      return "Chat";
+    default:
+      return "Other";
+  }
+}
+
+function roleRecommendation(role: AIWorkloadRole): string {
+  if (role === "embedding") {
+    return "Prefer models marked Embedding. Chat models usually cannot produce vectors.";
+  }
+  if (role === "chat") {
+    return "Prefer models marked Chat. Embedding models are ranked lower for Ask Folium.";
+  }
+  return "Prefer models marked Chat for filing suggestions. Embedding models are ranked lower.";
+}
+
 export function AssignmentDialog({
   assignment,
   onClose,
@@ -43,6 +90,13 @@ export function AssignmentDialog({
   const { data: discovery, isFetching } = useProviderModels(providerId || null);
   const copy = WORKLOAD_COPY[assignment.role];
   const compatible = assignmentProviderChoices(providers);
+
+  const rankedModels = useMemo(
+    () => rankDiscoveredModels(discovery?.models ?? [], assignment.role),
+    [discovery?.models, assignment.role],
+  );
+  const modelIds = useMemo(() => new Set(rankedModels.map((item) => item.id)), [rankedModels]);
+  const selectedValid = Boolean(model && modelIds.has(model));
 
   const save = async () => {
     await mutation.mutateAsync({
@@ -83,34 +137,46 @@ export function AssignmentDialog({
             </Select>
           </div>
           {providerId && (
-            <div>
-              <label htmlFor="assignment-model" className="text-xs text-text-secondary">
-                Model ID
-              </label>
-              {discovery?.models.length ? (
-                <Select value={model} onValueChange={setModel}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Select model" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {discovery.models.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {value}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  id="assignment-model"
-                  className="mt-1"
-                  value={model}
-                  onChange={(event) => setModel(event.target.value)}
-                  placeholder={isFetching ? "Discovering models…" : "Enter provider model ID"}
-                />
-              )}
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-text-secondary">Model</label>
+                {isFetching ? (
+                  <p className="mt-2 text-xs text-text-muted">Discovering models…</p>
+                ) : rankedModels.length ? (
+                  <Select
+                    value={selectedValid ? model : undefined}
+                    onValueChange={setModel}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select a discovered model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rankedModels.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          <span className="flex items-center gap-2">
+                            <span className="font-mono text-xs">{item.id}</span>
+                            <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+                              {kindLabel(item.kind)}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="mt-2 text-xs text-warning">
+                    {discovery?.message ||
+                      (assignment.role === "embedding"
+                        ? "No embedding-capable models were found for this provider."
+                        : "No models were returned by this provider.")}
+                  </p>
+                )}
+                <p className="mt-1.5 text-xs text-text-muted">
+                  {roleRecommendation(assignment.role)}
+                </p>
+              </div>
               {assignment.role === "embedding" && (
-                <p className="mt-2 text-xs text-warning">
+                <p className="text-xs text-warning">
                   Changing this assignment may require re-embedding existing documents.
                 </p>
               )}
@@ -128,7 +194,10 @@ export function AssignmentDialog({
           </Button>
           <Button
             onClick={() => void save()}
-            disabled={mutation.isPending || Boolean(providerId && !model.trim())}
+            disabled={
+              mutation.isPending ||
+              Boolean(providerId && (!model.trim() || !selectedValid))
+            }
           >
             Save assignment
           </Button>

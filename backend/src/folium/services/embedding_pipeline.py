@@ -287,7 +287,9 @@ async def _embed_batch_with_isolation(
 
     texts = [c.text for c in chunks]
     try:
-        vectors, input_tokens, used_model = await _call_embed_with_retries(
+        # Space identity uses the assigned/requested model ID, not the provider
+        # response echo (e.g. OpenRouter may return an unprefixed name).
+        vectors, input_tokens, _used_model = await _call_embed_with_retries(
             adapter, texts, model=model
         )
     except AIProviderError as exc:
@@ -372,7 +374,7 @@ async def _embed_batch_with_isolation(
     for chunk, vector in zip(chunks, vectors, strict=True):
         chunk.embedding = pad_embedding(vector)
         chunk.embedding_provider = provider_name
-        chunk.embedding_model = used_model
+        chunk.embedding_model = model
         chunk.embedding_dimension = dimension
         chunk.embedding_status = ChunkEmbeddingStatus.EMBEDDED
         chunk.embedding_error = None
