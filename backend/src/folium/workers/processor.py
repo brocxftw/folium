@@ -61,7 +61,6 @@ from folium.ocr.extractor import (
     pages_need_ocr,
 )
 from folium.ocr.previews import persist_previews
-from folium.workers.ocr_gate import ocr_exclusive_section
 from folium.search.fts import (
     refresh_document_search_vector,
     refresh_page_search_vectors,
@@ -74,6 +73,7 @@ from folium.services.embedding_capabilities import resolve_embedding_capabilitie
 from folium.services.embedding_pipeline import process_document_embeddings
 from folium.services.quotas import assert_ai_quota
 from folium.storage.service import StorageService
+from folium.workers.ocr_gate import ocr_exclusive_section
 
 logger = get_logger(__name__)
 
