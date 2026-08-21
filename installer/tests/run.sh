@@ -74,7 +74,10 @@ assert_eq "menu beta" "$(github_release_menu_label "v0.1.24-beta.1" "v0.1.23")" 
 assert_eq "menu older stable" "$(github_release_menu_label "v0.1.22" "v0.1.23")" "v0.1.22"
 
 # Version resolution (latest/beta aliases → pinned tags) with mocked GitHub helpers.
+# Overrides sourced lib functions for unit tests; ShellCheck cannot see indirect calls.
+# shellcheck disable=SC2317
 github_latest_tag() { printf 'v0.1.23\n'; }
+# shellcheck disable=SC2317
 github_latest_prerelease_tag() { printf 'v0.1.24-beta.2\n'; }
 
 FOLIUM_VERSION="latest"
