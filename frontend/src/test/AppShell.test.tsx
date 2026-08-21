@@ -194,6 +194,54 @@ describe("AppShell top navbar", () => {
     expect(screen.getByTestId("location")).not.toHaveTextContent("/search");
   });
 
+  it("shows a Ctrl-K hint pill in the empty search box", () => {
+    renderShell();
+    const input = screen.getByRole("searchbox", { name: "Search documents, tags, folders" });
+    expect(screen.getByText("Ctrl-K")).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "contracts" } });
+    expect(screen.queryByText("Ctrl-K")).not.toBeInTheDocument();
+  });
+
+  it("focuses Quick Search on Ctrl+K", () => {
+    renderShell();
+    const input = screen.getByRole("searchbox", { name: "Search documents, tags, folders" });
+    expect(input).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(input).toHaveFocus();
+  });
+
+  it("focuses Quick Search on Meta+K", () => {
+    renderShell();
+    const input = screen.getByRole("searchbox", { name: "Search documents, tags, folders" });
+    expect(input).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(input).toHaveFocus();
+  });
+
+  it("closes the search overlay on Escape", async () => {
+    searchHits.splice(0, searchHits.length, {
+      document: {
+        id: "doc-1",
+        title: "Q3 contracts",
+        original_filename: "contracts.pdf",
+        has_thumbnail: false,
+        folder_path: "/Legal",
+      },
+      score: 1,
+      snippet: "indemnity clause",
+      page_number: 2,
+      chunk_id: null,
+    } as SearchHit);
+
+    renderShell();
+    const input = screen.getByRole("searchbox", { name: "Search documents, tags, folders" });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "contracts" } });
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
   it("hides the search overlay when the query is empty", () => {
     renderShell();
     fireEvent.focus(screen.getByRole("searchbox", { name: "Search documents, tags, folders" }));
