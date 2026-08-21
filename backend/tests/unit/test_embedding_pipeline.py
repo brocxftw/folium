@@ -102,3 +102,54 @@ async def test_call_embed_does_not_retry_oversized() -> None:
     with pytest.raises(AIProviderError):
         await _call_embed_with_retries(adapter, ["huge"], model="m")
     assert adapter.embed.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_stores_requested_model_not_provider_echo() -> None:
+    """OpenRouter-style providers may echo an unprefixed model name (#53)."""
+    from folium.models import ChunkEmbeddingStatus
+    from folium.services.embedding_capabilities import resolve_embedding_capabilities
+    from folium.services.embedding_pipeline import _embed_batch_with_isolation
+
+    requested = "openai/text-embedding-3-small"
+    echoed = "text-embedding-3-small"
+    chunk = SimpleNamespace(
+        id="chunk-1",
+        text="hello",
+        embedding=None,
+        embedding_provider=None,
+        embedding_model=None,
+        embedding_dimension=None,
+        embedding_status=ChunkEmbeddingStatus.PENDING,
+        embedding_error=None,
+        embedding_attempts=0,
+    )
+    session = AsyncMock()
+    session.execute = AsyncMock()
+    session.flush = AsyncMock()
+    adapter = MagicMock()
+    adapter.embed = AsyncMock(
+        return_value=EmbeddingResult(
+            embeddings=[[0.1, 0.2, 0.3]],
+            model=echoed,
+            input_tokens=2,
+        )
+    )
+    caps = resolve_embedding_capabilities(None)
+
+    outcome = await _embed_batch_with_isolation(
+        session,
+        doc=SimpleNamespace(id="doc-1"),
+        chunks=[chunk],
+        adapter=adapter,
+        provider_name="openrouter",
+        model=requested,
+        caps=caps,
+        depth=0,
+    )
+
+    assert outcome.embedded == 1
+    assert chunk.embedding_model == requested
+    assert chunk.embedding_model != echoed
+    assert chunk.embedding_provider == "openrouter"
+    assert chunk.embedding_status == ChunkEmbeddingStatus.EMBEDDED

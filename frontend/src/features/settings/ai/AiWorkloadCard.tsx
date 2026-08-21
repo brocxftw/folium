@@ -1,4 +1,4 @@
-import { ChevronRight, HardDrive, Server } from "lucide-react";
+import { HardDrive, Server } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import type { AIAssignment } from "@/lib/api/types";
 import { SettingsCard, SettingsStatusBadge } from "@/features/settings/components";
@@ -108,7 +108,6 @@ export function AiWorkloadCard({
           <Button size="sm" variant="outline" onClick={onChangeModel}>
             Change model
           </Button>
-          <ChevronRight className="hidden h-4 w-4 text-text-muted sm:block" strokeWidth={1.75} aria-hidden />
         </div>
       </div>
     </SettingsCard>

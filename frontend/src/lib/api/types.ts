@@ -727,6 +727,19 @@ export interface AIPolicyUpdate {
 
 export type AIWorkloadRole = "indexing" | "embedding" | "chat" | "vision";
 
+export type AIDiscoveredModelKind = "embedding" | "chat" | "other";
+
+export interface AIDiscoveredModel {
+  id: string;
+  kind: AIDiscoveredModelKind;
+}
+
+export interface AIProviderModels {
+  models: AIDiscoveredModel[];
+  discoverable: boolean;
+  message: string | null;
+}
+
 export interface AIAssignment {
   role: AIWorkloadRole;
   provider_id: UUID | null;

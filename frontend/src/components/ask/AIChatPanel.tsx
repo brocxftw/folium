@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Send, Sparkles } from "lucide-react";
+import { ChevronDown, Leaf, Loader2, Send, Sparkles } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
 import { useAICapabilities, useAIHealth, useAsk, useFolders } from "@/lib/api/hooks";
 import type {
@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/DropdownMenu";
 import { CitationList } from "./CitationList";
+import { AnswerBody } from "./MarkdownResponse";
 import {
   summarizeScopeReadiness,
   type ScopeReadinessSummary,
@@ -422,12 +423,29 @@ export function AIChatPanel({
         )}
 
         <div className="min-h-0 flex-1 overflow-auto px-4 py-3 scrollbar-thin">
-          {response ? (
+          {ask.isPending ? (
+            <div className="rounded-xl border border-surface-border bg-surface p-3.5">
+              <div className="mb-2 flex items-center gap-2 text-xs text-text-muted">
+                <Leaf className="h-3.5 w-3.5 text-accent" />
+                Folium
+              </div>
+              <p
+                className="flex items-center gap-2 text-sm text-text-secondary"
+                aria-live="polite"
+              >
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Generating answer…
+              </p>
+            </div>
+          ) : response ? (
             <div className="space-y-4">
               <div className="rounded-md border border-surface-border bg-surface p-3">
-                <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-text-primary">
-                  {response.answer}
-                </p>
+                <AnswerBody
+                  content={response.answer}
+                  citations={response.citations}
+                  onActivate={onCitationClick}
+                  className="text-[13px] leading-relaxed text-text-primary"
+                />
                 {response.insufficient_evidence && (
                   <p className="mt-2 text-xs text-warning">
                     Insufficient evidence found in the selected scope.
@@ -515,9 +533,13 @@ export function AIChatPanel({
                 size="icon"
                 className="absolute bottom-2 right-2 h-8 w-8 rounded-lg"
                 disabled={!chatAvailable || !question.trim() || ask.isPending}
-                aria-label="Send"
+                aria-label={ask.isPending ? "Generating answer" : "Send"}
               >
-                <Send className="h-3.5 w-3.5" />
+                {ask.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5" />
+                )}
               </Button>
             </div>
           ) : (

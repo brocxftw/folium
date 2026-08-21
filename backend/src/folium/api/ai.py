@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from folium.ai.assignments import ResolvedAssignment, ensure_assignments, resolve_assignment
+from folium.ai.model_discovery import classify_discovered_models
 from folium.ai.profiles import PROFILE_PRESETS
 from folium.ai.registry import get_adapter
 from folium.ai.url_validation import validate_provider_base_url
@@ -25,6 +26,7 @@ from folium.api.schemas import (
     AIPolicyOut,
     AIPolicyUpdate,
     AIProviderCreate,
+    AIProviderModelOut,
     AIProviderModelsOut,
     AIProviderOut,
     AIProviderProbeOut,
@@ -298,7 +300,7 @@ async def delete_provider(
     return MessageOut(message="Provider deleted")
 
 
-async def _discover_models(provider: AIProvider) -> list[str] | None:
+async def _discover_models(provider: AIProvider) -> list[AIProviderModelOut] | None:
     if provider.kind not in {
         ProviderKind.OPENAI_COMPATIBLE,
         ProviderKind.OPENAI,
@@ -312,16 +314,20 @@ async def _discover_models(provider: AIProvider) -> list[str] | None:
     url = provider.base_url.rstrip("/")
     if not url.endswith("/v1"):
         url += "/v1"
+    models_url = f"{url}/models"
     async with httpx.AsyncClient(timeout=15, headers=headers) as client:
-        response = await client.get(f"{url}/models")
+        # OpenRouter defaults to text-only; request all modalities so embeddings appear.
+        response = await client.get(models_url, params={"output_modalities": "all"})
+        if response.status_code >= 400:
+            response = await client.get(models_url)
         response.raise_for_status()
         payload = response.json()
     data = payload.get("data", payload) if isinstance(payload, dict) else payload
     if not isinstance(data, list):
         return []
-    return sorted(
-        {str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")}
-    )
+    items = [item for item in data if isinstance(item, dict)]
+    classified = classify_discovered_models(items)
+    return [AIProviderModelOut(id=row["id"], kind=row["kind"]) for row in classified]
 
 
 async def _load_provider_detached(provider_id: uuid.UUID) -> AIProvider:
@@ -370,7 +376,7 @@ async def discover_provider_models(
         return AIProviderModelsOut(
             models=[],
             discoverable=False,
-            message="This provider does not expose model discovery; enter a model ID manually.",
+            message="This provider does not expose model discovery.",
         )
     return AIProviderModelsOut(models=models, discoverable=True)
 
