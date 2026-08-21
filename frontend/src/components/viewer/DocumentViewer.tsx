@@ -1,10 +1,11 @@
-import { Download, ExternalLink, Printer } from "lucide-react";
+import { Download, ExternalLink, Printer, Share2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import { WorkerMessageHandler } from "pdfjs-dist/build/pdf.worker.min.mjs";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api/client";
 import type { Document } from "@/lib/api/types";
+import { shareDocument } from "@/lib/shareDocument";
 
 // Bundle the worker into the main thread so Cursor/Electron (and other
 // environments that block module Workers) can still render PDFs.
@@ -295,6 +296,16 @@ export function DocumentViewer({
     setTimeout(trigger, 500);
   };
 
+  const handleShare = () => {
+    if (!document) return;
+    void shareDocument({
+      id: document.id,
+      title: document.title,
+      original_filename: document.original_filename,
+      mime_type: document.mime_type,
+    });
+  };
+
   if (!document) {
     return (
       <div
@@ -384,9 +395,19 @@ export function DocumentViewer({
           download={document.original_filename}
           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-hover"
           title="Download original"
+          aria-label="Download original"
         >
           <Download className="h-3.5 w-3.5" />
         </a>
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+          title="Share"
+          aria-label="Share"
+          onClick={handleShare}
+        >
+          <Share2 className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       <div className="relative flex-1 min-h-0 overflow-auto bg-white">
