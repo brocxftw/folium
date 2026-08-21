@@ -73,12 +73,97 @@ assert_eq "menu latest stable" "$(github_release_menu_label "v0.1.23" "v0.1.23")
 assert_eq "menu beta" "$(github_release_menu_label "v0.1.24-beta.1" "v0.1.23")" "Beta"
 assert_eq "menu older stable" "$(github_release_menu_label "v0.1.22" "v0.1.23")" "v0.1.22"
 
+# Version resolution (latest/beta aliases → pinned tags) with mocked GitHub helpers.
+# Overrides sourced lib functions for unit tests; ShellCheck cannot see indirect calls.
+# shellcheck disable=SC2317
+github_latest_tag() { printf 'v0.1.23\n'; }
+# shellcheck disable=SC2317
+github_latest_prerelease_tag() { printf 'v0.1.24-beta.2\n'; }
+
+FOLIUM_VERSION="latest"
+FOLIUM_VERSION_TAG=""
+assert_ok "resolve latest alias" config_resolve_version_tag
+assert_eq "resolve latest version" "${FOLIUM_VERSION}" "0.1.23"
+assert_eq "resolve latest tag" "${FOLIUM_VERSION_TAG}" "v0.1.23"
+
+FOLIUM_VERSION="beta"
+FOLIUM_VERSION_TAG=""
+assert_ok "resolve beta alias" config_resolve_version_tag
+assert_eq "resolve beta version" "${FOLIUM_VERSION}" "0.1.24-beta.2"
+assert_eq "resolve beta tag" "${FOLIUM_VERSION_TAG}" "v0.1.24-beta.2"
+
+FOLIUM_VERSION="0.1.20"
+FOLIUM_VERSION_TAG=""
+assert_ok "resolve pinned plain" config_resolve_version_tag
+assert_eq "resolve pinned version" "${FOLIUM_VERSION}" "0.1.20"
+assert_eq "resolve pinned tag" "${FOLIUM_VERSION_TAG}" "v0.1.20"
+
+FOLIUM_VERSION=""
+FOLIUM_VERSION_TAG="v0.1.19-beta.1"
+assert_ok "resolve from version_tag" config_resolve_version_tag
+assert_eq "resolve from tag version" "${FOLIUM_VERSION}" "0.1.19-beta.1"
+
+# Restore real helpers for later tests that may call GitHub (none currently).
+unset -f github_latest_tag github_latest_prerelease_tag
+# shellcheck source=../lib/config.sh
+source "${ROOT}/lib/config.sh"
+
 filtered_tags="$(printf '%s\n' '[
   {"tag_name":"v0.1.24-beta.1","draft":false,"prerelease":true},
   {"tag_name":"v0.1.23","draft":false,"prerelease":false},
   {"tag_name":"v0.1.22","draft":true,"prerelease":false}
 ]' | github_filter_release_tags)"
 assert_eq "filter keeps beta and stable" "$(printf '%s' "${filtered_tags}" | tr '\n' ' ')" "v0.1.24-beta.1 v0.1.23"
+
+# load_existing_defaults preserves secrets / bind from an existing .env
+KEEP_TMP="$(mktemp -d)"
+mkdir -p "${KEEP_TMP}"
+cat >"${KEEP_TMP}/.env" <<'ENV'
+FOLIUM_SECRET_KEY=keep-secret-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+FOLIUM_ENCRYPTION_KEY=keep-encryption-key-bbbbbbbbbbbbbbbbbbbbbbbbbb
+POSTGRES_PASSWORD=keep-postgres-password
+FOLIUM_ADMIN_PASSWORD=keep-admin-password
+FOLIUM_ADMIN_USERNAME=admin
+FOLIUM_VERSION=0.1.16
+FRONTEND_ORIGIN=https://docs.example.com
+FOLIUM_BIND=0.0.0.0
+FOLIUM_HTTP_PORT=9398
+FOLIUM_API_PORT=9099
+COMPOSE_PROJECT_NAME=folium
+FOLIUM_DOCUMENTS_HOST=/opt/folium/data/documents
+FOLIUM_CONSUME_HOST=/opt/folium/data/consume
+FOLIUM_EXPORT_HOST=/opt/folium/data/export
+FOLIUM_PADDLE_CACHE_HOST=/opt/folium/data/paddleocr
+ENV
+chmod 600 "${KEEP_TMP}/.env"
+FOLIUM_INSTALL_DIR="${KEEP_TMP}"
+FOLIUM_KEEP_SECRETS=0
+FOLIUM_SECRET_KEY=""
+FOLIUM_ENCRYPTION_KEY=""
+POSTGRES_PASSWORD=""
+FOLIUM_ADMIN_PASSWORD=""
+FOLIUM_BIND=""
+FOLIUM_FRONTEND_ORIGIN=""
+# Inline the load_existing_defaults .env branch (install.sh is not sourced here).
+if [[ -f "${FOLIUM_INSTALL_DIR}/.env" ]]; then
+  FOLIUM_KEEP_SECRETS=1
+  FOLIUM_SECRET_KEY="$(config_env_get FOLIUM_SECRET_KEY || true)"
+  FOLIUM_ENCRYPTION_KEY="$(config_env_get FOLIUM_ENCRYPTION_KEY || true)"
+  POSTGRES_PASSWORD="$(config_env_get POSTGRES_PASSWORD || true)"
+  FOLIUM_ADMIN_PASSWORD="$(config_env_get FOLIUM_ADMIN_PASSWORD || true)"
+  FOLIUM_BIND="$(config_env_get FOLIUM_BIND || true)"
+  FOLIUM_FRONTEND_ORIGIN="$(config_env_get FRONTEND_ORIGIN || true)"
+fi
+assert_eq "keep secrets flag" "${FOLIUM_KEEP_SECRETS}" "1"
+assert_eq "keep secret key" "${FOLIUM_SECRET_KEY}" "keep-secret-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+assert_eq "keep bind" "${FOLIUM_BIND}" "0.0.0.0"
+assert_eq "keep frontend origin" "${FOLIUM_FRONTEND_ORIGIN}" "https://docs.example.com"
+# Updating FOLIUM_VERSION alone must not rewrite secrets.
+config_env_set FOLIUM_VERSION "0.1.24-beta.2"
+assert_ok "update version only" grep -q '^FOLIUM_VERSION=0.1.24-beta.2$' "${KEEP_TMP}/.env"
+assert_ok "secrets still present after version bump" grep -q '^FOLIUM_SECRET_KEY=keep-secret-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$' "${KEEP_TMP}/.env"
+assert_ok "bind still present after version bump" grep -q '^FOLIUM_BIND=0.0.0.0$' "${KEEP_TMP}/.env"
+rm -rf "${KEEP_TMP}"
 
 assert_ok "forbid /" storage_is_critical_forbidden_path "/"
 assert_ok "forbid /etc" storage_is_critical_forbidden_path "/etc"

@@ -31,6 +31,48 @@ github_tag_is_prerelease() {
   [[ "${tag}" == *-* ]]
 }
 
+# Newest prerelease tag from the releases list (GitHub returns newest first).
+github_latest_prerelease_tag() {
+  local tag
+  while IFS= read -r tag; do
+    [[ -n "${tag}" ]] || continue
+    if github_tag_is_prerelease "${tag}"; then
+      printf '%s\n' "${tag}"
+      return 0
+    fi
+  done < <(github_release_tags)
+  return 1
+}
+
+# Resolve FOLIUM_VERSION / FOLIUM_VERSION_TAG to a pinned release.
+# Accepts pinned semver, or the moving aliases "latest" (stable) and "beta" (newest prerelease).
+# Sets FOLIUM_VERSION_TAG (with v prefix) and FOLIUM_VERSION (without). Returns 0 on success.
+config_resolve_version_tag() {
+  local raw=""
+  if [[ -n "${FOLIUM_VERSION_TAG:-}" ]]; then
+    raw="${FOLIUM_VERSION_TAG}"
+  elif [[ -n "${FOLIUM_VERSION:-}" ]]; then
+    raw="${FOLIUM_VERSION}"
+  else
+    raw="$(github_latest_tag)" || return 1
+  fi
+  local stripped
+  stripped="$(config_strip_v_prefix "${raw}")"
+  if [[ "${stripped}" == "latest" ]]; then
+    FOLIUM_VERSION_TAG="$(github_latest_tag)" || return 1
+  elif [[ "${stripped}" == "beta" ]]; then
+    FOLIUM_VERSION_TAG="$(github_latest_prerelease_tag)" || return 1
+  else
+    FOLIUM_VERSION_TAG="v${stripped}"
+  fi
+  FOLIUM_VERSION="$(config_strip_v_prefix "${FOLIUM_VERSION_TAG}")"
+  if [[ "${FOLIUM_VERSION}" == "latest" || "${FOLIUM_VERSION}" == "beta" ]] \
+    || ! config_is_pinned_version "${FOLIUM_VERSION}"; then
+    return 1
+  fi
+  return 0
+}
+
 github_release_menu_label() {
   local tag="${1:-}"
   local latest="${2:-}"

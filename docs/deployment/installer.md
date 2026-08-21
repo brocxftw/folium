@@ -83,18 +83,64 @@ folium doctor
 
 Override the install directory with `FOLIUM_INSTALL_DIR`. The CLI also reads `/etc/folium/install-dir`.
 
-## Non-interactive (automation / smoke)
+## Non-interactive (automation / CI / agents)
+
+`--noninteractive` is the automation entry point. When an existing install is
+discovered (via `/etc/folium/install-dir`, `install-state.json`, or
+`FOLIUM_INSTALL_DIR` with `.env` + Compose), the installer runs the **update**
+path: secrets, bind, ports, and storage paths are preserved from `.env`. A
+fresh install only runs when no existing install is found.
 
 ```bash
+# Fresh install of a pinned release
 FOLIUM_UI=none FOLIUM_NONINTERACTIVE=1 \
   FOLIUM_VERSION=0.1.16 FOLIUM_VERSION_TAG=v0.1.16 \
   FOLIUM_INSTALL_DIR=/tmp/folium-installer-smoke \
   FOLIUM_BIND=127.0.0.1 FOLIUM_HTTP_PORT=18080 \
   FOLIUM_COMPOSE_PROJECT=folium-installer-smoke \
   FOLIUM_SKIP_CLI=1 \
+  FOLIUM_ACCEPT_RISKY_PATH=1 \
   FOLIUM_RELEASE_COMPOSE_FILE=/path/to/docker-compose.yml \
   bash installer/install.sh --noninteractive
+
+# Update existing install to latest stable (secrets kept automatically)
+bash install-folium.sh --noninteractive --update --version latest --json
+
+# Update to newest beta prerelease
+bash install-folium.sh --noninteractive --update --version beta --preserve-secrets --json
 ```
+
+CLI flags (aliases for the matching `FOLIUM_*` env vars):
+
+| Flag | Effect |
+|------|--------|
+| `--noninteractive` | No TUI (`FOLIUM_UI=none`) |
+| `--update` | Force update path (implies `--noninteractive`) |
+| `--version <tag>` | Pin `vX.Y.Z` / `vX.Y.Z-beta.N`, or aliases `latest` / `beta` |
+| `--preserve-secrets` | Keep existing `.env` secrets (`FOLIUM_KEEP_SECRETS=1`) |
+| `--json` | Print one JSON summary line on completion |
+
+Version aliases resolve to a **pinned** tag before writing `.env` / state:
+`latest` → GitHub `releases/latest` (stable); `beta` → newest prerelease
+(`vX.Y.Z-beta.N`). Moving image tags are never stored as the installed version.
+
+Exit codes:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success and health checks passed |
+| `1` | Install/update failed |
+| `2` | Bad arguments / config |
+| `3` | Completed but health checks failed |
+| `130` | Interrupted (Ctrl+C) |
+
+`--json` emits a single line such as:
+
+```json
+{"version":"0.1.24-beta.2","version_tag":"v0.1.24-beta.2","healthy":true,"install_dir":"/opt/folium","frontend_origin":"https://docs.example.com","mode":"update"}
+```
+
+Non-interactive installs under `/root` or `/tmp` require `FOLIUM_ACCEPT_RISKY_PATH=1`.
 
 ## Tests
 
